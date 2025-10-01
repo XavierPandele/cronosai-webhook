@@ -2,7 +2,17 @@ const { executeQuery } = require('../lib/database');
 const { combinarFechaHora, validarReserva, generarConversacionCompleta } = require('../lib/utils');
 
 export default async function handler(req, res) {
-  // Solo permitir POST
+  // Manejar peticiones GET para testing
+  if (req.method === 'GET') {
+    return res.status(200).json({ 
+      message: 'Webhook funcionando correctamente',
+      method: req.method,
+      timestamp: new Date().toISOString(),
+      service: 'CronosAI Webhook Backend'
+    });
+  }
+
+  // Solo permitir POST para procesar reservas
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método no permitido' });
   }
