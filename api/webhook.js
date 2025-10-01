@@ -19,18 +19,29 @@ export default async function handler(req, res) {
 
   try {
     console.log('📞 Webhook CronosAgent recibido:', JSON.stringify(req.body, null, 2));
+    console.log('📋 Body completo:', JSON.stringify(req.body, null, 2));
 
     // Extraer parámetros según tu estructura de Dialogflow CX
     const sessionInfo = req.body.sessionInfo || {};
-    const parameters = sessionInfo.parameters || {};
-    
+    console.log('📋 SessionInfo:', JSON.stringify(sessionInfo, null, 2));
+
+    // Buscar parámetros en múltiples ubicaciones
+    const allParameters = 
+      req.body.sessionInfo?.parameters || 
+      req.body.queryResult?.parameters || 
+      req.body.parameters || 
+      req.body.fulfillmentMessages ||
+      {};
+
+    console.log('📋 Todos los parámetros encontrados:', JSON.stringify(allParameters, null, 2));
+
     const datosReserva = {
-      NumeroReserva: parameters.NumeroReserva,
-      FechaReserva: parameters.FechaReserva,
-      HoraReserva: parameters.HoraReserva,
-      NomReserva: parameters.NomReserva,
-      TelefonReserva: parameters.TelefonReserva,
-      Observacions: parameters.Observacions || null
+      NumeroReserva: allParameters.NumeroReserva || allParameters.numeroReserva || allParameters.NumeroReserva,
+      FechaReserva: allParameters.FechaReserva || allParameters.fechaReserva || allParameters.FechaReserva,
+      HoraReserva: allParameters.HoraReserva || allParameters.horaReserva || allParameters.HoraReserva,
+      NomReserva: allParameters.NomReserva || allParameters.nomReserva || allParameters.NomReserva,
+      TelefonReserva: allParameters.TelefonReserva || allParameters.telefonReserva || allParameters.TelefonReserva,
+      Observacions: allParameters.Observacions || allParameters.observacions || allParameters.Observacions || null
     };
 
     console.log('📋 Datos extraídos:', datosReserva);
@@ -38,6 +49,7 @@ export default async function handler(req, res) {
     // Validar datos
     const validacion = validarReserva(datosReserva);
     if (!validacion.valido) {
+      console.log('❌ Validación fallida:', validacion.errores);
       return res.status(400).json({
         fulfillment_response: {
           messages: [{
@@ -54,6 +66,8 @@ export default async function handler(req, res) {
     
     // Combinar fecha y hora para la tabla RESERVA
     const dataCombinada = combinarFechaHora(datosReserva.FechaReserva, datosReserva.HoraReserva);
+
+    console.log('📅 Fecha y hora combinadas:', dataCombinada);
 
     // Comenzar transacción
     const connection = await require('../lib/database').createConnection();
@@ -127,11 +141,13 @@ export default async function handler(req, res) {
         }
       };
 
+      console.log('✅ Respuesta enviada:', JSON.stringify(respuesta, null, 2));
       res.status(200).json(respuesta);
 
     } catch (error) {
       // Revertir transacción en caso de error
       await connection.rollback();
+      console.error('❌ Error en transacción:', error);
       throw error;
     } finally {
       await connection.end();
