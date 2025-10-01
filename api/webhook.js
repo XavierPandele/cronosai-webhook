@@ -20,41 +20,22 @@ export default async function handler(req, res) {
   try {
     console.log('📞 Webhook CronosAgent recibido:', JSON.stringify(req.body, null, 2));
 
-    // Extraer parámetros según la estructura estándar de Dialogflow CX
+    // Extraer parámetros de la ubicación CORRECTA
     const sessionInfo = req.body.sessionInfo || {};
-    const sessionParams = sessionInfo.session?.params || {};
+    const parameters = sessionInfo.parameters || {};
     
-    // También buscar en otras ubicaciones comunes
-    const queryResult = req.body.queryResult || {};
-    const queryParams = queryResult.parameters || {};
-    
-    // Combinar parámetros de todas las fuentes posibles
-    const allParams = {
-      ...sessionParams,
-      ...queryParams,
-      ...(req.body.parameters || {})
-    };
-    
-    console.log('📋 Session Params:', JSON.stringify(sessionParams, null, 2));
-    console.log('📋 Query Params:', JSON.stringify(queryParams, null, 2));
-    console.log('📋 All Params:', JSON.stringify(allParams, null, 2));
+    console.log('📋 Parameters:', JSON.stringify(parameters, null, 2));
 
-    // Extraer datos del chat del usuario según tu configuración
+    // Extraer datos según la estructura real que está llegando
     const datosReserva = {
-      NumeroReserva: allParams.NumeroReserva || allParams.numeroReserva || allParams.NumeroReserva,
-      FechaReserva: allParams.FechaReserva || allParams.fechaReserva || allParams.FechaReserva,
-      HoraReserva: allParams.HoraReserva || allParams.horaReserva || allParams.HoraReserva,
-      NomReserva: allParams.NomReserva || allParams.nomReserva || allParams.NomReserva,
-      TelefonReserva: allParams.TelefonReserva || allParams.telefonReserva || allParams.TelefonReserva,
-      Observacions: allParams.Observacions || allParams.observacions || allParams.Observacions || null
+      NumeroReserva: parameters.numeroreserva,
+      FechaReserva: parameters.fechareserva,
+      HoraReserva: parameters.horareserva,
+      NomReserva: parameters.nomreserva,
+      TelefonReserva: parameters.telefonreserva,
+      Observacions: parameters.observacions || null
     };
 
-    // Capturar el texto completo del chat
-    const chatCompleto = req.body.queryResult?.queryText || req.body.text || '';
-    const mensajeUsuario = req.body.queryResult?.queryText || req.body.text || '';
-    
-    console.log('💬 Chat completo:', chatCompleto);
-    console.log('💬 Mensaje del usuario:', mensajeUsuario);
     console.log('📋 Datos extraídos:', datosReserva);
 
     // Validar datos
@@ -72,15 +53,15 @@ export default async function handler(req, res) {
       });
     }
 
-    // Generar conversación completa para guardar en la base de datos
-    const conversacionCompleta = generarConversacionCompleta(datosReserva, req.body, chatCompleto);
+    // Generar conversación completa
+    const conversacionCompleta = generarConversacionCompleta(datosReserva, req.body);
     
     // Combinar fecha y hora para la tabla RESERVA
     const dataCombinada = combinarFechaHora(datosReserva.FechaReserva, datosReserva.HoraReserva);
 
     console.log('📅 Fecha y hora combinadas:', dataCombinada);
 
-    // Comenzar transacción de base de datos
+    // Comenzar transacción
     const connection = await require('../lib/database').createConnection();
     
     try {
