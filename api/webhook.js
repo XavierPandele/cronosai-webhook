@@ -1,5 +1,5 @@
 const { executeQuery } = require('../lib/database');
-const { combinarFechaHora, validarReserva, generarConversacionCompleta } = require('../lib/utils');
+const { combinarFechaHora, validarReserva, generarConversacionCompleta, formatearFecha, formatearHora } = require('../lib/utils');
 
 export default async function handler(req, res) {
   // Manejar peticiones GET para testing
@@ -120,7 +120,11 @@ export default async function handler(req, res) {
       await connection.commit();
       console.log('✅ Transacción confirmada');
       
-      // Preparar respuesta de confirmación
+      // Preparar respuesta de confirmación con valores formateados
+      const nombreFormateado = typeof datosReserva.NomReserva === 'object' ? datosReserva.NomReserva.name : datosReserva.NomReserva;
+      const fechaFormateada = formatearFecha(datosReserva.FechaReserva);
+      const horaFormateada = formatearHora(datosReserva.HoraReserva);
+      
       const respuesta = {
         fulfillment_response: {
           messages: [{
@@ -128,9 +132,9 @@ export default async function handler(req, res) {
               text: `¡Excelente! Su reserva ha sido confirmada exitosamente.\n\n` +
                     `📋 Detalles de la reserva:\n` +
                     `• ID de reserva: ${idReserva}\n` +
-                    `• Nombre: ${datosReserva.NomReserva}\n` +
-                    `• Fecha: ${datosReserva.FechaReserva}\n` +
-                    `• Hora: ${datosReserva.HoraReserva}\n` +
+                    `• Nombre: ${nombreFormateado}\n` +
+                    `• Fecha: ${fechaFormateada}\n` +
+                    `• Hora: ${horaFormateada}\n` +
                     `• Personas: ${datosReserva.NumeroReserva}\n` +
                     `• Teléfono: ${datosReserva.TelefonReserva}\n\n` +
                     `¡Esperamos darle la bienvenida! ¿Hay algo más en lo que pueda ayudarle?`
@@ -141,8 +145,8 @@ export default async function handler(req, res) {
           parameters: {
             id_reserva: idReserva,
             reserva_confirmada: true,
-            fecha_reserva: datosReserva.FechaReserva,
-            hora_reserva: datosReserva.HoraReserva
+            fecha_reserva: fechaFormateada,
+            hora_reserva: horaFormateada
           }
         }
       };
