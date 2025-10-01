@@ -19,29 +19,22 @@ export default async function handler(req, res) {
 
   try {
     console.log('📞 Webhook CronosAgent recibido:', JSON.stringify(req.body, null, 2));
-    console.log('📋 Body completo:', JSON.stringify(req.body, null, 2));
 
-    // Extraer parámetros según tu estructura de Dialogflow CX
+    // Extraer parámetros de la ubicación correcta según tu configuración
     const sessionInfo = req.body.sessionInfo || {};
+    const sessionParams = sessionInfo.session?.params || {};
+    
     console.log('📋 SessionInfo:', JSON.stringify(sessionInfo, null, 2));
+    console.log('📋 Session Params:', JSON.stringify(sessionParams, null, 2));
 
-    // Buscar parámetros en múltiples ubicaciones
-    const allParameters = 
-      req.body.sessionInfo?.parameters || 
-      req.body.queryResult?.parameters || 
-      req.body.parameters || 
-      req.body.fulfillmentMessages ||
-      {};
-
-    console.log('📋 Todos los parámetros encontrados:', JSON.stringify(allParameters, null, 2));
-
+    // Extraer datos según tu configuración de Dialogflow CX
     const datosReserva = {
-      NumeroReserva: allParameters.NumeroReserva || allParameters.numeroReserva || allParameters.NumeroReserva,
-      FechaReserva: allParameters.FechaReserva || allParameters.fechaReserva || allParameters.FechaReserva,
-      HoraReserva: allParameters.HoraReserva || allParameters.horaReserva || allParameters.HoraReserva,
-      NomReserva: allParameters.NomReserva || allParameters.nomReserva || allParameters.NomReserva,
-      TelefonReserva: allParameters.TelefonReserva || allParameters.telefonReserva || allParameters.TelefonReserva,
-      Observacions: allParameters.Observacions || allParameters.observacions || allParameters.Observacions || null
+      NumeroReserva: sessionParams.NumeroReserva,
+      FechaReserva: sessionParams.FechaReserva,
+      HoraReserva: sessionParams.HoraReserva,
+      NomReserva: sessionParams.NomReserva,
+      TelefonReserva: sessionParams.TelefonReserva,
+      Observacions: sessionParams.Observacions || null
     };
 
     console.log('📋 Datos extraídos:', datosReserva);
