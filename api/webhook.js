@@ -39,7 +39,10 @@ export default async function handler(req, res) {
     console.log('📋 Datos extraídos:', datosReserva);
 
     // Validar datos
+    console.log('🔍 Iniciando validación...');
     const validacion = validarReserva(datosReserva);
+    console.log('🔍 Validación completada:', validacion);
+    
     if (!validacion.valido) {
       console.log('❌ Validación fallida:', validacion.errores);
       return res.status(400).json({
@@ -53,21 +56,30 @@ export default async function handler(req, res) {
       });
     }
 
+    console.log('✅ Validación exitosa');
+
     // Generar conversación completa
+    console.log('🔍 Generando conversación completa...');
     const conversacionCompleta = generarConversacionCompleta(datosReserva, req.body);
+    console.log('✅ Conversación generada');
     
     // Combinar fecha y hora para la tabla RESERVA
+    console.log('🔍 Combinando fecha y hora...');
     const dataCombinada = combinarFechaHora(datosReserva.FechaReserva, datosReserva.HoraReserva);
-
     console.log('📅 Fecha y hora combinadas:', dataCombinada);
 
     // Comenzar transacción
+    console.log('🔍 Conectando a la base de datos...');
     const connection = await require('../lib/database').createConnection();
+    console.log('✅ Conexión establecida');
     
     try {
+      console.log('🔍 Iniciando transacción...');
       await connection.beginTransaction();
+      console.log('✅ Transacción iniciada');
 
       // 1. Insertar o actualizar cliente en tabla CLIENT
+      console.log('🔍 Insertando/actualizando cliente...');
       const clienteQuery = `
         INSERT INTO CLIENT (NOM_COMPLET, TELEFON, DATA_ULTIMA_RESERVA) 
         VALUES (?, ?, NOW()) 
@@ -83,10 +95,11 @@ export default async function handler(req, res) {
 
       console.log('✅ Cliente insertado/actualizado en tabla CLIENT');
 
-      // 2. Insertar reserva en tabla RESERVA
+      // 2. Insertar reserva en tabla RESERVA con nombres CORRECTOS de columnas
+      console.log('🔍 Insertando reserva...');
       const reservaQuery = `
         INSERT INTO RESERVA 
-        (DATA, NUMERO_PERSONAS, TELEFON, NOM_PERSONA_RESERVA, OBSERVACIONS, TOTA_LA_CONVERSA) 
+        (data_reserva, num_persones, telefon, nom_persona_reserva, observacions, conversa_completa) 
         VALUES (?, ?, ?, ?, ?, ?)
       `;
       
@@ -100,12 +113,13 @@ export default async function handler(req, res) {
       ]);
 
       const idReserva = result.insertId;
+      console.log('✅ Reserva insertada con ID:', idReserva);
 
       // Confirmar transacción
+      console.log('🔍 Confirmando transacción...');
       await connection.commit();
+      console.log('✅ Transacción confirmada');
       
-      console.log('✅ Reserva insertada en tabla RESERVA con ID:', idReserva);
-
       // Preparar respuesta de confirmación
       const respuesta = {
         fulfillment_response: {
@@ -138,15 +152,18 @@ export default async function handler(req, res) {
 
     } catch (error) {
       // Revertir transacción en caso de error
-      await connection.rollback();
       console.error('❌ Error en transacción:', error);
+      await connection.rollback();
       throw error;
     } finally {
+      console.log('🔍 Cerrando conexión...');
       await connection.end();
+      console.log('✅ Conexión cerrada');
     }
 
   } catch (error) {
     console.error('❌ Error en webhook:', error);
+    console.error('❌ Stack trace:', error.stack);
     res.status(500).json({
       fulfillment_response: {
         messages: [{
