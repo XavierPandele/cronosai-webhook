@@ -3,84 +3,61 @@ import os
 from google.cloud import speech
 from google.cloud import texttospeech
 import json
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 class SpeechToTextHandler:
     def __init__(self):
         """Inicializa el cliente de Speech to Text"""
-        self.speech_client = speech.SpeechClient()
-        self.tts_client = texttospeech.TextToSpeechClient()
+        try:
+            # Verificar que las credenciales estén configuradas
+            credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            if not credentials_path or not os.path.exists(credentials_path):
+                raise Exception("Credenciales de Google Cloud no encontradas. Verifica el archivo .env y credentials/service-account.json")
+            
+            self.speech_client = speech.SpeechClient()
+            self.tts_client = texttospeech.TextToSpeechClient()
+            print("Clientes de Google Cloud inicializados correctamente")
+            
+        except Exception as e:
+            print(f"Error inicializando clientes de Google Cloud: {e}")
+            print("Verifica que tengas:")
+            print("   1. Archivo credentials/service-account.json")
+            print("   2. Variable GOOGLE_APPLICATION_CREDENTIALS en .env")
+            print("   3. APIs habilitadas en Google Cloud Console")
+            raise e
     
     def transcribe_audio(self, audio_file_path):
-        """
-        Convierte un archivo de audio a texto
-        
-        Args:
-            audio_file_path (str): Ruta al archivo de audio
-            
-        Returns:
-            str: Texto transcrito
-        """
+        """Convierte un archivo de audio a texto"""
         try:
-            # Leer el archivo de audio
             with open(audio_file_path, 'rb') as audio_file:
                 audio_content = audio_file.read()
             
-            # Configuración optimizada para llamadas telefónicas
             config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=16000,
                 language_code="es-ES",
                 alternative_language_codes=["de-DE", "en-US"],
                 model="phone_call",
                 use_enhanced=True,
                 enable_automatic_punctuation=True,
-                enable_word_time_offsets=True,
-                enable_word_confidence=True,
                 speech_contexts=[
                     speech.SpeechContext(
                         phrases=[
-                            # Frases específicas para tu agente CronosAgent
-                            "reservar mesa",
-                            "hacer reserva", 
-                            "disponibilidad",
-                            "cancelar reserva",
-                            "número de personas",
-                            "fecha",
-                            "hora",
-                            "nombre",
-                            "teléfono",
-                            "confirmar",
-                            "gracias",
-                            "adiós",
-                            # Frases en alemán (para tu mercado)
-                            "Tisch reservieren",
-                            "Reservierung machen",
-                            "Verfügbarkeit",
-                            "Stornieren",
-                            "Anzahl Personen",
-                            "Datum",
-                            "Uhrzeit",
-                            "Name",
-                            "Telefon",
-                            "Bestätigen",
-                            "Danke",
-                            "Auf Wiedersehen"
+                            "reservar mesa", "hacer reserva", "disponibilidad",
+                            "cancelar reserva", "número de personas", "fecha", "hora",
+                            "nombre", "teléfono", "confirmar", "gracias", "adiós"
                         ],
                         boost=25.0
                     )
                 ]
             )
             
-            # Crear el objeto de audio
             audio = speech.RecognitionAudio(content=audio_content)
+            response = self.speech_client.recognize(config=config, audio=audio)
             
-            # Realizar la transcripción
-            response = self.speech_client.recognize(
-                config=config, 
-                audio=audio
-            )
-            
-            # Extraer el texto transcrito
             if response.results:
                 transcript = response.results[0].alternatives[0].transcript
                 confidence = response.results[0].alternatives[0].confidence
@@ -96,18 +73,9 @@ class SpeechToTextHandler:
             return ""
     
     def synthesize_speech(self, text, language="es-ES"):
-        """
-        Convierte texto a audio
-        
-        Args:
-            text (str): Texto a convertir
-            language (str): Código de idioma
-            
-        Returns:
-            bytes: Audio generado
-        """
+        """Convierte texto a audio"""
         try:
-            # Configuración de voces por idioma
+            # Configuración simplificada de voces
             voice_config = {
                 "es-ES": {
                     "name": "es-ES-Neural2-A",
@@ -125,26 +93,19 @@ class SpeechToTextHandler:
             
             voice = voice_config.get(language, voice_config["es-ES"])
             
-            # Configurar la entrada de síntesis
+            # Configuración simplificada
             synthesis_input = texttospeech.SynthesisInput(text=text)
-            
-            # Configurar los parámetros de voz
             voice_params = texttospeech.VoiceSelectionParams(
                 language_code=language,
                 name=voice["name"],
                 ssml_gender=voice["gender"]
             )
             
-            # Configurar el audio de salida
+            # Configuración de audio simplificada
             audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=1.0,
-                pitch=0.0,
-                volume_gain_db=0.0,
-                effects_profile_id="telephony-class-application"
+                audio_encoding=texttospeech.AudioEncoding.MP3
             )
             
-            # Generar el audio
             response = self.tts_client.synthesize_speech(
                 input=synthesis_input,
                 voice=voice_params,
@@ -158,13 +119,7 @@ class SpeechToTextHandler:
             return b""
     
     def save_audio(self, audio_content, output_path):
-        """
-        Guarda el audio generado en un archivo
-        
-        Args:
-            audio_content (bytes): Contenido de audio
-            output_path (str): Ruta donde guardar el archivo
-        """
+        """Guarda el audio generado en un archivo"""
         try:
             with open(output_path, 'wb') as audio_file:
                 audio_file.write(audio_content)
@@ -172,20 +127,14 @@ class SpeechToTextHandler:
         except Exception as e:
             print(f"Error al guardar audio: {e}")
 
-# Función de prueba
-def test_speech_to_text():
-    """Función para probar el Speech to Text"""
-    handler = SpeechToTextHandler()
-    
-    # Probar síntesis de voz
-    test_text = "¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?"
-    audio = handler.synthesize_speech(test_text)
-    
-    if audio:
-        handler.save_audio(audio, "test_output.mp3")
-        print("✅ Prueba de síntesis de voz completada")
-    else:
-        print("❌ Error en la síntesis de voz")
-
 if __name__ == "__main__":
-    test_speech_to_text()
+    try:
+        handler = SpeechToTextHandler()
+        test_text = "¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?"
+        audio = handler.synthesize_speech(test_text)
+        if audio:
+            handler.save_audio(audio, "test_output.mp3")
+            print("✅ Prueba de síntesis de voz completada")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        print("💡 Verifica tu configuración de credenciales")

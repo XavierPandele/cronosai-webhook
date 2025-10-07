@@ -1,0 +1,10 @@
+# requirements.txt
+google-cloud-speech==2.21.0
+google-cloud-dialogflow-cx==1.11.0
+google-cloud-texttospeech==2.14.0
+mysql-connector-python==8.2.0
+flask==2.3.3
+requests==2.31.0
+python-dotenv==1.0.0
+pyaudio==0.2.14
+pygame==2.6.1
