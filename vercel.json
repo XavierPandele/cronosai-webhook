@@ -4,9 +4,6 @@
   "functions": {
     "api/**/*.js": {
       "maxDuration": 10
-    },
-    "api/twilio-call.js": {
-      "maxDuration": 30
     }
   }
 }
