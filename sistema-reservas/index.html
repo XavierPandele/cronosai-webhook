@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reservas - Sistema de Reservas</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-calendar-check"></i>
+                <h1>Sistema de Reservas</h1>
+            </div>
+            <p class="subtitle">Reserva tu mesa de forma fácil y rápida</p>
+        </header>
+
+        <main class="main-content">
+            <div class="form-container">
+                <div class="form-header">
+                    <h2><i class="fas fa-utensils"></i> Nueva Reserva</h2>
+                    <p>Completa todos los campos para realizar tu reserva</p>
+                </div>
+
+                <form id="reservationForm" class="reservation-form">
+                    <div class="form-group">
+                        <label for="nom_persona_reserva" class="form-label">
+                            <i class="fas fa-user"></i>
+                            Nombre completo *
+                        </label>
+                        <input 
+                            type="text" 
+                            id="nom_persona_reserva" 
+                            name="nom_persona_reserva" 
+                            class="form-input" 
+                            placeholder="Ingresa tu nombre completo"
+                            maxlength="100"
+                            required
+                        >
+                        <span class="error-message" id="error-nom_persona_reserva"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="telefon" class="form-label">
+                            <i class="fas fa-phone"></i>
+                            Teléfono *
+                        </label>
+                        <input 
+                            type="tel" 
+                            id="telefon" 
+                            name="telefon" 
+                            class="form-input" 
+                            placeholder="Ej: +34 123 456 789"
+                            maxlength="16"
+                            required
+                        >
+                        <span class="error-message" id="error-telefon"></span>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="data_reserva" class="form-label">
+                                <i class="fas fa-calendar"></i>
+                                Fecha y hora *
+                            </label>
+                            <input 
+                                type="datetime-local" 
+                                id="data_reserva" 
+                                name="data_reserva" 
+                                class="form-input" 
+                                required
+                            >
+                            <span class="error-message" id="error-data_reserva"></span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="num_persones" class="form-label">
+                                <i class="fas fa-users"></i>
+                                Número de personas *
+                            </label>
+                            <select id="num_persones" name="num_persones" class="form-select" required>
+                                <option value="">Selecciona...</option>
+                                <option value="1">1 persona</option>
+                                <option value="2">2 personas</option>
+                                <option value="3">3 personas</option>
+                                <option value="4">4 personas</option>
+                                <option value="5">5 personas</option>
+                                <option value="6">6 personas</option>
+                                <option value="7">7 personas</option>
+                                <option value="8">8 personas</option>
+                                <option value="9">9 personas</option>
+                                <option value="10">10 personas</option>
+                                <option value="11">11+ personas</option>
+                            </select>
+                            <span class="error-message" id="error-num_persones"></span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="observacions" class="form-label">
+                            <i class="fas fa-comment"></i>
+                            Observaciones
+                        </label>
+                        <textarea 
+                            id="observacions" 
+                            name="observacions" 
+                            class="form-textarea" 
+                            placeholder="Alergias, preferencias de mesa, ocasión especial, etc."
+                            rows="4"
+                        ></textarea>
+                        <span class="error-message" id="error-observacions"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="conversa_completa" class="form-label">
+                            <i class="fas fa-comments"></i>
+                            Conversación completa (opcional)
+                        </label>
+                        <textarea 
+                            id="conversa_completa" 
+                            name="conversa_completa" 
+                            class="form-textarea" 
+                            placeholder="Detalles adicionales de la conversación o solicitud"
+                            rows="3"
+                        ></textarea>
+                        <span class="error-message" id="error-conversa_completa"></span>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="clearForm">
+                            <i class="fas fa-eraser"></i>
+                            Limpiar
+                        </button>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <i class="fas fa-check"></i>
+                            Confirmar Reserva
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="info-section">
+                <div class="info-card">
+                    <i class="fas fa-info-circle"></i>
+                    <h3>Información importante</h3>
+                    <ul>
+                        <li>Las reservas deben realizarse con al menos 2 horas de antelación</li>
+                        <li>Te contactaremos para confirmar tu reserva</li>
+                        <li>En caso de cancelación, avísanos con 24h de antelación</li>
+                    </ul>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2024 Sistema de Reservas. Disponible 24/7</p>
+        </footer>
+    </div>
+
+    <!-- Modal de confirmación -->
+    <div id="confirmationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <i class="fas fa-check-circle"></i>
+                <h3>¡Reserva Confirmada!</h3>
+            </div>
+            <div class="modal-body">
+                <p>Tu reserva ha sido enviada correctamente. Te contactaremos pronto para confirmar los detalles.</p>
+                <div class="reservation-details" id="reservationDetails"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="closeModal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

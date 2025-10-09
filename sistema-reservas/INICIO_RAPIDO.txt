@@ -1,0 +1,66 @@
+╔══════════════════════════════════════════════════════════════╗
+║          SISTEMA DE RESERVAS WEB - INICIO RÁPIDO            ║
+╚══════════════════════════════════════════════════════════════╝
+
+✅ TODO LISTO PARA DESPLEGAR EN VERCEL (24/7)
+
+📁 ESTRUCTURA COMPLETA:
+   ├── index.html         → Formulario web moderno
+   ├── styles.css         → Diseño responsive
+   ├── script.js          → Validación y funcionalidad
+   ├── api/reservations.js → API REST para reservas
+   ├── vercel.json        → Configuración de Vercel
+   ├── package.json       → Dependencias
+   ├── database-setup.sql → Script para crear tablas
+   ├── env.example        → Variables de entorno
+   └── README.md          → Documentación completa
+
+🚀 DESPLIEGUE EN 3 PASOS:
+
+   1. Instalar Vercel CLI:
+      npm install -g vercel
+
+   2. Entrar a la carpeta:
+      cd sistema-reservas
+
+   3. Desplegar:
+      vercel
+
+   ¡Listo! Tu sitio estará disponible 24/7
+
+📋 CAMPOS DEL FORMULARIO (según tu base de datos):
+   ✓ nom_persona_reserva (Nombre completo)
+   ✓ telefon (Teléfono)
+   ✓ data_reserva (Fecha y hora)
+   ✓ num_persones (Número de personas)
+   ✓ observacions (Observaciones) - opcional
+   ✓ conversa_completa (Conversación) - opcional
+
+🗄️ CONFIGURAR BASE DE DATOS:
+   1. Ejecutar: mysql -u usuario -p < database-setup.sql
+   2. Configurar variables en Vercel Dashboard
+   3. Descomentar código de conexión en api/reservations.js
+
+📖 MÁS INFORMACIÓN:
+   - README.md → Documentación técnica completa
+   - DESPLIEGUE.md → Guía detallada de despliegue
+   - database-setup.sql → Estructura completa de BD
+
+💡 CARACTERÍSTICAS:
+   ✨ Diseño moderno con gradientes
+   ✨ Validación en tiempo real
+   ✨ Compatible móvil y desktop
+   ✨ Modal de confirmación
+   ✨ API REST incluida
+   ✨ SSL/HTTPS automático en Vercel
+   ✨ Disponibilidad 24/7
+
+🎯 PRÓXIMOS PASOS:
+   1. Desplegar en Vercel
+   2. Configurar base de datos
+   3. Añadir variables de entorno
+   4. ¡Empezar a recibir reservas!
+
+═══════════════════════════════════════════════════════════════
+¿Listo para empezar? Ejecuta: cd sistema-reservas && vercel
+═══════════════════════════════════════════════════════════════
