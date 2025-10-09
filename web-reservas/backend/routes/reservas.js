@@ -136,17 +136,17 @@ router.post('/crear-reserva', async (req, res) => {
     // Preparar respuesta de confirmación
     const respuesta = {
       success: true,
-      ID_reserva: resultado.ID_reserva,
+      id_reserva: resultado.id_reserva,
       message: `¡Excelente! Su reserva ha sido confirmada exitosamente.\n\n` +
                `📋 Detalles de la reserva:\n` +
-               `• ID de reserva: ${resultado.ID_reserva}\n` +
+               `• ID de reserva: ${resultado.id_reserva}\n` +
                `• Nombre: ${datosReserva.nom_persona_reserva}\n` +
                `• Fecha: ${fechaFormateada}\n` +
                `• Personas: ${datosReserva.num_persones}\n` +
                `• Teléfono: ${datosReserva.telefon}\n\n` +
                `¡Esperamos darle la bienvenida!`,
       reserva: {
-        ID_reserva: resultado.ID_reserva,
+        id_reserva: resultado.id_reserva,
         nom_persona_reserva: datosReserva.nom_persona_reserva,
         telefon: datosReserva.telefon,
         data_reserva: fechaFormateada,
@@ -156,7 +156,7 @@ router.post('/crear-reserva', async (req, res) => {
       }
     };
 
-    console.log('✅ Reserva creada exitosamente:', resultado.ID_reserva);
+    console.log('✅ Reserva creada exitosamente:', resultado.id_reserva);
     res.json(respuesta);
 
   } catch (error) {
@@ -173,26 +173,26 @@ router.post('/cancelar-reserva', async (req, res) => {
   try {
     console.log('📞 Cancelación de reserva recibida:', JSON.stringify(req.body, null, 2));
 
-    const { numero_reserva, telefono } = req.body;
+    const { id_reserva, telefono } = req.body;
     
-    if (!numero_reserva || !telefono) {
+    if (!id_reserva || !telefono) {
       return res.status(400).json({
         success: false,
-        error: 'Número de reserva y teléfono son requeridos'
+        error: 'ID de reserva y teléfono son requeridos'
       });
     }
 
-    const resultado = await Reserva.cancelar(numero_reserva, telefono);
+    const resultado = await Reserva.cancelar(id_reserva, telefono);
     
     const respuesta = {
       success: resultado.success,
       message: resultado.success 
-        ? `Su reserva ${numero_reserva} ha sido cancelada exitosamente. Esperamos poder servirle en otra ocasión.`
-        : "Disculpe, no pude encontrar su reserva. Verifique el número de reserva y teléfono, o contacte directamente al restaurante.",
+        ? `Su reserva ${id_reserva} ha sido cancelada exitosamente. Esperamos poder servirle en otra ocasión.`
+        : "Disculpe, no pude encontrar su reserva. Verifique el ID de reserva y teléfono, o contacte directamente al restaurante.",
       error: resultado.error
     };
 
-    console.log(resultado.success ? '✅ Reserva cancelada:' : '❌ Error cancelando reserva:', numero_reserva);
+    console.log(resultado.success ? '✅ Reserva cancelada:' : '❌ Error cancelando reserva:', id_reserva);
     res.json(respuesta);
 
   } catch (error) {
@@ -230,11 +230,11 @@ router.post('/buscar-reservas', async (req, res) => {
     } else {
       message = "Encontré las siguientes reservas activas:\n\n";
       resultado.reservas.forEach(reserva => {
-        message += `📋 ${reserva.numero_reserva}\n`;
-        message += `• Fecha: ${reserva.fecha_reserva}\n`;
-        message += `• Hora: ${reserva.hora_reserva.slice(0, 5)}\n`;
-        message += `• Personas: ${reserva.numero_personas}\n`;
-        message += `• Estado: ${reserva.estado}\n\n`;
+        const fecha = moment(reserva.data_reserva).format('YYYY-MM-DD HH:mm');
+        message += `📋 ID: ${reserva.id_reserva}\n`;
+        message += `• Nombre: ${reserva.nom_persona_reserva}\n`;
+        message += `• Fecha: ${fecha}\n`;
+        message += `• Personas: ${reserva.num_persones}\n\n`;
       });
     }
 
@@ -257,11 +257,11 @@ router.post('/buscar-reservas', async (req, res) => {
 });
 
 // Endpoint para obtener detalles de una reserva
-router.get('/reserva/:numero_reserva', async (req, res) => {
+router.get('/reserva/:id_reserva', async (req, res) => {
   try {
-    const { numero_reserva } = req.params;
+    const { id_reserva } = req.params;
     
-    const resultado = await Reserva.obtenerPorNumero(numero_reserva);
+    const resultado = await Reserva.obtenerPorNumero(id_reserva);
     
     if (!resultado.success) {
       return res.status(500).json(resultado);
@@ -386,22 +386,22 @@ router.post('/test-crear-reserva', (req, res) => {
     }
     
     // Simular ID de reserva
-    const ID_reserva = Math.floor(Math.random() * 1000000);
+    const id_reserva = Math.floor(Math.random() * 1000000);
     
     // Preparar respuesta de confirmación
     const respuesta = {
       success: true,
-      ID_reserva: ID_reserva,
+      id_reserva: id_reserva,
       message: `¡Excelente! Su reserva ha sido confirmada exitosamente.\n\n` +
                `📋 Detalles de la reserva:\n` +
-               `• ID de reserva: ${ID_reserva}\n` +
+               `• ID de reserva: ${id_reserva}\n` +
                `• Nombre: ${nom_persona_reserva}\n` +
                `• Fecha: ${data_reserva}\n` +
                `• Personas: ${num_persones}\n` +
                `• Teléfono: ${telefon}\n\n` +
                `¡Esperamos darle la bienvenida!`,
       reserva: {
-        ID_reserva: ID_reserva,
+        id_reserva: id_reserva,
         nom_persona_reserva: nom_persona_reserva,
         telefon: telefon,
         data_reserva: data_reserva,
@@ -411,7 +411,7 @@ router.post('/test-crear-reserva', (req, res) => {
       }
     };
 
-    console.log('✅ Prueba de reserva creada exitosamente:', ID_reserva);
+    console.log('✅ Prueba de reserva creada exitosamente:', id_reserva);
     res.json(respuesta);
 
   } catch (error) {

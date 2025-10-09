@@ -92,7 +92,7 @@ app.get('/', (req, res) => {
       crear_reserva: 'POST /api/reservas/crear-reserva',
       cancelar_reserva: 'POST /api/reservas/cancelar-reserva',
       buscar_reservas: 'POST /api/reservas/buscar-reservas',
-      obtener_reserva: 'GET /api/reservas/reserva/:numero_reserva',
+      obtener_reserva: 'GET /api/reservas/reserva/:id_reserva',
       estadisticas: 'GET /api/reservas/estadisticas',
       health: 'GET /api/reservas/health'
     },
