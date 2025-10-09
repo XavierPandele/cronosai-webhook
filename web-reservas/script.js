@@ -91,7 +91,7 @@ async function updateAvailableHours() {
     try {
         showLoading(true);
         
-        const response = await fetch(`${CONFIG.API_BASE_URL}/test-disponibilidad`, {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/disponibilidad`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -143,7 +143,7 @@ async function handleFormSubmit(e) {
     try {
         showLoading(true);
         
-        const response = await fetch(`${CONFIG.API_BASE_URL}/test-crear-reserva`, {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/crear-reserva`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -156,11 +156,11 @@ async function handleFormSubmit(e) {
         if (data.success) {
             // Extraer información de la reserva de la respuesta
             const message = data.message;
-            const IDReserva = data.ID_reserva;
+            const idReserva = data.id_reserva;
             
             currentReservation = {
                 ...reservationData,
-                ID_reserva: IDReserva,
+                id_reserva: idReserva,
                 confirmacion: message
             };
             
@@ -177,11 +177,7 @@ async function handleFormSubmit(e) {
     }
 }
 
-// Extraer número de reserva del mensaje
-function extractReservationNumber(message) {
-    const match = message.match(/RES-\d{8}-\w{4}/);
-    return match ? match[0] : null;
-}
+// Esta función ya no es necesaria ya que usamos IDs numéricos autoincrement
 
 // Validar formulario completo
 function validateForm() {
@@ -314,7 +310,7 @@ function showConfirmationModal() {
         <div class="reservation-details">
             <h4>Detalles de su reserva:</h4>
             <div class="detail-item">
-                <strong>ID de reserva:</strong> ${currentReservation.ID_reserva}
+                <strong>ID de reserva:</strong> ${currentReservation.id_reserva}
             </div>
             <div class="detail-item">
                 <strong>Nombre:</strong> ${currentReservation.nom_persona_reserva}

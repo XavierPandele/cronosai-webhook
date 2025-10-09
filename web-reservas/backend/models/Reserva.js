@@ -1,19 +1,7 @@
 const { executeQuery, getConnection } = require('../config/database');
-const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
 
 class Reserva {
-  // Generar número de reserva único
-  static generarNumeroReserva() {
-    const fecha = new Date();
-    const año = fecha.getFullYear();
-    const mes = String(fecha.getMonth() + 1).padStart(2, '0');
-    const dia = String(fecha.getDate()).padStart(2, '0');
-    const random = Math.random().toString(36).substr(2, 4).toUpperCase();
-    
-    return `RES-${año}${mes}${dia}-${random}`;
-  }
-
   // Crear nueva reserva
   static async crear(datosReserva) {
     const {
@@ -24,8 +12,6 @@ class Reserva {
       observacions = null,
       conversa_completa = 'Reserva via página web'
     } = datosReserva;
-
-    const ID_reserva = this.generarNumeroReserva();
 
     try {
       // Iniciar transacción
@@ -41,9 +27,6 @@ class Reserva {
           [nom_persona_reserva, telefon, data_reserva, num_persones, observacions, conversa_completa]
         );
 
-        // No necesitamos actualizar disponibilidad_mesas ya que no existe esa tabla
-        // La tabla RESERVA ya tiene todos los datos necesarios
-
         // Confirmar transacción
         await connection.commit();
         connection.release();
@@ -51,7 +34,7 @@ class Reserva {
         return {
           success: true,
           id: result.insertId,
-          ID_reserva: result.insertId, // Usar el ID auto-incrementado
+          id_reserva: result.insertId, // Usar el ID auto-incrementado
           message: 'Reserva creada exitosamente'
         };
       } catch (error) {
@@ -99,7 +82,7 @@ class Reserva {
   }
 
   // Cancelar reserva
-  static async cancelar(ID_reserva, telefon) {
+  static async cancelar(id_reserva, telefon) {
     try {
       const connection = await getConnection();
       await connection.beginTransaction();
@@ -110,7 +93,7 @@ class Reserva {
           `SELECT data_reserva, num_persones 
            FROM RESERVA 
            WHERE id_reserva = ? AND telefon = ?`,
-          [ID_reserva, telefon]
+          [id_reserva, telefon]
         );
 
         if (reservaData.length === 0) {
@@ -124,11 +107,11 @@ class Reserva {
 
         const reserva = reservaData[0];
 
-        // Eliminar la reserva (ya que no tenemos campo de estado)
+        // Eliminar la reserva
         const [result] = await connection.execute(
           `DELETE FROM RESERVA 
            WHERE id_reserva = ? AND telefon = ?`,
-          [ID_reserva, telefon]
+          [id_reserva, telefon]
         );
 
         await connection.commit();
@@ -181,11 +164,11 @@ class Reserva {
   }
 
   // Obtener reserva por número
-  static async obtenerPorNumero(ID_reserva) {
+  static async obtenerPorNumero(id_reserva) {
     try {
       const result = await executeQuery(
         `SELECT * FROM RESERVA WHERE id_reserva = ?`,
-        [ID_reserva]
+        [id_reserva]
       );
 
       if (!result.success) {
