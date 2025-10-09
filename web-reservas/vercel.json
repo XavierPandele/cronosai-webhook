@@ -2,38 +2,30 @@
   "version": 2,
   "builds": [
     {
-      "src": "backend/server.js",
+      "src": "api/*.js",
       "use": "@vercel/node"
     },
     {
-      "src": "index.html",
+      "src": "*.html",
       "use": "@vercel/static"
     },
     {
-      "src": "styles.css",
+      "src": "*.css",
       "use": "@vercel/static"
     },
     {
-      "src": "script.js",
+      "src": "*.js",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/backend/server.js"
-    },
-    {
-      "src": "/styles.css",
-      "dest": "/styles.css"
-    },
-    {
-      "src": "/script.js",
-      "dest": "/script.js"
+      "dest": "/api/reservas.js"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/$1"
     }
   ],
   "env": {
@@ -41,6 +33,7 @@
     "DB_PORT": "3306",
     "DB_NAME": "cronosai",
     "DB_USER": "cronosdev",
-    "DB_PASS": ")CDJ6gwpCO9rg-W/"
+    "DB_PASS": ")CDJ6gwpCO9rg-W/",
+    "NODE_ENV": "production"
   }
 }
