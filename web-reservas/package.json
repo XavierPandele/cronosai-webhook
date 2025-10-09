@@ -4,27 +4,31 @@
   "description": "Sistema de reservas web para CronosAI Restaurant",
   "main": "backend/server.js",
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "nodemon backend/server.js",
+    "start": "cd backend && npm start",
     "build": "echo 'No build step required'",
-    "vercel-build": "echo 'No build step required'"
+    "vercel-build": "cd backend && npm install"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "mysql2": "^3.6.0",
+    "mysql2": "^2.3.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "moment": "^2.29.4",
-    "uuid": "^9.0.0",
-    "helmet": "^7.1.0",
-    "express-rate-limit": "^7.1.5",
-    "express-validator": "^7.0.1",
-    "winston": "^3.11.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "helmet": "^6.1.5",
+    "express-rate-limit": "^6.8.1",
+    "express-validator": "^6.15.0",
+    "winston": "^3.8.2"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": [
+    "restaurant",
+    "reservations",
+    "mysql",
+    "express",
+    "cronosai"
+  ],
+  "author": "CronosAI Team",
+  "license": "MIT"
 }
