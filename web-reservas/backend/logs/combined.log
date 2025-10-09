@@ -1,0 +1,2 @@
+{"level":"info","message":"Probando conexión a la base de datos...","timestamp":"2025-10-07T14:01:39.448Z"}
+{"level":"error","message":"No se pudo conectar a la base de datos. Verifique la configuración.","timestamp":"2025-10-07T14:01:39.868Z"}
