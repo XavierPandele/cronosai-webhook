@@ -1,6 +1,6 @@
 // Configuración de la aplicación
 const CONFIG = {
-    API_BASE_URL: 'http://localhost:3000/api/reservas',
+    API_BASE_URL: '/api/reservas',  // Usar ruta relativa para Vercel
     MIN_ADVANCE_HOURS: 2,
     MAX_ADVANCE_DAYS: 30,
     RESTAURANT_HOURS: {
