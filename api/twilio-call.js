@@ -369,12 +369,8 @@ async function saveReservation(state) {
       return false;
     }
 
-    // Preparar conversación completa
-    const conversacionCompleta = JSON.stringify({
-      phone: state.phone,
-      history: state.conversationHistory,
-      timestamp: new Date().toISOString()
-    });
+    // Preparar conversación completa en formato Markdown
+    const conversacionCompleta = generateMarkdownConversation(state);
 
     // Combinar fecha y hora
     const dataCombinada = combinarFechaHora(data.FechaReserva, data.HoraReserva);
@@ -1043,6 +1039,106 @@ function escapeXml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function generateMarkdownConversation(state) {
+  const { conversationHistory, phone, data } = state;
+  const timestamp = new Date().toISOString();
+  
+  let markdown = `# 📞 Conversación de Reserva\n\n`;
+  
+  // Información de la llamada
+  markdown += `## 📋 Información de la Llamada\n`;
+  markdown += `- **Teléfono**: ${phone}\n`;
+  markdown += `- **Fecha**: ${new Date().toLocaleDateString('es-ES')}\n`;
+  markdown += `- **Hora**: ${new Date().toLocaleTimeString('es-ES')}\n`;
+  markdown += `- **Sistema**: Twilio (Hard-coded)\n`;
+  markdown += `- **Estado**: ${state.step === 'complete' ? '✅ Completada' : '⚠️ Incompleta'}\n\n`;
+  
+  // Datos de la reserva (si están disponibles)
+  if (data && Object.keys(data).length > 0) {
+    markdown += `## 🍽️ Datos de la Reserva\n`;
+    if (data.NumeroReserva) markdown += `- **Personas**: ${data.NumeroReserva}\n`;
+    if (data.FechaReserva) markdown += `- **Fecha**: ${formatDateSpanish(data.FechaReserva)}\n`;
+    if (data.HoraReserva) markdown += `- **Hora**: ${data.HoraReserva}\n`;
+    if (data.NomReserva) markdown += `- **Nombre**: ${data.NomReserva}\n`;
+    if (data.TelefonReserva) markdown += `- **Teléfono Reserva**: ${data.TelefonReserva}\n`;
+    markdown += `\n`;
+  }
+  
+  // Conversación paso a paso
+  markdown += `## 💬 Transcripción de la Conversación\n\n`;
+  
+  conversationHistory.forEach((entry, index) => {
+    const time = new Date(entry.timestamp).toLocaleTimeString('es-ES');
+    const step = index + 1;
+    
+    if (entry.role === 'user') {
+      markdown += `### ${step}. 👤 Cliente (${time})\n`;
+      markdown += `> ${entry.message}\n\n`;
+    } else {
+      markdown += `### ${step}. 🤖 Bot (${time})\n`;
+      markdown += `${entry.message}\n\n`;
+    }
+  });
+  
+  // Análisis de la conversación
+  markdown += `## 📊 Análisis de la Conversación\n\n`;
+  markdown += `- **Total de intercambios**: ${conversationHistory.length}\n`;
+  markdown += `- **Duración estimada**: ${Math.ceil(conversationHistory.length * 15)} segundos\n`;
+  
+  // Contar pasos completados
+  const stepsCompleted = ['ask_people', 'ask_date', 'ask_time', 'ask_name', 'ask_phone'].filter(step => {
+    return state.data[step === 'ask_people' ? 'NumeroReserva' : 
+                      step === 'ask_date' ? 'FechaReserva' :
+                      step === 'ask_time' ? 'HoraReserva' :
+                      step === 'ask_name' ? 'NomReserva' :
+                      'TelefonReserva'];
+  }).length;
+  
+  markdown += `- **Pasos completados**: ${stepsCompleted}/5\n`;
+  
+  // Detectar si fue exitosa
+  const wasSuccessful = state.step === 'complete';
+  markdown += `- **Resultado**: ${wasSuccessful ? '✅ Reserva completada exitosamente' : '❌ Conversación incompleta'}\n\n`;
+  
+  // Detectar problemas comunes
+  markdown += `## 🔍 Detección de Problemas\n\n`;
+  
+  const issues = [];
+  const history = conversationHistory.map(h => h.message.toLowerCase());
+  
+  // Detectar repeticiones
+  const repeatedMessages = history.filter((msg, index) => 
+    history.indexOf(msg) !== index
+  );
+  if (repeatedMessages.length > 0) {
+    issues.push(`⚠️ Mensajes repetidos detectados (${repeatedMessages.length})`);
+  }
+  
+  // Detectar errores de comprensión
+  const errorMessages = history.filter(msg => 
+    msg.includes('no entendí') || msg.includes('disculpe') || msg.includes('perdón')
+  );
+  if (errorMessages.length > 0) {
+    issues.push(`⚠️ Errores de comprensión: ${errorMessages.length}`);
+  }
+  
+  // Detectar conversación muy larga
+  if (conversationHistory.length > 15) {
+    issues.push(`⚠️ Conversación muy larga (${conversationHistory.length} intercambios)`);
+  }
+  
+  if (issues.length === 0) {
+    markdown += `✅ No se detectaron problemas significativos\n`;
+  } else {
+    issues.forEach(issue => markdown += `${issue}\n`);
+  }
+  
+  markdown += `\n---\n`;
+  markdown += `*Generado automáticamente el ${new Date().toLocaleString('es-ES')}*\n`;
+  
+  return markdown;
 }
 
 
