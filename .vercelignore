@@ -1,27 +1,24 @@
-# Ignorar archivos Python y sus dependencias
+# Source code and development files
 src/
 scripts/
+tests/
+temp/
+voice_samples/
+
+# Python files
 *.py
 requirements.txt
 __pycache__/
-*.pyc
 
-# Tests
-tests/
-
-# Documentación
+# Documentation (except main README)
 docs/
+*.md
+!README.md
 
-# Archivos temporales
-temp/
-*.mp3
-*.wav
+# Config files not needed in deployment
+config/
+.gitignore
+.vercelignore
 
-# Sistema de reservas separado
-sistema-reservas/
-
-# Archivos temporales en public
-public/marica.txt
-
-# Mantener el index.html de public
-!public/index.html
+# Development tools
+.env.example
