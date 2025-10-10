@@ -1,0 +1,215 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│        🚀 APPSHEET RESERVAS - INICIO ULTRA RÁPIDO (10 MINUTOS)         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+📦 PASO 1: DESPLEGAR API (3 minutos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  $ cd appsheet-reservas
+  $ npm install
+  $ vercel --prod
+
+  ✅ Guarda tu URL: https://tu-proyecto.vercel.app
+
+
+🔑 PASO 2: CONFIGURAR VARIABLES (2 minutos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  En Vercel Dashboard → Settings → Environment Variables:
+
+  ┌──────────────┬────────────────────────┐
+  │ Variable     │ Valor                  │
+  ├──────────────┼────────────────────────┤
+  │ DB_HOST      │ db1.bwai.cc            │
+  │ DB_PORT      │ 3306                   │
+  │ DB_USER      │ cronosdev              │
+  │ DB_PASS      │ )CDJ6gwpCO9rg-W/       │
+  │ DB_NAME      │ cronosai               │
+  │ API_KEY      │ appsheet-cronos-2024   │
+  └──────────────┴────────────────────────┘
+
+  Click en "Redeploy" después de añadir las variables
+
+
+📱 PASO 3: CREAR APP EN APPSHEET (3 minutos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Ve a appsheet.com
+  2. Create → App → Start with your own data
+  3. Nombre: "Reservas Restaurante"
+  4. Choose data → API → REST API
+
+  Configuración:
+  ┌─────────────────┬──────────────────────────────────────┐
+  │ Connection Name │ ReservasAPI                          │
+  │ Base URL        │ https://tu-proyecto.vercel.app       │
+  │ Authentication  │ Custom Headers                       │
+  │ Header Name     │ X-Api-Key                            │
+  │ Header Value    │ appsheet-cronos-2024                 │
+  └─────────────────┴──────────────────────────────────────┘
+
+
+📊 PASO 4: CONFIGURAR TABLA (2 minutos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Data → Tables → + New Table
+
+  ┌─────────────────┬──────────────────┐
+  │ Table Name      │ Reservas         │
+  │ Endpoint        │ /api/reservations│
+  │ Method          │ GET              │
+  │ Key Column      │ id_reserva       │
+  └─────────────────┴──────────────────┘
+
+  Configurar CRUD:
+  
+  CREATE (POST):
+  Endpoint: /api/reservations
+  Body:
+  {
+    "nom_persona_reserva": "<<[nom_persona_reserva]>>",
+    "telefon": "<<[telefon]>>",
+    "data_reserva": "<<[data_reserva]>>",
+    "num_persones": <<[num_persones]>>,
+    "observacions": "<<[observacions]>>",
+    "status": "pending"
+  }
+
+  UPDATE (PUT):
+  Endpoint: /api/reservations?id=<<[id_reserva]>>
+  
+  DELETE:
+  Endpoint: /api/reservations?id=<<[id_reserva]>>
+
+
+📅 PASO 5: CREAR CALENDARIO (2 minutos)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  UX → Views → + New View
+
+  ┌─────────────────┬──────────────────────────────────────────────────┐
+  │ View name       │ Calendario                                       │
+  │ View type       │ calendar                                         │
+  │ Primary view    │ Yes                                              │
+  │ For this data   │ Reservas                                         │
+  └─────────────────┴──────────────────────────────────────────────────┘
+
+  Start: [data_reserva]
+  End:   [data_reserva] + "02:00:00"
+  Label: [nom_persona_reserva] & " (" & TEXT([num_persones]) & " personas)"
+  Color: SWITCH([status],"confirmed","#4CAF50","pending","#FFA500",
+                 "cancelled","#F44336","completed","#2196F3","#808080")
+
+
+✅ VERIFICAR (1 minuto)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Test con cURL:
+  
+  $ curl -H "X-Api-Key: appsheet-cronos-2024" \
+    https://tu-proyecto.vercel.app/api/reservations
+
+  Debe responder:
+  {"success":true,"count":0,"data":[]}
+
+  ✓ API funcionando
+  ✓ Base de datos conectada
+  ✓ AppSheet configurado
+
+
+🎉 ¡LISTO!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Click en "Live" en AppSheet para ver tu app funcionando
+  Click en "+" para crear tu primera reserva
+
+
+📚 DOCUMENTACIÓN COMPLETA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  README.md                    → Documentación general
+  docs/INICIO_RAPIDO.md        → Guía paso a paso (15 min)
+  docs/APPSHEET_SETUP.md       → Configuración completa AppSheet
+  docs/API_DOCUMENTATION.md    → Documentación técnica API
+  docs/EJEMPLOS.md             → Ejemplos de código
+  docs/TROUBLESHOOTING.md      → Solución de problemas
+  DEPLOY.md                    → Guía de despliegue detallada
+
+
+🔧 COMANDOS ÚTILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  npm test                     # Probar API
+  vercel logs --follow         # Ver logs en tiempo real
+  vercel --prod                # Redesplegar
+  vercel env ls                # Ver variables de entorno
+
+
+🌐 ENDPOINTS DISPONIBLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  GET    /api/reservations      → Listar/filtrar reservas
+  POST   /api/reservations      → Crear reserva
+  PUT    /api/reservations?id=  → Actualizar reserva
+  DELETE /api/reservations?id=  → Eliminar reserva
+  GET    /api/calendar          → Vista de calendario
+  GET    /api/stats             → Estadísticas
+
+
+🎨 COLORES DEL CALENDARIO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  🟡 pending    → #FFA500 (Naranja)
+  🟢 confirmed  → #4CAF50 (Verde)
+  🔴 cancelled  → #F44336 (Rojo)
+  🔵 completed  → #2196F3 (Azul)
+
+
+🔒 SEGURIDAD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ⚠️  IMPORTANTE: Cambia el API Key en producción
+  
+  $ vercel env rm API_KEY production
+  $ vercel env add API_KEY
+  # Ingresa un valor seguro generado con:
+  $ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+
+💡 TIPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • Usa formato de fecha: YYYY-MM-DD HH:MM:SS
+  • Número de personas: 1-20
+  • Campos obligatorios: nom_persona_reserva, telefon, data_reserva, num_persones
+  • Status válidos: pending, confirmed, cancelled, completed
+
+
+🐛 PROBLEMAS COMUNES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  "API Key inválida"
+  → Verifica header X-Api-Key en AppSheet
+
+  "No se cargan datos"
+  → Verifica variables de entorno en Vercel
+  → Redesplegar después de añadir variables
+
+  "Formato de fecha inválido"
+  → Usa formato: 2024-10-25 20:00:00 (sin 'T' ni 'Z')
+
+
+📞 SOPORTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  📚 Documentación: README.md y carpeta docs/
+  🐛 Issues: GitHub Issues
+  📧 Email: soporte@cronosai.com
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Creado con ❤️ por CronosAI                      Versión 1.0.0 - 2024  │
+└─────────────────────────────────────────────────────────────────────────┘
+

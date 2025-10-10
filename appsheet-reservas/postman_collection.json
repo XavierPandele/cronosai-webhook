@@ -1,0 +1,339 @@
+{
+  "info": {
+    "name": "AppSheet Reservas API",
+    "_postman_id": "appsheet-reservas-collection",
+    "description": "Colección completa de endpoints para la API de Reservas integrada con AppSheet",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "key",
+        "value": "X-Api-Key",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://tu-proyecto.vercel.app",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "appsheet-cronos-2024",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Reservations CRUD",
+      "item": [
+        {
+          "name": "GET - Listar Todas las Reservas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reservations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"]
+            },
+            "description": "Obtiene todas las reservas sin filtros"
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Filtrar por Estado",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reservations?status=confirmed",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "confirmed",
+                  "description": "pending | confirmed | cancelled | completed"
+                }
+              ]
+            },
+            "description": "Filtra reservas por estado"
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Filtrar por Rango de Fechas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reservations?fecha_inicio=2024-10-01&fecha_fin=2024-10-31",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "fecha_inicio",
+                  "value": "2024-10-01",
+                  "description": "Fecha inicio (YYYY-MM-DD)"
+                },
+                {
+                  "key": "fecha_fin",
+                  "value": "2024-10-31",
+                  "description": "Fecha fin (YYYY-MM-DD)"
+                }
+              ]
+            },
+            "description": "Obtiene reservas en un rango de fechas"
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Buscar por Teléfono",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reservations?telefon=+34612345678",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "telefon",
+                  "value": "+34612345678",
+                  "description": "Número de teléfono del cliente"
+                }
+              ]
+            },
+            "description": "Busca todas las reservas de un cliente por teléfono"
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Obtener Reserva por ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reservations?id=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "ID de la reserva"
+                }
+              ]
+            },
+            "description": "Obtiene una reserva específica por su ID"
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Crear Nueva Reserva",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_persona_reserva\": \"María García López\",\n  \"telefon\": \"+34 612 345 678\",\n  \"data_reserva\": \"2024-10-25 20:00:00\",\n  \"num_persones\": 4,\n  \"observacions\": \"Mesa cerca de la ventana, cumpleaños\",\n  \"status\": \"pending\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reservations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"]
+            },
+            "description": "Crea una nueva reserva"
+          },
+          "response": []
+        },
+        {
+          "name": "PUT - Actualizar Reserva",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"confirmed\",\n  \"observacions\": \"Mesa confirmada en terraza\",\n  \"num_persones\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reservations?id=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "ID de la reserva a actualizar"
+                }
+              ]
+            },
+            "description": "Actualiza campos específicos de una reserva"
+          },
+          "response": []
+        },
+        {
+          "name": "PUT - Confirmar Reserva",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"confirmed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reservations?id=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Atajo para confirmar una reserva"
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE - Eliminar Reserva",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reservations?id=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reservations"],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "1",
+                  "description": "ID de la reserva a eliminar"
+                }
+              ]
+            },
+            "description": "Elimina una reserva permanentemente"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Calendar",
+      "item": [
+        {
+          "name": "GET - Calendario del Mes Actual",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/calendar",
+              "host": ["{{base_url}}"],
+              "path": ["api", "calendar"]
+            },
+            "description": "Obtiene eventos del calendario del mes actual"
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Calendario por Mes y Año",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/calendar?mes=10&anio=2024",
+              "host": ["{{base_url}}"],
+              "path": ["api", "calendar"],
+              "query": [
+                {
+                  "key": "mes",
+                  "value": "10",
+                  "description": "Mes (1-12)"
+                },
+                {
+                  "key": "anio",
+                  "value": "2024",
+                  "description": "Año (YYYY)"
+                }
+              ]
+            },
+            "description": "Obtiene eventos del calendario para un mes específico"
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Calendario por Rango de Fechas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/calendar?fecha_inicio=2024-10-01&fecha_fin=2024-10-31",
+              "host": ["{{base_url}}"],
+              "path": ["api", "calendar"],
+              "query": [
+                {
+                  "key": "fecha_inicio",
+                  "value": "2024-10-01",
+                  "description": "Fecha inicio (YYYY-MM-DD)"
+                },
+                {
+                  "key": "fecha_fin",
+                  "value": "2024-10-31",
+                  "description": "Fecha fin (YYYY-MM-DD)"
+                }
+              ]
+            },
+            "description": "Obtiene eventos del calendario en un rango específico"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Statistics",
+      "item": [
+        {
+          "name": "GET - Estadísticas Completas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stats"]
+            },
+            "description": "Obtiene estadísticas completas del sistema de reservas"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
+
