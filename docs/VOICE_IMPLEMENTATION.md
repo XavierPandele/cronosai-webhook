@@ -46,7 +46,7 @@ self.current_voice = 'es-ES-Neural2-B'
 python src/voice_conversational_simulator.py
 
 # Prueba rápida de la voz
-python src/test_selected_voice.py
+python tests/test_selected_voice.py
 ```
 
 ## 📱 Resultado Final

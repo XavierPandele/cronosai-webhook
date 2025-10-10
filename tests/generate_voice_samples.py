@@ -4,6 +4,8 @@ Script para generar automáticamente muestras de todas las voces
 """
 
 import os
+import sys
+sys.path.append('../src')
 from speech_handler import SpeechToTextHandler
 from dotenv import load_dotenv
 

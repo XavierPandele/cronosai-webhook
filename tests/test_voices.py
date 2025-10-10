@@ -5,6 +5,7 @@ Script simple para probar diferentes voces
 
 import os
 import sys
+sys.path.append('../src')
 from speech_handler import SpeechToTextHandler
 from dotenv import load_dotenv
 
