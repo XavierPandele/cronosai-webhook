@@ -338,8 +338,8 @@ function generateTwiML(response) {
     action="/api/twilio-call" 
     method="POST"
     language="es-ES"
-     speechTimeout="2"
-     timeout="4">
+     speechTimeout="1"
+     timeout="3">
     <Say voice="Google.es-ES-Neural2-B" language="es-ES">${escapeXml(message)}</Say>
   </Gather>
    <Say voice="Google.es-ES-Neural2-B" language="es-ES">${getRandomMessage(['No escuché respuesta. ¿Sigue ahí?', 'Disculpe, no escuché. ¿Sigue ahí?', '¿Está ahí? No escuché nada.', '¿Sigue en la línea? No escuché respuesta.', 'Disculpe, ¿podría repetir? No escuché bien.'])}</Say>
