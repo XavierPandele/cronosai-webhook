@@ -87,13 +87,20 @@ async function processConversationStep(state, userInput) {
   console.log(`📋 Procesando paso: ${step}, Input: "${userInput}"`);
 
   switch (step) {
-    case 'greeting':
-      // Primera interacción - saludo general
-      state.step = 'ask_intention';
-      return {
-        message: '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?',
-        gather: true
-      };
+     case 'greeting':
+       // Primera interacción - saludo general
+       state.step = 'ask_intention';
+       const greetingMessages = [
+         '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?',
+         '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy?',
+         '¡Hola! Gracias por llamar. ¿En qué puedo asistirle?',
+         '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita?',
+         '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle?'
+       ];
+       return {
+         message: getRandomMessage(greetingMessages),
+         gather: true
+       };
 
      case 'ask_intention':
        // Confirmar que quiere hacer una reserva
@@ -101,8 +108,15 @@ async function processConversationStep(state, userInput) {
        
        if (intentionResult.action === 'reservation') {
          state.step = 'ask_people';
+         const reservationMessages = [
+           '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?',
+           '¡Excelente! Me alegra ayudarle con la reserva. ¿Cuántas personas serán?',
+           '¡Muy bien! Con gusto le ayudo. ¿Para cuántos comensales?',
+           '¡Perfecto! ¿Para cuántas personas necesita la mesa?',
+           '¡Genial! ¿Cuántas personas van a venir?'
+         ];
          return {
-           message: '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?',
+           message: getRandomMessage(reservationMessages),
            gather: true
          };
        } else if (intentionResult.action === 'clarify') {
@@ -122,8 +136,15 @@ async function processConversationStep(state, userInput) {
        if (people) {
          state.data.NumeroReserva = people;
          state.step = 'ask_date';
+         const peopleMessages = [
+           `Perfecto, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha?`,
+           `Excelente, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Qué día prefieren?`,
+           `Muy bien, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para cuándo?`,
+           `Perfecto, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué día?`,
+           `Genial, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Cuándo les gustaría venir?`
+         ];
          return {
-           message: `Perfecto, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha?`,
+           message: getRandomMessage(peopleMessages),
            gather: true
          };
        } else {
@@ -139,8 +160,15 @@ async function processConversationStep(state, userInput) {
        if (date) {
          state.data.FechaReserva = date;
          state.step = 'ask_time';
+         const dateMessages = [
+           `Perfecto, ${formatDateSpanish(date)}. ¿A qué hora?`,
+           `Excelente, ${formatDateSpanish(date)}. ¿A qué hora prefieren?`,
+           `Muy bien, ${formatDateSpanish(date)}. ¿A qué hora les gustaría venir?`,
+           `Perfecto, ${formatDateSpanish(date)}. ¿Qué hora les conviene?`,
+           `Genial, ${formatDateSpanish(date)}. ¿A qué hora?`
+         ];
          return {
-           message: `Perfecto, ${formatDateSpanish(date)}. ¿A qué hora?`,
+           message: getRandomMessage(dateMessages),
            gather: true
          };
        } else {
@@ -156,8 +184,15 @@ async function processConversationStep(state, userInput) {
        if (time) {
          state.data.HoraReserva = time;
          state.step = 'ask_name';
+         const timeMessages = [
+           `Perfecto, a las ${time}. ¿Su nombre?`,
+           `Excelente, a las ${time}. ¿Cómo se llama?`,
+           `Muy bien, a las ${time}. ¿Su nombre, por favor?`,
+           `Perfecto, a las ${time}. ¿Cómo me dice su nombre?`,
+           `Genial, a las ${time}. ¿Su nombre?`
+         ];
          return {
-           message: `Perfecto, a las ${time}. ¿Su nombre?`,
+           message: getRandomMessage(timeMessages),
            gather: true
          };
        } else {
@@ -173,8 +208,15 @@ async function processConversationStep(state, userInput) {
        if (name) {
          state.data.NomReserva = name;
          state.step = 'ask_phone';
+         const nameMessages = [
+           `Perfecto, ${name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?`,
+           `Excelente, ${name}. ¿Usa este número o prefiere dar otro?`,
+           `Muy bien, ${name}. ¿Este teléfono está bien o quiere otro?`,
+           `Perfecto, ${name}. ¿Le sirve este número o prefiere uno diferente?`,
+           `Genial, ${name}. ¿Usa este número o necesita otro?`
+         ];
          return {
-           message: `Perfecto, ${name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?`,
+           message: getRandomMessage(nameMessages),
            gather: true
          };
        } else {
@@ -243,8 +285,15 @@ async function processConversationStep(state, userInput) {
        
        if (confirmationResult.action === 'confirm') {
          state.step = 'complete';
+         const confirmMessages = [
+           '¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!',
+           '¡Excelente! Reserva confirmada. Les esperamos. ¡Que tengan buen día!',
+           '¡Muy bien! Todo listo. Les esperamos. ¡Hasta pronto!',
+           '¡Genial! Reserva confirmada. Nos vemos pronto. ¡Buen día!',
+           '¡Perfecto! Todo confirmado. Les esperamos. ¡Que disfruten!'
+         ];
          return {
-           message: '¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!',
+           message: getRandomMessage(confirmMessages),
            gather: false
          };
        } else if (confirmationResult.action === 'modify') {
@@ -289,11 +338,11 @@ function generateTwiML(response) {
     action="/api/twilio-call" 
     method="POST"
     language="es-ES"
-     speechTimeout="3"
-     timeout="5">
+     speechTimeout="2"
+     timeout="4">
     <Say voice="Google.es-ES-Neural2-B" language="es-ES">${escapeXml(message)}</Say>
   </Gather>
-  <Say voice="Google.es-ES-Neural2-B" language="es-ES">No escuché respuesta. ¿Sigue ahí?</Say>
+   <Say voice="Google.es-ES-Neural2-B" language="es-ES">${getRandomMessage(['No escuché respuesta. ¿Sigue ahí?', 'Disculpe, no escuché. ¿Sigue ahí?', '¿Está ahí? No escuché nada.', '¿Sigue en la línea? No escuché respuesta.', 'Disculpe, ¿podría repetir? No escuché bien.'])}</Say>
   <Redirect>/api/twilio-call</Redirect>
 </Response>`;
   } else {
@@ -388,6 +437,11 @@ async function saveReservation(state) {
 }
 
 // Funciones auxiliares de extracción
+
+function getRandomMessage(messages) {
+  const randomIndex = Math.floor(Math.random() * messages.length);
+  return messages[randomIndex];
+}
 
 function handleConfirmationResponse(text) {
   // Palabras de confirmación positiva
@@ -554,36 +608,45 @@ function handleIntentionResponse(text) {
 function handleUnclearResponse(text, field) {
   const responses = {
     people: [
-      'No entendí. ¿Cuántas personas serán? Puede decir un número del 1 al 20.',
-      '¿Para cuántas personas? Dígame un número, por ejemplo: dos, tres, cuatro...',
-      'Necesito saber el número de personas. ¿Cuántas serán?'
+      'Disculpe, no entendí. ¿Cuántas personas serán?',
+      '¿Para cuántas personas? Dígame un número del 1 al 20.',
+      'No capté bien. ¿Cuántas personas van a venir?',
+      '¿Podría repetir? ¿Para cuántas personas?',
+      'Disculpe, ¿cuántas personas serán en total?'
     ],
     date: [
-      'No entendí la fecha. ¿Qué día? Puede decir mañana, pasado mañana, o un día específico.',
-      '¿Para qué fecha? Puede decir el día de la semana o la fecha.',
-      'No capté la fecha. ¿Qué día le gustaría venir?'
+      'No entendí bien la fecha. ¿Qué día prefieren?',
+      '¿Para qué día? Pueden decir mañana, pasado mañana, o un día específico.',
+      'Disculpe, no capté la fecha. ¿Qué día les conviene?',
+      '¿Podrían repetir? ¿Para qué fecha?',
+      'No entendí. ¿Qué día quieren venir?'
     ],
     time: [
-      'No entendí la hora. ¿A qué hora? Puede decir por ejemplo: las ocho, las ocho y media...',
-      '¿A qué hora? Dígame la hora, por ejemplo: ocho de la noche.',
-      'No capté la hora. ¿A qué hora quiere la reserva?'
+      'No entendí bien la hora. ¿A qué hora prefieren?',
+      '¿A qué hora? Pueden decir por ejemplo: las ocho, las ocho y media...',
+      'Disculpe, no capté la hora. ¿A qué hora les gustaría venir?',
+      '¿Podrían repetir? ¿A qué hora?',
+      'No entendí. ¿A qué hora quieren la reserva?'
     ],
     name: [
-      'No entendí su nombre. ¿Cómo se llama?',
+      'Disculpe, no entendí bien su nombre. ¿Cómo se llama?',
       '¿Su nombre? Por favor, dígamelo despacio.',
-      'No capté su nombre. ¿Puede repetirlo?'
+      'No capté su nombre. ¿Podría repetirlo?',
+      'Disculpe, ¿cómo se llama?',
+      '¿Podría decirme su nombre otra vez?'
     ],
     phone: [
-      'No entendí el número. Puede decirlo dígito por dígito.',
+      'No entendí bien el número. ¿Podría decirlo dígito por dígito?',
       '¿El número de teléfono? Dígalo despacio, número por número.',
-      'No capté el teléfono. ¿Puede repetirlo dígito por dígito?'
+      'Disculpe, no capté el teléfono. ¿Puede repetirlo?',
+      '¿Podría repetir el número? Dígito por dígito.',
+      'No entendí. ¿Su número de teléfono?'
     ]
   };
   
   // Seleccionar respuesta aleatoria para evitar monotonía
-  const fieldResponses = responses[field] || ['No entendí. ¿Puede repetir?'];
-  const randomIndex = Math.floor(Math.random() * fieldResponses.length);
-  return fieldResponses[randomIndex];
+  const fieldResponses = responses[field] || ['Disculpe, no entendí. ¿Puede repetir?'];
+  return getRandomMessage(fieldResponses);
 }
 
 function isReservationRequest(text) {
