@@ -88,18 +88,24 @@ async function processConversationStep(state, userInput) {
 
   switch (step) {
     case 'greeting':
-      // Detectar si es una solicitud de reserva
-      if (isReservationRequest(text) || !userInput) {
+      // Primera interacción - saludo general
+      state.step = 'ask_intention';
+      return {
+        message: '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?',
+        gather: true
+      };
+
+    case 'ask_intention':
+      // Confirmar que quiere hacer una reserva
+      if (isReservationRequest(text)) {
         state.step = 'ask_people';
         return {
-          message: userInput ? 
-            '¡Perfecto! ¿Para cuántas personas?' :
-            '¡Hola! Bienvenido. ¿Para cuántas personas desea reservar?',
+          message: '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?',
           gather: true
         };
       } else {
         return {
-          message: '¿Desea hacer una reserva?',
+          message: 'Disculpe, solo puedo ayudarle con reservas. ¿Le gustaría hacer una reserva?',
           gather: true
         };
       }
@@ -156,7 +162,58 @@ async function processConversationStep(state, userInput) {
       const name = extractName(text);
       if (name) {
         state.data.NomReserva = name;
+        state.step = 'ask_phone';
+        return {
+          message: `Perfecto, ${name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?`,
+          gather: true
+        };
+      } else {
+        return {
+          message: 'No entendí. ¿Su nombre?',
+          gather: true
+        };
+      }
+
+    case 'ask_phone':
+      // Verificar si quiere usar el número actual o dar otro
+      if (text.includes('este') || text.includes('mismo') || text.includes('si') || text.includes('sí') || text.includes('vale') || text.includes('ok')) {
+        // Usa el número de la llamada
         state.data.TelefonReserva = state.phone;
+        state.step = 'confirm';
+        return {
+          message: getConfirmationMessage(state.data),
+          gather: true
+        };
+      } else if (text.includes('otro') || text.includes('diferente') || text.includes('no')) {
+        // Preguntar por otro número
+        state.step = 'ask_phone_number';
+        return {
+          message: '¿Qué número de teléfono prefiere?',
+          gather: true
+        };
+      } else {
+        // Intentar extraer un número directamente
+        const phoneMatch = text.match(/\d{9,}/);
+        if (phoneMatch) {
+          state.data.TelefonReserva = phoneMatch[0];
+          state.step = 'confirm';
+          return {
+            message: getConfirmationMessage(state.data),
+            gather: true
+          };
+        } else {
+          return {
+            message: '¿Desea usar este número o prefiere dar otro?',
+            gather: true
+          };
+        }
+      }
+
+    case 'ask_phone_number':
+      // Extraer el número de teléfono (puede estar en dígitos o palabras)
+      const extractedPhone = extractPhoneNumber(text);
+      if (extractedPhone && extractedPhone.length >= 9) {
+        state.data.TelefonReserva = extractedPhone;
         state.step = 'confirm';
         return {
           message: getConfirmationMessage(state.data),
@@ -164,7 +221,7 @@ async function processConversationStep(state, userInput) {
         };
       } else {
         return {
-          message: 'No entendí. ¿Su nombre?',
+          message: 'No entendí el número. Por favor, dígalo dígito por dígito.',
           gather: true
         };
       }
@@ -312,8 +369,12 @@ async function saveReservation(state) {
 // Funciones auxiliares de extracción
 
 function isReservationRequest(text) {
-  const words = ['reservar', 'mesa', 'reserva', 'quiero', 'necesito', 'si', 'sí'];
-  return words.some(word => text.includes(word));
+  const reservationWords = [
+    'reservar', 'reserva', 'mesa', 'quiero', 'necesito', 
+    'me gustaría', 'quisiera', 'deseo', 'quería',
+    'hacer una reserva', 'reservar mesa', 'si', 'sí', 'vale'
+  ];
+  return reservationWords.some(word => text.includes(word));
 }
 
 function extractPeopleCount(text) {
@@ -611,6 +672,42 @@ function extractName(text) {
       .join(' ');
   }
   
+  return null;
+}
+
+function extractPhoneNumber(text) {
+  // Primero intentar extraer números directamente
+  const directMatch = text.match(/\d{9,}/);
+  if (directMatch) {
+    return directMatch[0];
+  }
+
+  // Mapeo de palabras a dígitos
+  const wordToDigit = {
+    'cero': '0', 'uno': '1', 'una': '1', 'dos': '2', 'tres': '3', 
+    'cuatro': '4', 'cinco': '5', 'seis': '6', 'siete': '7', 
+    'ocho': '8', 'nueve': '9'
+  };
+
+  // Convertir palabras a dígitos
+  let phoneNumber = '';
+  const words = text.split(/\s+/);
+  
+  for (const word of words) {
+    const cleanWord = word.toLowerCase().replace(/[,\.]/g, '');
+    if (wordToDigit[cleanWord]) {
+      phoneNumber += wordToDigit[cleanWord];
+    } else if (/^\d$/.test(cleanWord)) {
+      // Si ya es un dígito, agregarlo
+      phoneNumber += cleanWord;
+    }
+  }
+
+  // Si tenemos al menos 9 dígitos, retornar
+  if (phoneNumber.length >= 9) {
+    return phoneNumber;
+  }
+
   return null;
 }
 
