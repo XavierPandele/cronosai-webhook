@@ -1,0 +1,28 @@
+# Ignorar archivos Python y sus dependencias
+src/
+*.py
+requirements.txt
+__pycache__/
+*.pyc
+
+# Archivos de documentación que no se necesitan en producción
+*.md
+ARQUITECTURA_VISUAL.md
+EJEMPLOS_CONVERSACIONES.md
+GUIA_TWILIO.md
+INDICE_COMPLETO.md
+README_TWILIO.md
+RESUMEN_IMPLEMENTACION.md
+TWILIO_QUICKSTART.md
+
+# Test files
+test_*.py
+test_*.js
+test_*.mp3
+
+# Sistema de reservas separado (si lo tienes en otro proyecto)
+sistema-reservas/
+
+# Archivos temporales
+public/marica.txt
+
