@@ -304,39 +304,153 @@ async function processConversationStep(state, userInput) {
 
 async function generateBotResponse(step, state, context = {}) {
   const prompts = {
-    greeting: "Eres una recepcionista amable de un restaurante. Saluda y pregunta en qué puedes ayudar. Máximo 15 palabras. Sé natural y cálida.",
+    greeting: `Eres un recepcionista masculino profesional de un restaurante español. 
+Tu tono es amable, directo y eficiente (no cursi ni excesivamente formal).
+Genera UN SOLO saludo breve preguntando en qué puedes ayudar.
+Ejemplos del estilo que debes imitar:
+- "¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?"
+- "¡Buenos días! ¿Cómo puedo ayudarle?"
+- "¡Hola! ¿Qué necesita?"
+Genera UNA variación similar pero diferente. Máximo 12 palabras. Solo la frase, sin comillas ni explicaciones.`,
     
-    ask_people: `Di "Perfecto, encantado de ayudarle" y pregunta para cuántas personas de forma natural. Máximo 15 palabras.`,
+    ask_people: `Eres un recepcionista masculino profesional. El cliente quiere hacer una reserva.
+Genera UNA frase que:
+1. Confirme brevemente que le ayudarás (ej: "Perfecto", "Excelente", "Muy bien")
+2. Pregunte para cuántas personas
+Ejemplos del estilo:
+- "¡Perfecto! ¿Para cuántas personas?"
+- "¡Excelente! ¿Cuántas personas serán?"
+- "¡Muy bien! ¿Para cuántos?"
+Genera UNA variación similar. Máximo 10 palabras. Solo la frase.`,
     
-    ask_date: `El cliente reserva para ${context.people} persona(s). Confirma el número y pregunta qué día prefieren de forma natural. Máximo 15 palabras.`,
+    ask_date: `Eres un recepcionista masculino. El cliente reserva para ${context.people} persona(s).
+Genera UNA frase que:
+1. Confirme brevemente el número (ej: "Perfecto, ${context.people} personas")
+2. Pregunte qué día
+Ejemplos del estilo:
+- "Perfecto, ${context.people} personas. ¿Para qué día?"
+- "Muy bien, ${context.people} personas. ¿Qué día prefieren?"
+- "Excelente, ${context.people} personas. ¿Cuándo?"
+Genera UNA variación similar. Máximo 12 palabras. Solo la frase.`,
     
-    ask_time: `La reserva es para el ${context.date}. Confirma la fecha y pregunta a qué hora de forma natural. Máximo 15 palabras.`,
+    ask_time: `Eres un recepcionista masculino. La reserva es para el ${context.date}.
+Genera UNA frase que:
+1. Confirme brevemente la fecha (ej: "Perfecto, ${context.date}")
+2. Pregunte la hora
+Ejemplos del estilo:
+- "Perfecto, ${context.date}. ¿A qué hora?"
+- "Muy bien, ${context.date}. ¿Qué hora les conviene?"
+- "Excelente, ${context.date}. ¿A qué hora prefieren?"
+Genera UNA variación similar. Máximo 11 palabras. Solo la frase.`,
     
-    ask_name: `La hora es ${context.time}. Confirma la hora y pregunta el nombre de forma natural. Máximo 12 palabras.`,
+    ask_name: `Eres un recepcionista masculino. La hora de reserva es las ${context.time}.
+Genera UNA frase que:
+1. Confirme brevemente la hora (ej: "Perfecto, a las ${context.time}")
+2. Pregunte el nombre
+Ejemplos del estilo:
+- "Perfecto, a las ${context.time}. ¿Su nombre?"
+- "Muy bien, a las ${context.time}. ¿Cómo se llama?"
+- "Excelente, a las ${context.time}. ¿Su nombre, por favor?"
+Genera UNA variación similar. Máximo 10 palabras. Solo la frase.`,
     
-    ask_phone: `El nombre es ${context.name}. Confirma el nombre y pregunta si desea usar este número de teléfono o dar otro. Máximo 15 palabras.`,
+    ask_phone: `Eres un recepcionista masculino. El nombre del cliente es ${context.name}.
+Genera UNA frase que:
+1. Confirme brevemente el nombre (ej: "Perfecto, ${context.name}")
+2. Pregunte si desea usar este número de teléfono o dar otro
+Ejemplos del estilo:
+- "Perfecto, ${context.name}. ¿Usa este número o prefiere otro?"
+- "Muy bien, ${context.name}. ¿Este teléfono está bien?"
+- "Excelente, ${context.name}. ¿Le sirve este número?"
+Genera UNA variación similar. Máximo 13 palabras. Solo la frase.`,
     
-    ask_phone_number: "Pregunta qué número de teléfono prefiere de forma natural. Máximo 10 palabras.",
+    ask_phone_number: `Eres un recepcionista masculino profesional.
+Genera UNA pregunta breve pidiendo el número de teléfono.
+Ejemplos del estilo:
+- "¿Qué número de teléfono prefiere?"
+- "¿Su número de teléfono?"
+- "¿Cuál es su teléfono?"
+Genera UNA variación similar. Máximo 8 palabras. Solo la frase.`,
     
-    complete: "Di que la reserva está confirmada, que les esperan y despídete cordialmente. Máximo 15 palabras.",
+    complete: `Eres un recepcionista masculino profesional. La reserva está confirmada.
+Genera UNA frase que:
+1. Confirme que está todo listo
+2. Diga que les esperan
+3. Se despida cordialmente
+Ejemplos del estilo:
+- "¡Perfecto! Su reserva está confirmada. Les esperamos. ¡Buen día!"
+- "¡Excelente! Todo listo. Nos vemos pronto. ¡Que disfruten!"
+- "¡Muy bien! Reserva confirmada. Les esperamos. ¡Hasta pronto!"
+Genera UNA variación similar. Máximo 14 palabras. Solo la frase.`,
     
-    error_people: "Disculpa educadamente y pide el número de personas de nuevo. Máximo 12 palabras.",
+    error_people: `Eres un recepcionista masculino. No entendiste el número de personas.
+Genera UNA disculpa breve y vuelve a preguntar.
+Ejemplos del estilo:
+- "Disculpe, no entendí. ¿Cuántas personas serán?"
+- "Perdón, ¿para cuántas personas?"
+- "No capté bien. ¿Cuántos serán?"
+Genera UNA variación similar. Máximo 9 palabras. Solo la frase.`,
     
-    error_date: "Disculpa educadamente y pide la fecha de nuevo (pueden decir mañana, pasado mañana, o día específico). Máximo 15 palabras.",
+    error_date: `Eres un recepcionista masculino. No entendiste la fecha.
+Genera UNA disculpa breve y vuelve a preguntar la fecha.
+Ejemplos del estilo:
+- "No entendí la fecha. ¿Qué día prefieren?"
+- "Perdón, ¿para qué día?"
+- "Disculpe, ¿qué día les conviene?"
+Genera UNA variación similar. Máximo 9 palabras. Solo la frase.`,
     
-    error_time: "Disculpa educadamente y pide la hora de nuevo. Máximo 12 palabras.",
+    error_time: `Eres un recepcionista masculino. No entendiste la hora.
+Genera UNA disculpa breve y vuelve a preguntar la hora.
+Ejemplos del estilo:
+- "No entendí la hora. ¿A qué hora prefieren?"
+- "Perdón, ¿a qué hora?"
+- "Disculpe, ¿qué hora les conviene?"
+Genera UNA variación similar. Máximo 9 palabras. Solo la frase.`,
     
-    error_name: "Disculpa educadamente y pide el nombre de nuevo. Máximo 10 palabras.",
+    error_name: `Eres un recepcionista masculino. No entendiste el nombre.
+Genera UNA disculpa breve y pide el nombre de nuevo.
+Ejemplos del estilo:
+- "Disculpe, no entendí su nombre. ¿Cómo se llama?"
+- "Perdón, ¿su nombre?"
+- "No capté. ¿Cómo se llama?"
+Genera UNA variación similar. Máximo 8 palabras. Solo la frase.`,
     
-    error_phone: "Disculpa educadamente y pide el teléfono dígito por dígito. Máximo 12 palabras.",
+    error_phone: `Eres un recepcionista masculino. No entendiste el teléfono.
+Genera UNA disculpa breve y pide el teléfono dígito por dígito.
+Ejemplos del estilo:
+- "No entendí el número. ¿Puede decirlo dígito por dígito?"
+- "Perdón, ¿el teléfono? Dígito por dígito."
+- "Disculpe, repita el número despacio."
+Genera UNA variación similar. Máximo 10 palabras. Solo la frase.`,
     
-    retry_phone: "Pregunta si desea usar este número o prefiere dar otro. Máximo 12 palabras.",
+    retry_phone: `Eres un recepcionista masculino. Pregunta si quiere usar este número u otro.
+Ejemplos del estilo:
+- "¿Desea usar este número o prefiere otro?"
+- "¿Este teléfono está bien o da otro?"
+- "¿Le sirve este número?"
+Genera UNA variación similar. Máximo 9 palabras. Solo la frase.`,
     
-    clarify_intention: "Pregunta educadamente si desea hacer una reserva. Máximo 10 palabras.",
+    clarify_intention: `Eres un recepcionista masculino. No está claro si el cliente quiere reservar.
+Genera UNA pregunta breve y directa.
+Ejemplos del estilo:
+- "¿Le gustaría hacer una reserva?"
+- "¿Desea reservar mesa?"
+- "¿Quiere hacer una reserva?"
+Genera UNA variación similar. Máximo 7 palabras. Solo la frase.`,
     
-    clarify_confirmation: "Pregunta si los datos son correctos, puede decir sí, no, o qué quiere cambiar. Máximo 12 palabras.",
+    clarify_confirmation: `Eres un recepcionista masculino. Pregunta si los datos de la reserva son correctos.
+Ejemplos del estilo:
+- "¿Es correcto? Puede decir sí o qué quiere cambiar."
+- "¿Todo bien? Diga sí para confirmar o qué cambiar."
+- "¿Correcto? Confirme o diga qué modificar."
+Genera UNA variación similar. Máximo 11 palabras. Solo la frase.`,
     
-    restart: "Di 'De acuerdo, empezamos de nuevo' y pregunta para cuántas personas. Máximo 12 palabras."
+    restart: `Eres un recepcionista masculino. El cliente quiere empezar de nuevo.
+Genera UNA frase que confirme y pregunte para cuántas personas.
+Ejemplos del estilo:
+- "De acuerdo, empezamos de nuevo. ¿Para cuántas personas?"
+- "Perfecto, de nuevo. ¿Cuántas personas?"
+- "Vale, desde el inicio. ¿Para cuántos?"
+Genera UNA variación similar. Máximo 10 palabras. Solo la frase.`
   };
 
   try {
@@ -357,42 +471,62 @@ async function generateBotResponse(step, state, context = {}) {
 }
 
 async function extractInfoWithGemini(userInput, state, field) {
+  const today = new Date();
   const prompts = {
-    people: `
+    people: `Eres un asistente experto en extraer información de reservas en español.
+
 Usuario dice: "${userInput}"
 
-Extrae SOLO el número de personas mencionado. 
-Si dice "no mejor X", devuelve X (el último número).
-Si no menciona número, devuelve null.
+Tu tarea: Extraer el número de personas.
 
-Responde SOLO con JSON: {"people": número o null}
-`,
+REGLAS:
+1. Si dice números en palabras (uno, dos, tres...) o dígitos (1, 2, 3...), extrae el número
+2. Si menciona VARIOS números y dice "no" o "mejor", devuelve SOLO el ÚLTIMO número mencionado
+3. Si dice "para 3, no mejor 4" → devuelve 4
+4. Si dice "mesa para 5" → devuelve 5
+5. Si NO menciona ningún número → devuelve null
+
+Responde SOLO con JSON válido: {"people": número o null}
+Ejemplo: {"people": 4}`,
     
-    date: `
+    date: `Eres un asistente experto en extraer fechas en español.
+
 Usuario dice: "${userInput}"
+HOY es: ${today.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 
-Extrae la fecha mencionada.
-Hoy es ${new Date().toLocaleDateString('es-ES')}.
-Si dice "mañana", devuelve la fecha de mañana en formato YYYY-MM-DD.
-Si dice "pasado mañana", devuelve dentro de 2 días.
-Si dice un día de la semana (lunes, martes, etc), calcula la fecha del próximo.
-Si dice un mes y día (10 de octubre), calcula la fecha.
-Si no menciona fecha, devuelve null.
+Tu tarea: Extraer la fecha de la reserva en formato YYYY-MM-DD.
 
-Responde SOLO con JSON: {"date": "YYYY-MM-DD" o null}
-`,
+REGLAS PARA FECHAS:
+1. "hoy" → ${formatDateISO(today)}
+2. "mañana" → fecha de mañana
+3. "pasado mañana" → dentro de 2 días (NO confundir con "mañana")
+4. "viernes", "lunes", etc. → próximo día de esa semana
+5. "el viernes que viene" → siguiente semana
+6. "10 de octubre", "15 de marzo" → calcula la fecha completa (si ya pasó este año, usar año siguiente)
+7. Si menciona VARIAS fechas y dice "no" o "mejor", usa SOLO la ÚLTIMA
+8. Si NO menciona fecha → null
+
+Responde SOLO con JSON válido: {"date": "YYYY-MM-DD" o null}
+Ejemplo: {"date": "2025-10-15"}`,
     
-    time: `
+    time: `Eres un asistente experto en extraer horas para reservas de restaurante.
+
 Usuario dice: "${userInput}"
 
-Extrae la hora mencionada.
-Si dice "las ocho", convierte a formato 20:00 (asume noche si es hora de cena).
-Si dice "ocho y media", convierte a 20:30.
-Si dice "no mejor X", devuelve X (la última hora).
-Si no menciona hora, devuelve null.
+Tu tarea: Extraer la hora en formato 24h (HH:MM).
 
-Responde SOLO con JSON: {"time": "HH:MM" o null}
-`
+REGLAS PARA HORAS:
+1. "las ocho", "a las 8" → 20:00 (asumir NOCHE para restaurantes, añadir 12 si es < 12)
+2. "ocho y media", "8:30" → 20:30
+3. "nueve menos cuarto" → 20:45
+4. "a las dos de la tarde" → 14:00
+5. "a las diez de la noche" → 22:00
+6. Si menciona VARIAS horas y dice "no" o "mejor", usa SOLO la ÚLTIMA
+7. Horas típicas de restaurante: 13:00-16:00 (almuerzo) o 19:00-23:00 (cena)
+8. Si NO menciona hora → null
+
+Responde SOLO con JSON válido: {"time": "HH:MM" o null}
+Ejemplo: {"time": "20:30"}`
   };
 
   try {
@@ -418,16 +552,25 @@ Responde SOLO con JSON: {"time": "HH:MM" o null}
 }
 
 async function analyzeIntentionWithGemini(userInput, state) {
-  const prompt = `
-Usuario dice: "${userInput}"
+  const prompt = `Eres un asistente experto en entender intenciones de clientes en un restaurante.
 
-Determina la intención del usuario:
-- Si quiere hacer una reserva (menciona "reserva", "mesa", "quiero", "sí"): devuelve "reservation"
-- Si dice "no" o no quiere reserva: devuelve "decline"
-- Si no está claro: devuelve "unclear"
+El recepcionista preguntó: "¿En qué puedo ayudarle?"
+Usuario responde: "${userInput}"
 
-Responde SOLO con JSON: {"action": "reservation" | "decline" | "unclear"}
-`;
+Tu tarea: Determinar si el cliente quiere hacer una RESERVA o no.
+
+ANÁLISIS:
+1. Palabras que indican RESERVA: "reservar", "mesa", "quiero", "necesito", "sí", "si", "vale", "ok", "adelante", "quisiera", "me gustaría"
+2. Palabras que indican RECHAZO: "no", "nada", "solo llamo para preguntar", "información", "cancelar"
+3. Si NO está claro → "unclear"
+
+DECISIÓN:
+- Si claramente quiere reserva → {"action": "reservation"}
+- Si claramente NO quiere → {"action": "decline"}
+- Si no está claro → {"action": "unclear"}
+
+Responde SOLO con JSON válido: {"action": "reservation" | "decline" | "unclear"}
+Ejemplo: {"action": "reservation"}`;
 
   try {
     const result = await model.generateContent(prompt);
@@ -461,18 +604,42 @@ Responde SOLO con JSON: {"action": "reservation" | "decline" | "unclear"}
 }
 
 async function analyzeConfirmationWithGemini(userInput, state) {
-  const prompt = `
-Usuario dice: "${userInput}"
-Contexto: Estamos confirmando una reserva.
+  const reservationData = state.data;
+  const prompt = `Eres un asistente experto en confirmar reservas de restaurante.
 
-Determina qué quiere hacer el usuario:
-- Si confirma (dice "sí", "correcto", "perfecto", "ok"): devuelve "confirm"
-- Si quiere cambiar algo específico (menciona "personas", "fecha", "hora", "nombre", "teléfono"): devuelve "modify" y qué campo
-- Si dice "no" o "cambiar" sin especificar: devuelve "clarify"
-- Si quiere empezar de nuevo: devuelve "restart"
+El recepcionista acaba de leer los datos de la reserva:
+- ${reservationData.NumeroReserva} persona(s)
+- ${formatDateSpanish(reservationData.FechaReserva)}
+- ${reservationData.HoraReserva}
+- ${reservationData.NomReserva}
+- Teléfono: ${reservationData.TelefonReserva}
 
-Responde SOLO con JSON: {"action": "confirm" | "modify" | "clarify" | "restart", "modification": "people" | "date" | "time" | "name" | "phone" o null}
-`;
+Usuario responde: "${userInput}"
+
+Tu tarea: Determinar qué quiere hacer el cliente.
+
+OPCIONES:
+1. CONFIRMAR → Cliente dice "sí", "correcto", "perfecto", "ok", "bien", "vale", "exacto", "confirmo", "adelante"
+   → {"action": "confirm"}
+
+2. MODIFICAR ALGO ESPECÍFICO → Cliente menciona QUÉ quiere cambiar:
+   - "cambiar personas", "para 5 no mejor 6" → {"action": "modify", "modification": "people"}
+   - "cambiar fecha", "otro día", "mañana no" → {"action": "modify", "modification": "date"}
+   - "cambiar hora", "más tarde", "a las 9" → {"action": "modify", "modification": "time"}
+   - "cambiar nombre", "mal nombre" → {"action": "modify", "modification": "name"}
+   - "cambiar teléfono", "otro número" → {"action": "modify", "modification": "phone"}
+
+3. NEGAR SIN ESPECIFICAR → Cliente dice "no", "mal", "incorrecto" pero NO dice QUÉ cambiar
+   → {"action": "clarify"}
+
+4. EMPEZAR DE NUEVO → Cliente dice "empezar de nuevo", "volver a empezar", "otra vez todo"
+   → {"action": "restart"}
+
+Responde SOLO con JSON válido: {"action": "confirm" | "modify" | "clarify" | "restart", "modification": "people" | "date" | "time" | "name" | "phone" | null}
+Ejemplos:
+{"action": "confirm"}
+{"action": "modify", "modification": "time"}
+{"action": "clarify"}`;
 
   try {
     const result = await model.generateContent(prompt);
