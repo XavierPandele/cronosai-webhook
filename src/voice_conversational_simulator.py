@@ -18,6 +18,20 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
+# Lista de voces disponibles para probar (solo las que funcionan)
+AVAILABLE_VOICES = {
+    '1': 'es-ES-Neural2-A',      # Voz femenina actual
+    '2': 'es-ES-Neural2-B',      # Voz masculina
+    '3': 'es-ES-Neural2-C',      # Voz femenina alternativa
+    '4': 'es-ES-Standard-A',     # Voz estándar femenina
+    '5': 'es-ES-Standard-B',     # Voz estándar masculina
+    '6': 'es-ES-Standard-C',     # Voz estándar femenina 2
+    '7': 'es-ES-Standard-D',     # Voz estándar masculina 2
+    '8': 'es-ES-Wavenet-B',      # Voz WaveNet masculina
+    '9': 'es-ES-Wavenet-C',      # Voz WaveNet femenina
+    '10': 'es-ES-Wavenet-D',     # Voz WaveNet masculina 2
+}
+
 class VoiceConversationalSimulator:
     def __init__(self):
         """Simulador de llamada telefónica por voz"""
@@ -41,16 +55,99 @@ class VoiceConversationalSimulator:
         self.audio = pyaudio.PyAudio()
         self.is_recording = False
         
+        # Voz actual (por defecto)
+        self.current_voice = 'es-ES-Neural2-B'
+        
+    def select_voice(self):
+        """Permite al usuario seleccionar una voz"""
+        print("\n" + "="*60)
+        print("SELECTOR DE VOCES - Elige la voz que mas te guste")
+        print("="*60)
+        print("Voces disponibles:")
+        print()
+        
+        for key, voice in AVAILABLE_VOICES.items():
+            voice_type = "Neural2" if "Neural2" in voice else "Standard" if "Standard" in voice else "WaveNet"
+            gender = "Femenina" if voice.endswith('A') or voice.endswith('C') else "Masculina"
+            current = " [ACTUAL]" if voice == self.current_voice else ""
+            print(f"  {key:2}. {voice:<25} ({voice_type} - {gender}){current}")
+        
+        print()
+        print("Comandos especiales:")
+        print("  'test' - Probar la voz actual")
+        print("  'current' - Ver voz actual")
+        print("  'skip' - Continuar con la voz actual")
+        print()
+        
+        while True:
+            choice = input("Elige una voz (número) o comando: ").strip().lower()
+            
+            if choice == 'skip':
+                break
+            elif choice == 'current':
+                print(f"Voz actual: {self.current_voice}")
+                continue
+            elif choice == 'test':
+                self.test_current_voice()
+                continue
+            elif choice in AVAILABLE_VOICES:
+                self.current_voice = AVAILABLE_VOICES[choice]
+                print(f"Voz cambiada a: {self.current_voice}")
+                self.test_current_voice()
+                break
+            else:
+                print("Opcion no valida. Intenta de nuevo.")
+    
+    def test_current_voice(self):
+        """Prueba la voz actual con un mensaje de ejemplo"""
+        test_message = "Hola, esta es una prueba de la voz actual. ¿Te gusta cómo suena?"
+        print(f"\nProbando voz: {self.current_voice}")
+        print(f"Mensaje: '{test_message}'")
+        
+        # Crear un speech_handler temporal con la nueva voz
+        temp_speech_handler = SpeechToTextHandler()
+        temp_speech_handler.voice_name = self.current_voice
+        
+        try:
+            # Sintetizar voz con la voz seleccionada
+            audio_content = temp_speech_handler.synthesize_speech(test_message, voice_name=self.current_voice)
+            
+            if audio_content:
+                # Guardar audio temporal
+                temp_file = "temp_voice_test.mp3"
+                with open(temp_file, 'wb') as f:
+                    f.write(audio_content)
+                
+                # Reproducir
+                self.play_audio_file(temp_file)
+                
+                # Limpiar
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                
+                print("Prueba completada")
+            else:
+                print("Error sintetizando voz")
+                
+        except Exception as e:
+            print(f"Error probando voz: {e}")
+        
     def start_call_simulation(self):
         """Inicia la simulación de llamada telefónica por voz"""
         print("SIMULADOR DE LLAMADA TELEFONICA POR VOZ")
         print("=" * 50)
+        
+        # Seleccionar voz al inicio
+        self.select_voice()
+        
+        print("\n" + "="*50)
         print("Instrucciones:")
         print("1. El sistema te hablará y te hará preguntas")
         print("2. Presiona ENTER cuando quieras responder")
         print("3. Habla tu respuesta (máximo 5 segundos)")
         print("4. Presiona ENTER para procesar tu respuesta")
         print("5. Escribe 'salir' para terminar la llamada")
+        print("6. Escribe 'voz' para cambiar de voz durante la conversación")
         print("=" * 50)
         
         # Saludo inicial
@@ -62,11 +159,14 @@ class VoiceConversationalSimulator:
             self.show_current_state()
             
             # Obtener respuesta del usuario
-            user_input = input("\nPresiona ENTER para responder por voz (o 'salir' para terminar): ").strip()
+            user_input = input(f"\nPresiona ENTER para responder por voz (o 'salir' para terminar, 'voz' para cambiar voz): ").strip()
             
             if user_input.lower() == 'salir':
                 self.say_and_speak("¡Hasta luego! Que tenga un buen día.")
                 break
+            elif user_input.lower() == 'voz':
+                self.select_voice()
+                continue
             elif user_input == '':
                 # Grabar respuesta por voz
                 print("🔴 Grabando tu respuesta... (5 segundos)")
@@ -101,6 +201,7 @@ class VoiceConversationalSimulator:
         data = self.conversation_state['reservation_data']
         
         print(f"\n--- Estado: {step.upper()} ---")
+        print(f"Voz actual: {self.current_voice}")
         if data:
             print("Datos recopilados:")
             for key, value in data.items():
@@ -108,7 +209,7 @@ class VoiceConversationalSimulator:
     
     def say_and_speak(self, message):
         """Muestra y reproduce por voz un mensaje"""
-        print(f"\n🤖 Sistema: {message}")
+        print(f"\nSistema: {message}")
         self.play_audio_response(message)
     
     def restart_conversation(self):
@@ -600,8 +701,11 @@ class VoiceConversationalSimulator:
     def play_audio_response(self, text):
         """Reproduce la respuesta del agente por voz"""
         try:
-            # Sintetizar voz
-            audio_content = self.speech_handler.synthesize_speech(text)
+            # Actualizar la voz del speech_handler con la voz actual
+            self.speech_handler.voice_name = self.current_voice
+            
+            # Sintetizar voz con la voz seleccionada
+            audio_content = self.speech_handler.synthesize_speech(text, voice_name=self.current_voice)
             
             if audio_content:
                 # Guardar audio temporal
