@@ -1,0 +1,27 @@
+# Ignorar archivos Python y sus dependencias
+src/
+scripts/
+*.py
+requirements.txt
+__pycache__/
+*.pyc
+
+# Tests
+tests/
+
+# Documentación
+docs/
+
+# Archivos temporales
+temp/
+*.mp3
+*.wav
+
+# Sistema de reservas separado
+sistema-reservas/
+
+# Archivos temporales en public
+public/marica.txt
+
+# Mantener el index.html de public
+!public/index.html
