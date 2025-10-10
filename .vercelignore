@@ -26,3 +26,6 @@ sistema-reservas/
 # Archivos temporales
 public/marica.txt
 
+# NO ignorar el index.html de public
+!public/index.html
+
