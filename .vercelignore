@@ -1,31 +1,27 @@
 # Ignorar archivos Python y sus dependencias
 src/
+scripts/
 *.py
 requirements.txt
 __pycache__/
 *.pyc
 
-# Archivos de documentación que no se necesitan en producción
-*.md
-ARQUITECTURA_VISUAL.md
-EJEMPLOS_CONVERSACIONES.md
-GUIA_TWILIO.md
-INDICE_COMPLETO.md
-README_TWILIO.md
-RESUMEN_IMPLEMENTACION.md
-TWILIO_QUICKSTART.md
+# Tests
+tests/
 
-# Test files
-test_*.py
-test_*.js
-test_*.mp3
-
-# Sistema de reservas separado (si lo tienes en otro proyecto)
-sistema-reservas/
+# Documentación
+docs/
 
 # Archivos temporales
+temp/
+*.mp3
+*.wav
+
+# Sistema de reservas separado
+sistema-reservas/
+
+# Archivos temporales en public
 public/marica.txt
 
-# NO ignorar el index.html de public
+# Mantener el index.html de public
 !public/index.html
-
