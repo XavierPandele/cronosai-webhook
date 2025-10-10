@@ -1,0 +1,39 @@
+{
+  "name": "appsheet-reservas-api",
+  "version": "1.0.0",
+  "description": "API REST para integración con AppSheet - Sistema de Reservas",
+  "main": "api/reservations.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod",
+    "test": "node test-api.js",
+    "test:local": "API_URL=http://localhost:3000 node test-api.js",
+    "test:prod": "API_URL=https://tu-proyecto.vercel.app node test-api.js"
+  },
+  "keywords": [
+    "appsheet",
+    "reservas",
+    "api",
+    "rest",
+    "mysql",
+    "vercel",
+    "calendario",
+    "restaurante"
+  ],
+  "author": "CronosAI",
+  "license": "MIT",
+  "dependencies": {
+    "mysql2": "^3.6.5"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cronosai/webhook.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cronosai/webhook/issues"
+  }
+}
+

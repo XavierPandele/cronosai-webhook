@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "name": "appsheet-reservas-api",
+  "builds": [
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/reservations",
+      "dest": "/api/reservations.js"
+    },
+    {
+      "src": "/api/calendar",
+      "dest": "/api/calendar.js"
+    },
+    {
+      "src": "/api/stats",
+      "dest": "/api/stats.js"
+    }
+  ],
+  "env": {
+    "DB_HOST": "@db_host",
+    "DB_PORT": "@db_port",
+    "DB_USER": "@db_user",
+    "DB_PASS": "@db_pass",
+    "DB_NAME": "@db_name",
+    "API_KEY": "@api_key"
+  }
+}
+
