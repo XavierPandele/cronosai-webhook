@@ -1102,37 +1102,114 @@ function generateMarkdownConversation(state) {
   const wasSuccessful = state.step === 'complete';
   markdown += `- **Resultado**: ${wasSuccessful ? '✅ Reserva completada exitosamente' : '❌ Conversación incompleta'}\n\n`;
   
-  // Detectar problemas comunes
-  markdown += `## 🔍 Detección de Problemas\n\n`;
+  // Detectar problemas comunes y sugerir mejoras
+  markdown += `## 🔍 Análisis de Problemas y Mejoras\n\n`;
   
   const issues = [];
+  const suggestions = [];
   const history = conversationHistory.map(h => h.message.toLowerCase());
   
-  // Detectar repeticiones
+  // 1. DETECTAR REPETICIONES
   const repeatedMessages = history.filter((msg, index) => 
     history.indexOf(msg) !== index
   );
   if (repeatedMessages.length > 0) {
     issues.push(`⚠️ Mensajes repetidos detectados (${repeatedMessages.length})`);
+    suggestions.push(`💡 **Solución**: Implementar más variaciones de respuestas para evitar repetición`);
+    suggestions.push(`💡 **Técnica**: Usar arrays de 10-15 frases diferentes por cada paso`);
   }
   
-  // Detectar errores de comprensión
+  // 2. DETECTAR ERRORES DE COMPRENSIÓN
   const errorMessages = history.filter(msg => 
     msg.includes('no entendí') || msg.includes('disculpe') || msg.includes('perdón')
   );
   if (errorMessages.length > 0) {
     issues.push(`⚠️ Errores de comprensión: ${errorMessages.length}`);
+    
+    // Analizar QUÉ no entendió
+    const unclearResponses = conversationHistory.filter(entry => 
+      entry.role === 'bot' && (
+        entry.message.includes('no entendí') || 
+        entry.message.includes('Disculpe') || 
+        entry.message.includes('Perdón')
+      )
+    );
+    
+    if (unclearResponses.length > 0) {
+      suggestions.push(`💡 **Problema específico**: El bot no entendió ${unclearResponses.length} respuestas del cliente`);
+      suggestions.push(`💡 **Solución**: Mejorar patrones regex o implementar Gemini para comprensión contextual`);
+    }
   }
   
-  // Detectar conversación muy larga
+  // 3. DETECTAR CONVERSACIÓN MUY LARGA
   if (conversationHistory.length > 15) {
     issues.push(`⚠️ Conversación muy larga (${conversationHistory.length} intercambios)`);
+    suggestions.push(`💡 **Problema**: Conversación excede el promedio ideal de 10-12 intercambios`);
+    suggestions.push(`💡 **Causa posible**: Múltiples errores de comprensión o cliente indeciso`);
+    suggestions.push(`💡 **Solución**: Reducir timeouts y mejorar comprensión para conversaciones más eficientes`);
   }
   
+  // 4. DETECTAR CONVERSACIONES MUY CORTAS (posible problema)
+  if (conversationHistory.length < 5 && state.step !== 'complete') {
+    issues.push(`⚠️ Conversación muy corta (${conversationHistory.length} intercambios)`);
+    suggestions.push(`💡 **Problema**: Conversación terminó prematuramente`);
+    suggestions.push(`💡 **Posibles causas**: Cliente colgó, error técnico, o bot muy agresivo`);
+  }
+  
+  // 5. DETECTAR PATRONES DE TIMEOUT
+  const timeoutMessages = history.filter(msg => 
+    msg.includes('no escuché') || msg.includes('¿sigue ahí?')
+  );
+  if (timeoutMessages.length > 0) {
+    issues.push(`⚠️ Timeouts detectados (${timeoutMessages.length})`);
+    suggestions.push(`💡 **Problema**: El bot cortó al cliente ${timeoutMessages.length} vez(es)`);
+    suggestions.push(`💡 **Solución**: Aumentar speechTimeout de 1s a 2s o ajustar según el cliente`);
+  }
+  
+  // 6. DETECTAR CORRECCIONES EXCESIVAS
+  const correctionWords = history.filter(msg => 
+    msg.includes('no, mejor') || msg.includes('espera') || msg.includes('cambiar')
+  );
+  if (correctionWords.length > 2) {
+    issues.push(`⚠️ Múltiples correcciones detectadas (${correctionWords.length})`);
+    suggestions.push(`💡 **Problema**: Cliente cambió de opinión muchas veces`);
+    suggestions.push(`💡 **Solución**: Mejorar extracción para capturar la corrección final automáticamente`);
+  }
+  
+  // 7. ANÁLISIS DE FLUJO
+  const userResponses = conversationHistory.filter(h => h.role === 'user');
+  const avgResponseLength = userResponses.reduce((sum, r) => sum + r.message.length, 0) / userResponses.length;
+  
+  if (avgResponseLength > 50) {
+    issues.push(`⚠️ Respuestas del cliente muy largas (promedio: ${Math.round(avgResponseLength)} chars)`);
+    suggestions.push(`💡 **Problema**: Cliente dice demasiado en cada respuesta`);
+    suggestions.push(`💡 **Solución**: Preguntas más específicas para obtener respuestas más cortas`);
+  }
+  
+  // MOSTRAR RESULTADOS
   if (issues.length === 0) {
-    markdown += `✅ No se detectaron problemas significativos\n`;
+    markdown += `✅ **Conversación óptima** - No se detectaron problemas significativos\n\n`;
+    markdown += `🎯 **Métricas excelentes**:\n`;
+    markdown += `- Conversación fluida y eficiente\n`;
+    markdown += `- Sin errores de comprensión\n`;
+    markdown += `- Duración apropiada\n`;
+    markdown += `- Cliente satisfecho\n\n`;
   } else {
-    issues.forEach(issue => markdown += `${issue}\n`);
+    markdown += `## 📋 Problemas Detectados\n\n`;
+    issues.forEach((issue, index) => {
+      markdown += `${index + 1}. ${issue}\n`;
+    });
+    
+    markdown += `\n## 💡 Sugerencias de Mejora\n\n`;
+    suggestions.forEach((suggestion, index) => {
+      markdown += `${index + 1}. ${suggestion}\n`;
+    });
+    
+    // Calcular puntuación de calidad
+    const qualityScore = Math.max(0, 100 - (issues.length * 15) - (conversationHistory.length - 10) * 2);
+    markdown += `\n## 📊 Puntuación de Calidad\n`;
+    markdown += `- **Score**: ${qualityScore}/100\n`;
+    markdown += `- **Estado**: ${qualityScore >= 80 ? '🟢 Excelente' : qualityScore >= 60 ? '🟡 Aceptable' : '🔴 Necesita Mejoras'}\n\n`;
   }
   
   markdown += `\n---\n`;
