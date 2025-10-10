@@ -1,7 +1,7 @@
 const { executeQuery } = require('../lib/database');
 const { combinarFechaHora, validarReserva, generarConversacionCompleta, formatearFecha, formatearHora } = require('../lib/utils');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Manejar peticiones GET para testing
   if (req.method === 'GET') {
     return res.status(200).json({ 

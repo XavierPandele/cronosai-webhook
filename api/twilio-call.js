@@ -4,7 +4,7 @@ const { combinarFechaHora, validarReserva, generarConversacionCompleta } = requi
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   console.log('📞 Twilio Call recibida');
   console.log('Method:', req.method);
   console.log('Body:', req.body);
@@ -93,13 +93,13 @@ async function processConversationStep(state, userInput) {
         state.step = 'ask_people';
         return {
           message: userInput ? 
-            '¡Perfecto! Me alegra ayudarle con su reserva. ¿Para cuántas personas sería la mesa?' :
-            '¡Hola! Bienvenido a nuestro restaurante. ¿Le gustaría hacer una reserva? ¿Para cuántas personas?',
+            '¡Perfecto! ¿Para cuántas personas?' :
+            '¡Hola! Bienvenido. ¿Para cuántas personas desea reservar?',
           gather: true
         };
       } else {
         return {
-          message: '¿Le gustaría hacer una reserva? Diga sí para continuar.',
+          message: '¿Desea hacer una reserva?',
           gather: true
         };
       }
@@ -110,12 +110,12 @@ async function processConversationStep(state, userInput) {
         state.data.NumeroReserva = people;
         state.step = 'ask_date';
         return {
-          message: `Excelente, mesa para ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha le gustaría la reserva? Puede decir mañana, pasado mañana o una fecha específica.`,
+          message: `Perfecto, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha?`,
           gather: true
         };
       } else {
         return {
-          message: 'Disculpe, no entendí cuántas personas. Por favor, dígame el número de personas.',
+          message: 'No entendí. ¿Cuántas personas?',
           gather: true
         };
       }
@@ -126,12 +126,12 @@ async function processConversationStep(state, userInput) {
         state.data.FechaReserva = date;
         state.step = 'ask_time';
         return {
-          message: `Perfecto, reserva para el ${formatDateSpanish(date)}. ¿A qué hora le gustaría venir? Por ejemplo: a las ocho o a las siete y media.`,
+          message: `Perfecto, ${formatDateSpanish(date)}. ¿A qué hora?`,
           gather: true
         };
       } else {
         return {
-          message: 'Disculpe, no entendí la fecha. ¿Podría especificar la fecha? Por ejemplo: mañana, pasado mañana o quince de enero.',
+          message: 'No entendí la fecha. ¿Qué día?',
           gather: true
         };
       }
@@ -142,12 +142,12 @@ async function processConversationStep(state, userInput) {
         state.data.HoraReserva = time;
         state.step = 'ask_name';
         return {
-          message: `Excelente, a las ${time}. ¿Cuál es su nombre para la reserva?`,
+          message: `Perfecto, a las ${time}. ¿Su nombre?`,
           gather: true
         };
       } else {
         return {
-          message: 'Disculpe, no entendí la hora. ¿Podría especificar la hora? Por ejemplo: a las ocho de la noche.',
+          message: 'No entendí. ¿A qué hora?',
           gather: true
         };
       }
@@ -164,7 +164,7 @@ async function processConversationStep(state, userInput) {
         };
       } else {
         return {
-          message: 'Disculpe, no entendí su nombre. ¿Podría decirme su nombre completo?',
+          message: 'No entendí. ¿Su nombre?',
           gather: true
         };
       }
@@ -173,19 +173,19 @@ async function processConversationStep(state, userInput) {
       if (text.includes('si') || text.includes('sí') || text.includes('confirmo') || text.includes('correcto')) {
         state.step = 'complete';
         return {
-          message: '¡Perfecto! Su reserva ha sido confirmada exitosamente. Recibirá una confirmación por mensaje. ¡Esperamos darle la bienvenida! Que tenga un buen día.',
+          message: '¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!',
           gather: false
         };
       } else if (text.includes('no') || text.includes('cambiar')) {
         state.step = 'ask_people';
         state.data = {};
         return {
-          message: 'Está bien, empecemos de nuevo. ¿Para cuántas personas sería la reserva?',
+          message: 'De acuerdo. ¿Para cuántas personas?',
           gather: true
         };
       } else {
         return {
-          message: '¿Confirma los datos de la reserva? Diga sí para confirmar o no para modificar algo.',
+          message: '¿Es correcto? Diga sí o no.',
           gather: true
         };
       }
@@ -211,8 +211,8 @@ function generateTwiML(response) {
     action="/api/twilio-call" 
     method="POST"
     language="es-ES"
-    speechTimeout="3"
-    timeout="5">
+    speechTimeout="2"
+    timeout="3">
     <Say voice="Polly.Lucia" language="es-ES">${escapeXml(message)}</Say>
   </Gather>
   <Say voice="Polly.Lucia" language="es-ES">No escuché respuesta. ¿Sigue ahí?</Say>
@@ -319,44 +319,155 @@ function isReservationRequest(text) {
 function extractPeopleCount(text) {
   const wordToNumber = {
     'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
-    'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10
+    'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15
   };
 
+  // Detectar palabras de corrección
+  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  const hasCorrection = correctionWords.some(word => text.includes(word));
+
+  let foundNumbers = [];
+
+  // Buscar números en palabras
   for (const [word, number] of Object.entries(wordToNumber)) {
-    if (text.includes(word)) return number;
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      foundNumbers.push({ number, position: match.index });
+    }
   }
 
-  const match = text.match(/(\d+)/);
-  if (match) {
+  // Buscar números digitales
+  const digitMatches = text.matchAll(/\b(\d+)\b/g);
+  for (const match of digitMatches) {
     const count = parseInt(match[1]);
-    if (count >= 1 && count <= 20) return count;
+    if (count >= 1 && count <= 20) {
+      foundNumbers.push({ number: count, position: match.index });
+    }
   }
 
-  return null;
+  if (foundNumbers.length === 0) return null;
+
+  // Si hay corrección o múltiples números, tomar el último
+  if (hasCorrection || foundNumbers.length > 1) {
+    foundNumbers.sort((a, b) => b.position - a.position);
+    return foundNumbers[0].number;
+  }
+
+  // Si solo hay un número, devolverlo
+  return foundNumbers[0].number;
 }
 
 function extractDate(text) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  if (text.includes('mañana') && !text.includes('pasado')) {
-    const date = new Date(today);
-    date.setDate(date.getDate() + 1);
-    return formatDateISO(date);
+  // Detectar palabras de corrección
+  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  const hasCorrection = correctionWords.some(word => text.includes(word));
+
+  let foundDates = [];
+
+  // Si hay corrección, buscar la última fecha mencionada
+  // Dividir el texto en partes para analizar la última después de la corrección
+  let textToAnalyze = text;
+  if (hasCorrection) {
+    // Buscar la última ocurrencia de palabras de corrección
+    let lastCorrectionIndex = -1;
+    correctionWords.forEach(word => {
+      const index = text.lastIndexOf(word);
+      if (index > lastCorrectionIndex) {
+        lastCorrectionIndex = index;
+      }
+    });
+    // Analizar solo el texto después de la corrección
+    if (lastCorrectionIndex !== -1) {
+      textToAnalyze = text.substring(lastCorrectionIndex);
+    }
   }
-  
-  if (text.includes('pasado')) {
+
+  // Manejar "pasado mañana" antes que "mañana"
+  if (textToAnalyze.includes('pasado mañana') || (textToAnalyze.includes('pasado') && textToAnalyze.includes('mañana'))) {
     const date = new Date(today);
     date.setDate(date.getDate() + 2);
     return formatDateISO(date);
   }
   
-  if (text.includes('hoy')) {
+  // Manejar "mañana" pero no "pasado mañana"
+  if (textToAnalyze.includes('mañana') && !textToAnalyze.includes('pasado')) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + 1);
+    return formatDateISO(date);
+  }
+  
+  if (textToAnalyze.includes('hoy')) {
     return formatDateISO(today);
   }
 
-  // Intentar extraer fecha específica
-  const dateMatch = text.match(/(\d{1,2})[\/\-\s](?:de\s)?(\d{1,2})/);
+  // Detectar días de la semana
+  const daysOfWeek = {
+    'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
+    'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
+  };
+
+  for (const [dayName, dayNumber] of Object.entries(daysOfWeek)) {
+    if (textToAnalyze.includes(dayName)) {
+      const currentDay = today.getDay(); // 0=domingo, 1=lunes, etc.
+      let daysUntil = dayNumber - currentDay;
+      
+      // Si el día ya pasó esta semana, ir a la próxima semana
+      if (daysUntil <= 0) {
+        daysUntil += 7;
+      }
+      
+      // Si dice "que viene" o "próximo", asegurar que es la próxima semana
+      if (textToAnalyze.includes('que viene') || textToAnalyze.includes('próximo') || textToAnalyze.includes('proximo')) {
+        if (daysUntil < 7) {
+          daysUntil += 7;
+        }
+      }
+      
+      const date = new Date(today);
+      date.setDate(date.getDate() + daysUntil);
+      return formatDateISO(date);
+    }
+  }
+
+  // Mapeo de nombres de meses en español
+  const monthNames = {
+    'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+    'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+  };
+
+  // Intentar extraer fecha con nombre de mes: "10 de octubre", "15 de enero"
+  for (const [monthName, monthNumber] of Object.entries(monthNames)) {
+    if (textToAnalyze.includes(monthName)) {
+      // Buscar todos los números en el texto
+      const dayMatches = [...textToAnalyze.matchAll(/\b(\d{1,2})\b/g)];
+      if (dayMatches.length > 0) {
+        // Tomar el último número encontrado si hay múltiples
+        const lastMatch = dayMatches[dayMatches.length - 1];
+        const day = parseInt(lastMatch[1]);
+        const year = today.getFullYear();
+        
+        try {
+          const date = new Date(year, monthNumber - 1, day);
+          // Si la fecha es anterior a hoy, asumir que es el año siguiente
+          if (date < today) {
+            date.setFullYear(year + 1);
+          }
+          return formatDateISO(date);
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+  }
+
+  // Intentar extraer fecha numérica: "10/10", "10-10"
+  const dateMatch = textToAnalyze.match(/(\d{1,2})[\/\-\s](?:de\s)?(\d{1,2})/);
   if (dateMatch) {
     const day = parseInt(dateMatch[1]);
     const month = parseInt(dateMatch[2]);
@@ -383,8 +494,17 @@ function extractTime(text) {
     'once': 11, 'doce': 12
   };
 
+  // Detectar palabras de corrección
+  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  const hasCorrection = correctionWords.some(word => text.includes(word));
+
+  let foundTimes = [];
+
+  // Buscar horas en palabras
   for (const [word, number] of Object.entries(wordToNumber)) {
-    if (text.includes(word)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
       let hours = number;
       let minutes = 0;
 
@@ -399,26 +519,42 @@ function extractTime(text) {
       }
 
       if (hours >= 0 && hours <= 23) {
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        foundTimes.push({
+          time: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`,
+          position: match.index
+        });
       }
     }
   }
 
-  const timeMatch = text.match(/(\d{1,2})(?::(\d{2}))?/);
-  if (timeMatch) {
-    let hours = parseInt(timeMatch[1]);
-    const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+  // Buscar horas en formato digital
+  const timeMatches = text.matchAll(/\b(\d{1,2})(?::(\d{2}))?\b/g);
+  for (const match of timeMatches) {
+    let hours = parseInt(match[1]);
+    const minutes = match[2] ? parseInt(match[2]) : 0;
 
     if (text.includes('noche') || text.includes('tarde')) {
       if (hours < 12) hours += 12;
     }
 
     if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      foundTimes.push({
+        time: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`,
+        position: match.index
+      });
     }
   }
 
-  return null;
+  if (foundTimes.length === 0) return null;
+
+  // Si hay corrección o múltiples horas, tomar la última
+  if (hasCorrection || foundTimes.length > 1) {
+    foundTimes.sort((a, b) => b.position - a.position);
+    return foundTimes[0].time;
+  }
+
+  // Si solo hay una hora, devolverla
+  return foundTimes[0].time;
 }
 
 function extractName(text) {
@@ -441,7 +577,33 @@ function extractName(text) {
 }
 
 function getConfirmationMessage(data) {
-  return `Perfecto, déjeme confirmar los datos de su reserva. Mesa para ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, fecha ${formatDateSpanish(data.FechaReserva)}, hora ${data.HoraReserva}, a nombre de ${data.NomReserva}, teléfono ${data.TelefonReserva}. ¿Está todo correcto? Diga sí para confirmar o no para modificar.`;
+  const phoneFormatted = formatPhoneForSpeech(data.TelefonReserva);
+  return `Confirmo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}, teléfono ${phoneFormatted}. ¿Es correcto?`;
+}
+
+function formatPhoneForSpeech(phone) {
+  // Limpiar el teléfono de caracteres no numéricos
+  const cleanPhone = phone.replace(/\D/g, '');
+  
+  // Convertir cada dígito en su palabra en español con espacios para pausas
+  const digitWords = {
+    '0': 'cero', '1': 'uno', '2': 'dos', '3': 'tres', '4': 'cuatro',
+    '5': 'cinco', '6': 'seis', '7': 'siete', '8': 'ocho', '9': 'nueve'
+  };
+  
+  // Convertir cada dígito y añadir comas para pausas naturales cada 3 dígitos
+  let result = '';
+  for (let i = 0; i < cleanPhone.length; i++) {
+    result += digitWords[cleanPhone[i]];
+    // Añadir una pausa después de cada 3 dígitos (excepto al final)
+    if ((i + 1) % 3 === 0 && i !== cleanPhone.length - 1) {
+      result += ', ';
+    } else if (i !== cleanPhone.length - 1) {
+      result += ' ';
+    }
+  }
+  
+  return result;
 }
 
 function formatDateISO(date) {
@@ -466,4 +628,5 @@ function escapeXml(text) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 }
+
 
