@@ -26,8 +26,9 @@ class VoiceConversationalSimulator:
         
         # Estados de la conversación
         self.conversation_state = {
-            'step': 'greeting',  # greeting, ask_people, ask_date, ask_time, ask_name, ask_phone, confirm, complete
-            'reservation_data': {}
+            'step': 'greeting',  # greeting, ask_intention, ask_people, ask_date, ask_time, ask_name, ask_phone, ask_phone_number, confirm, complete
+            'reservation_data': {},
+            'phone': '+34600000000'  # Teléfono simulado
         }
         
         # Configuración de audio
@@ -52,8 +53,9 @@ class VoiceConversationalSimulator:
         print("5. Escribe 'salir' para terminar la llamada")
         print("=" * 50)
         
-        # Saludo inicial por voz
-        self.say_and_speak("¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?")
+        # Saludo inicial
+        response = self.process_user_response("")
+        self.say_and_speak(response)
         
         while True:
             # Mostrar el estado actual
@@ -113,9 +115,11 @@ class VoiceConversationalSimulator:
         """Reinicia la conversación"""
         self.conversation_state = {
             'step': 'greeting',
-            'reservation_data': {}
+            'reservation_data': {},
+            'phone': '+34600000000'
         }
-        self.say_and_speak("¡Perfecto! Empecemos de nuevo. ¿En qué puedo ayudarle?")
+        response = self.process_user_response("")
+        self.say_and_speak(f"¡Perfecto! {response}")
     
     def record_audio(self):
         """Graba audio desde el micrófono"""
@@ -188,76 +192,117 @@ class VoiceConversationalSimulator:
         step = self.conversation_state['step']
         text = user_input.lower()
         
-        # Detectar si es una solicitud de reserva
-        if step == 'greeting' and self.is_reservation_request(text):
-            self.conversation_state['step'] = 'ask_people'
-            return "¡Perfecto! Me alegra ayudarle con su reserva. ¿Para cuántas personas sería la mesa?"
+        # greeting - solo dice hola y pregunta en qué puede ayudar
+        if step == 'greeting':
+            self.conversation_state['step'] = 'ask_intention'
+            return "¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?"
+        
+        # ask_intention - confirma que quiere hacer una reserva
+        elif step == 'ask_intention':
+            if self.is_reservation_request(text):
+                self.conversation_state['step'] = 'ask_people'
+                return "¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?"
+            else:
+                return "Disculpe, solo puedo ayudarle con reservas. ¿Le gustaría hacer una reserva?"
         
         elif step == 'ask_people':
             people = self.extract_people_count(text)
             if people:
                 self.conversation_state['reservation_data']['NumeroReserva'] = people
                 self.conversation_state['step'] = 'ask_date'
-                return f"Excelente, mesa para {people} personas. ¿Para qué fecha le gustaría la reserva? Puede decir mañana, pasado mañana o una fecha específica."
+                personas_texto = "persona" if people == 1 else "personas"
+                return f"Perfecto, {people} {personas_texto}. ¿Para qué fecha?"
             else:
-                return "Disculpe, no entendí cuántas personas. ¿Podría decirme el número de personas? Por ejemplo: para dos personas o somos cuatro."
+                return "No entendí. ¿Cuántas personas?"
         
         elif step == 'ask_date':
             date = self.extract_date(text)
             if date:
                 self.conversation_state['reservation_data']['FechaReserva'] = date
                 self.conversation_state['step'] = 'ask_time'
-                return f"Perfecto, reserva para el {date}. ¿A qué hora le gustaría venir? Por ejemplo: a las ocho o a las siete y media."
+                return f"Perfecto, {self.format_date_spanish(date)}. ¿A qué hora?"
             else:
-                return "Disculpe, no entendí la fecha. ¿Podría especificar la fecha? Por ejemplo: mañana, pasado mañana o el quince de enero."
+                return "No entendí la fecha. ¿Qué día?"
         
         elif step == 'ask_time':
             time = self.extract_time(text)
             if time:
                 self.conversation_state['reservation_data']['HoraReserva'] = time
                 self.conversation_state['step'] = 'ask_name'
-                return f"Excelente, a las {time}. ¿Cuál es su nombre para la reserva?"
+                return f"Perfecto, a las {time}. ¿Su nombre?"
             else:
-                return "Disculpe, no entendí la hora. ¿Podría especificar la hora? Por ejemplo: a las ocho, a las siete y media o ocho de la noche."
+                return "No entendí. ¿A qué hora?"
         
         elif step == 'ask_name':
             name = self.extract_name(text)
             if name:
                 self.conversation_state['reservation_data']['NomReserva'] = name
                 self.conversation_state['step'] = 'ask_phone'
-                return f"Perfecto, {name}. ¿Cuál es su número de teléfono para confirmar la reserva?"
+                return f"Perfecto, {name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?"
             else:
-                return "Disculpe, no entendí su nombre. ¿Podría decirme su nombre completo?"
+                return "No entendí. ¿Su nombre?"
         
         elif step == 'ask_phone':
+            # Verificar si quiere usar el número actual o dar otro
+            if 'este' in text or 'mismo' in text or 'si' in text or 'sí' in text or 'vale' in text or 'ok' in text:
+                # Usa el número de la llamada
+                self.conversation_state['reservation_data']['TelefonReserva'] = self.conversation_state['phone']
+                self.conversation_state['step'] = 'confirm'
+                return self.get_confirmation_message()
+            elif 'otro' in text or 'diferente' in text or 'no' in text:
+                # Preguntar por otro número
+                self.conversation_state['step'] = 'ask_phone_number'
+                return "¿Qué número de teléfono prefiere?"
+            else:
+                # Intentar extraer un número directamente
+                phone = self.extract_phone(text)
+                if phone:
+                    self.conversation_state['reservation_data']['TelefonReserva'] = phone
+                    self.conversation_state['step'] = 'confirm'
+                    return self.get_confirmation_message()
+                else:
+                    return "¿Desea usar este número o prefiere dar otro?"
+        
+        elif step == 'ask_phone_number':
+            # Extraer el número de teléfono
             phone = self.extract_phone(text)
             if phone:
                 self.conversation_state['reservation_data']['TelefonReserva'] = phone
                 self.conversation_state['step'] = 'confirm'
                 return self.get_confirmation_message()
             else:
-                return "Disculpe, no entendí su teléfono. ¿Podría darme un número de teléfono válido?"
+                return "No entendí el número. Por favor, dígalo dígito por dígito."
         
         elif step == 'confirm':
             if 'si' in text or 'sí' in text or 'confirmo' in text or 'correcto' in text:
                 self.conversation_state['step'] = 'complete'
-                return "¡Perfecto! Procesando su reserva..."
+                return "¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!"
             elif 'no' in text or 'cambiar' in text or 'modificar' in text:
                 return "¿Qué le gustaría cambiar? Puede decir cambiar personas, cambiar fecha, cambiar hora, cambiar nombre o cambiar teléfono."
             else:
                 return "¿Confirma los datos de la reserva? Responda sí para confirmar o no para modificar algo."
         
         else:
-            # Paso no reconocido
-            if self.is_reservation_request(text):
-                self.conversation_state['step'] = 'ask_people'
-                return "¡Perfecto! ¿Para cuántas personas sería la mesa?"
-            else:
-                return "Disculpe, no entendí. ¿Le gustaría hacer una reserva? Puede decir sí o describir lo que necesita."
+            # Paso no reconocido - reiniciar
+            self.conversation_state['step'] = 'greeting'
+            return "¿En qué puedo ayudarle? ¿Le gustaría hacer una reserva?"
+    
+    def format_date_spanish(self, date_str):
+        """Formatea la fecha en español"""
+        try:
+            parts = date_str.split('-')
+            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+            months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+                     'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+            return f"{day} de {months[month - 1]}"
+        except:
+            return date_str
     
     def is_reservation_request(self, text):
         """Detecta si es una solicitud de reserva"""
-        reservation_words = ['reservar', 'mesa', 'reserva', 'quiero', 'necesito', 'gustaría', 'gustaria']
+        reservation_words = ['reservar', 'reserva', 'mesa', 'quiero', 'necesito', 
+                           'me gustaría', 'quisiera', 'deseo', 'quería',
+                           'hacer una reserva', 'reservar mesa', 'si', 'sí', 'vale']
         return any(word in text for word in reservation_words)
     
     def extract_people_count(self, text):
@@ -294,28 +339,88 @@ class VoiceConversationalSimulator:
         """Extrae la fecha del texto"""
         today = datetime.now()
         
-        if 'mañana' in text:
-            date = today + timedelta(days=1)
-        elif 'pasado mañana' in text or 'pasado' in text:
+        # Manejar "pasado mañana" ANTES que "mañana"
+        if 'pasado mañana' in text or ('pasado' in text and 'mañana' in text):
             date = today + timedelta(days=2)
-        elif 'hoy' in text:
-            date = today
-        else:
-            # Intentar extraer fecha específica
-            date_match = re.search(r'(\d{1,2})[\/\-](\d{1,2})', text)
-            if date_match:
-                day, month = int(date_match.group(1)), int(date_match.group(2))
-                year = today.year
-                try:
-                    date = datetime(year, month, day)
-                    if date < today:
-                        date = datetime(year + 1, month, day)
-                except ValueError:
-                    return None
-            else:
+            return date.strftime("%Y-%m-%d")
+        
+        # Manejar "mañana" 
+        if 'mañana' in text and 'pasado' not in text:
+            date = today + timedelta(days=1)
+            return date.strftime("%Y-%m-%d")
+        
+        # Manejar "hoy"
+        if 'hoy' in text:
+            return today.strftime("%Y-%m-%d")
+        
+        # Mapeo de nombres de meses en español
+        month_names = {
+            'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+            'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+            'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+        }
+        
+        # Detectar días de la semana
+        days_of_week = {
+            'lunes': 0, 'martes': 1, 'miércoles': 2, 'miercoles': 2,
+            'jueves': 3, 'viernes': 4, 'sábado': 5, 'sabado': 5, 'domingo': 6
+        }
+        
+        # Intentar extraer fecha con nombre de mes: "10 de octubre", "15 de enero"
+        for month_name, month_number in month_names.items():
+            if month_name in text:
+                # Buscar el número antes del mes
+                patterns = [
+                    rf'(\d{{1,2}})\s*de\s*{month_name}',  # "10 de octubre"
+                    rf'(\d{{1,2}})\s*{month_name}',         # "10 octubre"
+                    rf'{month_name}\s*(\d{{1,2}})',         # "octubre 10"
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        day = int(match.group(1))
+                        if 1 <= day <= 31:
+                            year = today.year
+                            try:
+                                date = datetime(year, month_number, day)
+                                if date < today:
+                                    date = datetime(year + 1, month_number, day)
+                                return date.strftime("%Y-%m-%d")
+                            except ValueError:
+                                return None
+        
+        # Detectar días de la semana como "viernes que viene"
+        for day_name, day_number in days_of_week.items():
+            if day_name in text:
+                current_weekday = today.weekday()  # 0=lunes, 6=domingo
+                days_until = day_number - current_weekday
+                
+                if days_until <= 0:
+                    days_until += 7
+                
+                # Si dice "que viene" o "próximo", asegurar que es la próxima semana
+                if 'que viene' in text or 'próximo' in text or 'proximo' in text:
+                    if days_until < 7:
+                        days_until += 7
+                
+                date = today + timedelta(days=days_until)
+                return date.strftime("%Y-%m-%d")
+        
+        # Intentar extraer fecha numérica: "10/10", "10-10"
+        date_match = re.search(r'(\d{1,2})[\/\-](\d{1,2})', text)
+        if date_match:
+            day, month = int(date_match.group(1)), int(date_match.group(2))
+            year = today.year
+            try:
+                date = datetime(year, month, day)
+                if date < today:
+                    date = datetime(year + 1, month, day)
+                return date.strftime("%Y-%m-%d")
+            except ValueError:
                 return None
         
-        return date.strftime("%Y-%m-%d")
+        return None
     
     def extract_time(self, text):
         """Extrae la hora del texto"""
@@ -397,13 +502,40 @@ class VoiceConversationalSimulator:
         """Genera el mensaje de confirmación"""
         data = self.conversation_state['reservation_data']
         
-        message = "Perfecto, déjeme confirmar los datos de su reserva. Mesa para "
-        message += f"{data['NumeroReserva']} personas, fecha {data['FechaReserva']}, "
-        message += f"hora {data['HoraReserva']}, nombre {data['NomReserva']}, "
-        message += f"teléfono {data['TelefonReserva']}. "
-        message += "¿Está todo correcto? Responda sí para confirmar o no para modificar algo."
+        # Formatear teléfono dígito por dígito
+        phone_formatted = self.format_phone_for_speech(data['TelefonReserva'])
+        
+        # Formatear fecha
+        date_formatted = self.format_date_spanish(data['FechaReserva'])
+        
+        personas_texto = "persona" if data['NumeroReserva'] == 1 else "personas"
+        
+        message = f"Confirmo: {data['NumeroReserva']} {personas_texto}, "
+        message += f"{date_formatted} a las {data['HoraReserva']}, "
+        message += f"a nombre de {data['NomReserva']}, "
+        message += f"teléfono {phone_formatted}. ¿Es correcto?"
         
         return message
+    
+    def format_phone_for_speech(self, phone):
+        """Formatea el teléfono para que se lea dígito por dígito"""
+        clean_phone = re.sub(r'\D', '', phone)
+        
+        digit_words = {
+            '0': 'cero', '1': 'uno', '2': 'dos', '3': 'tres', '4': 'cuatro',
+            '5': 'cinco', '6': 'seis', '7': 'siete', '8': 'ocho', '9': 'nueve'
+        }
+        
+        result = ''
+        for i, digit in enumerate(clean_phone):
+            result += digit_words.get(digit, digit)
+            # Añadir pausa después de cada 3 dígitos
+            if (i + 1) % 3 == 0 and i != len(clean_phone) - 1:
+                result += ', '
+            elif i != len(clean_phone) - 1:
+                result += ' '
+        
+        return result
     
     def process_reservation(self):
         """Procesa la reserva final"""

@@ -1,37 +1,9 @@
 {
   "version": 2,
-  "name": "sistema-reservas-web",
-  "builds": [
-    {
-      "src": "index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "api/**/*.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
-  ],
   "functions": {
     "api/**/*.js": {
       "maxDuration": 10,
       "memory": 1024
     }
-  },
-  "env": {
-    "NODE_ENV": "production"
   }
 }
