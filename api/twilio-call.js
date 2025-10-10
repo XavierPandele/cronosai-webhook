@@ -363,6 +363,8 @@ function extractDate(text) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  console.log('🔍 extractDate recibió:', text);
+
   // Detectar palabras de corrección
   const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
   const hasCorrection = correctionWords.some(word => text.includes(word));
@@ -391,6 +393,7 @@ function extractDate(text) {
   if (textToAnalyze.includes('pasado mañana') || (textToAnalyze.includes('pasado') && textToAnalyze.includes('mañana'))) {
     const date = new Date(today);
     date.setDate(date.getDate() + 2);
+    console.log('✅ Detectado: pasado mañana');
     return formatDateISO(date);
   }
   
@@ -398,14 +401,80 @@ function extractDate(text) {
   if (textToAnalyze.includes('mañana') && !textToAnalyze.includes('pasado')) {
     const date = new Date(today);
     date.setDate(date.getDate() + 1);
+    console.log('✅ Detectado: mañana');
     return formatDateISO(date);
   }
   
   if (textToAnalyze.includes('hoy')) {
+    console.log('✅ Detectado: hoy');
     return formatDateISO(today);
   }
 
-  // Detectar días de la semana
+  // Mapeo de nombres de meses en español (ANTES de días de la semana para priorizar)
+  const monthNames = {
+    'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+    'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+  };
+
+  // Intentar extraer fecha con nombre de mes: "10 de octubre", "15 de enero"
+  for (const [monthName, monthNumber] of Object.entries(monthNames)) {
+    if (textToAnalyze.includes(monthName)) {
+      console.log(`✅ Detectado mes: ${monthName}`);
+      
+      // Buscar el número antes del mes (más preciso)
+      const patterns = [
+        new RegExp(`(\\d{1,2})\\s*de\\s*${monthName}`, 'i'),  // "10 de octubre"
+        new RegExp(`(\\d{1,2})\\s*${monthName}`, 'i'),         // "10 octubre"
+        new RegExp(`${monthName}\\s*(\\d{1,2})`, 'i'),         // "octubre 10"
+      ];
+      
+      for (const pattern of patterns) {
+        const match = textToAnalyze.match(pattern);
+        if (match) {
+          const day = parseInt(match[1]);
+          console.log(`✅ Detectado día: ${day}`);
+          
+          if (day >= 1 && day <= 31) {
+            const year = today.getFullYear();
+            try {
+              const date = new Date(year, monthNumber - 1, day);
+              // Si la fecha es anterior a hoy, asumir que es el año siguiente
+              if (date < today) {
+                date.setFullYear(year + 1);
+              }
+              console.log(`✅ Fecha procesada: ${formatDateISO(date)}`);
+              return formatDateISO(date);
+            } catch (e) {
+              console.log('❌ Error creando fecha:', e);
+              return null;
+            }
+          }
+        }
+      }
+      
+      // Si no encontró patrón específico, buscar cualquier número
+      const dayMatches = [...textToAnalyze.matchAll(/\b(\d{1,2})\b/g)];
+      if (dayMatches.length > 0) {
+        const day = parseInt(dayMatches[0][1]);
+        if (day >= 1 && day <= 31) {
+          const year = today.getFullYear();
+          try {
+            const date = new Date(year, monthNumber - 1, day);
+            if (date < today) {
+              date.setFullYear(year + 1);
+            }
+            console.log(`✅ Fecha procesada (fallback): ${formatDateISO(date)}`);
+            return formatDateISO(date);
+          } catch (e) {
+            return null;
+          }
+        }
+      }
+    }
+  }
+
+  // Detectar días de la semana (DESPUÉS de los meses)
   const daysOfWeek = {
     'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
     'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
@@ -413,6 +482,7 @@ function extractDate(text) {
 
   for (const [dayName, dayNumber] of Object.entries(daysOfWeek)) {
     if (textToAnalyze.includes(dayName)) {
+      console.log(`✅ Detectado día de la semana: ${dayName}`);
       const currentDay = today.getDay(); // 0=domingo, 1=lunes, etc.
       let daysUntil = dayNumber - currentDay;
       
@@ -431,38 +501,6 @@ function extractDate(text) {
       const date = new Date(today);
       date.setDate(date.getDate() + daysUntil);
       return formatDateISO(date);
-    }
-  }
-
-  // Mapeo de nombres de meses en español
-  const monthNames = {
-    'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
-    'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
-    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
-  };
-
-  // Intentar extraer fecha con nombre de mes: "10 de octubre", "15 de enero"
-  for (const [monthName, monthNumber] of Object.entries(monthNames)) {
-    if (textToAnalyze.includes(monthName)) {
-      // Buscar todos los números en el texto
-      const dayMatches = [...textToAnalyze.matchAll(/\b(\d{1,2})\b/g)];
-      if (dayMatches.length > 0) {
-        // Tomar el último número encontrado si hay múltiples
-        const lastMatch = dayMatches[dayMatches.length - 1];
-        const day = parseInt(lastMatch[1]);
-        const year = today.getFullYear();
-        
-        try {
-          const date = new Date(year, monthNumber - 1, day);
-          // Si la fecha es anterior a hoy, asumir que es el año siguiente
-          if (date < today) {
-            date.setFullYear(year + 1);
-          }
-          return formatDateISO(date);
-        } catch (e) {
-          return null;
-        }
-      }
     }
   }
 
