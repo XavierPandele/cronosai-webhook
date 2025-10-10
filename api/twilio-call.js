@@ -95,84 +95,95 @@ async function processConversationStep(state, userInput) {
         gather: true
       };
 
-    case 'ask_intention':
-      // Confirmar que quiere hacer una reserva
-      if (isReservationRequest(text)) {
-        state.step = 'ask_people';
-        return {
-          message: '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?',
-          gather: true
-        };
-      } else {
-        return {
-          message: 'Disculpe, solo puedo ayudarle con reservas. ¿Le gustaría hacer una reserva?',
-          gather: true
-        };
-      }
+     case 'ask_intention':
+       // Confirmar que quiere hacer una reserva
+       const intentionResult = handleIntentionResponse(text);
+       
+       if (intentionResult.action === 'reservation') {
+         state.step = 'ask_people';
+         return {
+           message: '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?',
+           gather: true
+         };
+       } else if (intentionResult.action === 'clarify') {
+         return {
+           message: intentionResult.message,
+           gather: true
+         };
+       } else {
+         return {
+           message: 'Disculpe, solo puedo ayudarle con reservas. ¿Le gustaría hacer una reserva?',
+           gather: true
+         };
+       }
 
-    case 'ask_people':
-      const people = extractPeopleCount(text);
-      if (people) {
-        state.data.NumeroReserva = people;
-        state.step = 'ask_date';
-        return {
-          message: `Perfecto, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha?`,
-          gather: true
-        };
-      } else {
-        return {
-          message: 'No entendí. ¿Cuántas personas?',
-          gather: true
-        };
-      }
+     case 'ask_people':
+       const people = extractPeopleCount(text);
+       if (people) {
+         state.data.NumeroReserva = people;
+         state.step = 'ask_date';
+         return {
+           message: `Perfecto, ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha?`,
+           gather: true
+         };
+       } else {
+         const errorResponse = handleUnclearResponse(text, 'people');
+         return {
+           message: errorResponse,
+           gather: true
+         };
+       }
 
-    case 'ask_date':
-      const date = extractDate(text);
-      if (date) {
-        state.data.FechaReserva = date;
-        state.step = 'ask_time';
-        return {
-          message: `Perfecto, ${formatDateSpanish(date)}. ¿A qué hora?`,
-          gather: true
-        };
-      } else {
-        return {
-          message: 'No entendí la fecha. ¿Qué día?',
-          gather: true
-        };
-      }
+     case 'ask_date':
+       const date = extractDate(text);
+       if (date) {
+         state.data.FechaReserva = date;
+         state.step = 'ask_time';
+         return {
+           message: `Perfecto, ${formatDateSpanish(date)}. ¿A qué hora?`,
+           gather: true
+         };
+       } else {
+         const errorResponse = handleUnclearResponse(text, 'date');
+         return {
+           message: errorResponse,
+           gather: true
+         };
+       }
 
-    case 'ask_time':
-      const time = extractTime(text);
-      if (time) {
-        state.data.HoraReserva = time;
-        state.step = 'ask_name';
-        return {
-          message: `Perfecto, a las ${time}. ¿Su nombre?`,
-          gather: true
-        };
-      } else {
-        return {
-          message: 'No entendí. ¿A qué hora?',
-          gather: true
-        };
-      }
+     case 'ask_time':
+       const time = extractTime(text);
+       if (time) {
+         state.data.HoraReserva = time;
+         state.step = 'ask_name';
+         return {
+           message: `Perfecto, a las ${time}. ¿Su nombre?`,
+           gather: true
+         };
+       } else {
+         const errorResponse = handleUnclearResponse(text, 'time');
+         return {
+           message: errorResponse,
+           gather: true
+         };
+       }
 
-    case 'ask_name':
-      const name = extractName(text);
-      if (name) {
-        state.data.NomReserva = name;
-        state.step = 'ask_phone';
-        return {
-          message: `Perfecto, ${name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?`,
-          gather: true
-        };
-      } else {
-        return {
-          message: 'No entendí. ¿Su nombre?',
-          gather: true
-        };
-      }
+     case 'ask_name':
+       const name = extractName(text);
+       if (name) {
+         state.data.NomReserva = name;
+         state.step = 'ask_phone';
+         return {
+           message: `Perfecto, ${name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?`,
+           gather: true
+         };
+       } else {
+         const errorResponse = handleUnclearResponse(text, 'name');
+         return {
+           message: errorResponse,
+           gather: true
+         };
+       }
 
     case 'ask_phone':
       // Verificar si quiere usar el número actual o dar otro
@@ -209,43 +220,53 @@ async function processConversationStep(state, userInput) {
         }
       }
 
-    case 'ask_phone_number':
-      // Extraer el número de teléfono (puede estar en dígitos o palabras)
-      const extractedPhone = extractPhoneNumber(text);
-      if (extractedPhone && extractedPhone.length >= 9) {
-        state.data.TelefonReserva = extractedPhone;
-        state.step = 'confirm';
-        return {
-          message: getConfirmationMessage(state.data),
-          gather: true
-        };
-      } else {
-        return {
-          message: 'No entendí el número. Por favor, dígalo dígito por dígito.',
-          gather: true
-        };
-      }
+     case 'ask_phone_number':
+       // Extraer el número de teléfono (puede estar en dígitos o palabras)
+       const extractedPhone = extractPhoneNumber(text);
+       if (extractedPhone && extractedPhone.length >= 9) {
+         state.data.TelefonReserva = extractedPhone;
+         state.step = 'confirm';
+         return {
+           message: getConfirmationMessage(state.data),
+           gather: true
+         };
+       } else {
+         const errorResponse = handleUnclearResponse(text, 'phone');
+         return {
+           message: errorResponse,
+           gather: true
+         };
+       }
 
-    case 'confirm':
-      if (text.includes('si') || text.includes('sí') || text.includes('confirmo') || text.includes('correcto')) {
-        state.step = 'complete';
-        return {
-          message: '¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!',
-          gather: false
-        };
-      } else if (text.includes('no') || text.includes('cambiar')) {
-        state.step = 'ask_people';
-        state.data = {};
-        return {
-          message: 'De acuerdo. ¿Para cuántas personas?',
-          gather: true
-        };
-      } else {
-        return {
-          message: '¿Es correcto? Diga sí o no.',
-          gather: true
-        };
-      }
+     case 'confirm':
+       const confirmationResult = handleConfirmationResponse(text);
+       
+       if (confirmationResult.action === 'confirm') {
+         state.step = 'complete';
+         return {
+           message: '¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!',
+           gather: false
+         };
+       } else if (confirmationResult.action === 'modify') {
+         return handleModificationRequest(state, confirmationResult.modification);
+       } else if (confirmationResult.action === 'restart') {
+         state.step = 'ask_people';
+         state.data = {};
+         return {
+           message: 'De acuerdo. Empezamos de nuevo. ¿Para cuántas personas?',
+           gather: true
+         };
+       } else if (confirmationResult.action === 'clarify') {
+         return {
+           message: confirmationResult.message,
+           gather: true
+         };
+       } else {
+         return {
+           message: '¿Es correcto? Puede decir sí, no, o qué quiere cambiar.',
+           gather: true
+         };
+       }
 
     default:
       state.step = 'greeting';
@@ -268,8 +289,8 @@ function generateTwiML(response) {
     action="/api/twilio-call" 
     method="POST"
     language="es-ES"
-    speechTimeout="2"
-    timeout="3">
+     speechTimeout="3"
+     timeout="5">
     <Say voice="Google.es-ES-Neural2-B" language="es-ES">${escapeXml(message)}</Say>
   </Gather>
   <Say voice="Google.es-ES-Neural2-B" language="es-ES">No escuché respuesta. ¿Sigue ahí?</Say>
@@ -367,6 +388,203 @@ async function saveReservation(state) {
 }
 
 // Funciones auxiliares de extracción
+
+function handleConfirmationResponse(text) {
+  // Palabras de confirmación positiva
+  const positiveWords = [
+    'si', 'sí', 'correcto', 'confirmo', 'perfecto', 'bien', 'vale', 'ok', 'okay',
+    'exacto', 'eso es', 'así es', 'está bien', 'me parece bien', 'de acuerdo',
+    'confirmado', 'acepto', 'procedo', 'adelante', 'continúo'
+  ];
+  
+  // Palabras de negación
+  const negativeWords = [
+    'no', 'incorrecto', 'mal', 'error', 'cambiar', 'modificar', 'corregir',
+    'no es', 'no está bien', 'no me parece', 'discrepo', 'no acepto'
+  ];
+  
+  // Palabras para reiniciar
+  const restartWords = [
+    'empezar de nuevo', 'volver a empezar', 'reiniciar', 'otra vez', 'de nuevo',
+    'cambiar todo', 'empezamos otra vez', 'resetear'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  
+  // Verificar confirmación positiva
+  if (positiveWords.some(word => lowerText.includes(word))) {
+    return { action: 'confirm' };
+  }
+  
+  // Verificar negación
+  if (negativeWords.some(word => lowerText.includes(word))) {
+    return { action: 'clarify', message: 'Entiendo. ¿Qué le gustaría cambiar? Puede decir cambiar personas, cambiar fecha, cambiar hora, cambiar nombre o cambiar teléfono.' };
+  }
+  
+  // Verificar reinicio completo
+  if (restartWords.some(word => lowerText.includes(word))) {
+    return { action: 'restart' };
+  }
+  
+  // Detectar modificaciones específicas
+  const modifications = detectSpecificModifications(lowerText);
+  if (modifications.length > 0) {
+    return { action: 'modify', modification: modifications[0] };
+  }
+  
+  // Respuesta ambigua
+  return { action: 'clarify', message: '¿Es correcto? Puede decir sí para confirmar, no para cambiar algo, o qué específicamente quiere modificar.' };
+}
+
+function detectSpecificModifications(text) {
+  const modifications = [];
+  
+  // Detectar cambios específicos
+  if (text.includes('personas') || text.includes('gente') || text.includes('comensales') || text.includes('número de personas')) {
+    modifications.push('people');
+  }
+  if (text.includes('fecha') || text.includes('día') || text.includes('día') || text.includes('cuando')) {
+    modifications.push('date');
+  }
+  if (text.includes('hora') || text.includes('tiempo') || text.includes('a qué hora')) {
+    modifications.push('time');
+  }
+  if (text.includes('nombre') || text.includes('como me llamo') || text.includes('mi nombre')) {
+    modifications.push('name');
+  }
+  if (text.includes('teléfono') || text.includes('número') || text.includes('teléfono')) {
+    modifications.push('phone');
+  }
+  
+  return modifications;
+}
+
+function handleModificationRequest(state, modification) {
+  switch (modification) {
+    case 'people':
+      state.step = 'ask_people';
+      return {
+        message: 'Perfecto. ¿Para cuántas personas?',
+        gather: true
+      };
+      
+    case 'date':
+      state.step = 'ask_date';
+      return {
+        message: 'Perfecto. ¿Para qué fecha?',
+        gather: true
+      };
+      
+    case 'time':
+      state.step = 'ask_time';
+      return {
+        message: 'Perfecto. ¿A qué hora?',
+        gather: true
+      };
+      
+    case 'name':
+      state.step = 'ask_name';
+      return {
+        message: 'Perfecto. ¿Su nombre?',
+        gather: true
+      };
+      
+    case 'phone':
+      state.step = 'ask_phone';
+      return {
+        message: 'Perfecto. ¿Desea usar este número o prefiere otro?',
+        gather: true
+      };
+      
+    default:
+      return {
+        message: '¿Qué específicamente quiere cambiar?',
+        gather: true
+      };
+  }
+}
+
+function handleIntentionResponse(text) {
+  // Palabras de reserva directa
+  const directReservationWords = [
+    'reservar', 'reserva', 'mesa', 'quiero reservar', 'necesito reservar', 
+    'me gustaría reservar', 'quisiera reservar', 'deseo reservar', 
+    'hacer una reserva', 'reservar mesa', 'quiero mesa'
+  ];
+  
+  // Palabras de intención general
+  const generalIntentionWords = [
+    'quiero', 'necesito', 'me gustaría', 'quisiera', 'deseo', 'quería',
+    'si', 'sí', 'vale', 'bueno', 'perfecto', 'adelante'
+  ];
+  
+  // Palabras de negación o no reserva
+  const negativeWords = [
+    'no', 'nada', 'solo llamaba', 'información', 'pregunta', 'duda',
+    'cancelar', 'cancelación', 'no reserva'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  
+  // Verificar reserva directa
+  if (directReservationWords.some(word => lowerText.includes(word))) {
+    return { action: 'reservation' };
+  }
+  
+  // Verificar negación
+  if (negativeWords.some(word => lowerText.includes(word))) {
+    return { 
+      action: 'clarify', 
+      message: 'Entiendo. Si cambia de opinión y quiere hacer una reserva, solo dígamelo.' 
+    };
+  }
+  
+  // Verificar intención general (asumir que es para reserva)
+  if (generalIntentionWords.some(word => lowerText.includes(word))) {
+    return { action: 'reservation' };
+  }
+  
+  // Respuesta ambigua
+  return { 
+    action: 'clarify', 
+    message: '¿Le gustaría hacer una reserva para nuestro restaurante?' 
+  };
+}
+
+function handleUnclearResponse(text, field) {
+  const responses = {
+    people: [
+      'No entendí. ¿Cuántas personas serán? Puede decir un número del 1 al 20.',
+      '¿Para cuántas personas? Dígame un número, por ejemplo: dos, tres, cuatro...',
+      'Necesito saber el número de personas. ¿Cuántas serán?'
+    ],
+    date: [
+      'No entendí la fecha. ¿Qué día? Puede decir mañana, pasado mañana, o un día específico.',
+      '¿Para qué fecha? Puede decir el día de la semana o la fecha.',
+      'No capté la fecha. ¿Qué día le gustaría venir?'
+    ],
+    time: [
+      'No entendí la hora. ¿A qué hora? Puede decir por ejemplo: las ocho, las ocho y media...',
+      '¿A qué hora? Dígame la hora, por ejemplo: ocho de la noche.',
+      'No capté la hora. ¿A qué hora quiere la reserva?'
+    ],
+    name: [
+      'No entendí su nombre. ¿Cómo se llama?',
+      '¿Su nombre? Por favor, dígamelo despacio.',
+      'No capté su nombre. ¿Puede repetirlo?'
+    ],
+    phone: [
+      'No entendí el número. Puede decirlo dígito por dígito.',
+      '¿El número de teléfono? Dígalo despacio, número por número.',
+      'No capté el teléfono. ¿Puede repetirlo dígito por dígito?'
+    ]
+  };
+  
+  // Seleccionar respuesta aleatoria para evitar monotonía
+  const fieldResponses = responses[field] || ['No entendí. ¿Puede repetir?'];
+  const randomIndex = Math.floor(Math.random() * fieldResponses.length);
+  return fieldResponses[randomIndex];
+}
 
 function isReservationRequest(text) {
   const reservationWords = [
