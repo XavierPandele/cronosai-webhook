@@ -69,7 +69,7 @@ module.exports = async function handler(req, res) {
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Lucia" language="es-ES">
+  <Say voice="Google.es-ES-Neural2-A" language="es-ES">
     Disculpe, hubo un error técnico. Por favor, intente de nuevo más tarde o contacte directamente al restaurante.
   </Say>
   <Hangup/>
@@ -270,16 +270,16 @@ function generateTwiML(response) {
     language="es-ES"
     speechTimeout="2"
     timeout="3">
-    <Say voice="Polly.Lucia" language="es-ES">${escapeXml(message)}</Say>
+    <Say voice="Google.es-ES-Neural2-A" language="es-ES">${escapeXml(message)}</Say>
   </Gather>
-  <Say voice="Polly.Lucia" language="es-ES">No escuché respuesta. ¿Sigue ahí?</Say>
+  <Say voice="Google.es-ES-Neural2-A" language="es-ES">No escuché respuesta. ¿Sigue ahí?</Say>
   <Redirect>/api/twilio-call</Redirect>
 </Response>`;
   } else {
     // Solo decir el mensaje y colgar
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Lucia" language="es-ES">${escapeXml(message)}</Say>
+  <Say voice="Google.es-ES-Neural2-A" language="es-ES">${escapeXml(message)}</Say>
   <Pause length="1"/>
   <Hangup/>
 </Response>`;
