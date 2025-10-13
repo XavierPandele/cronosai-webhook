@@ -202,6 +202,30 @@ SWITCH(
 )
 ```
 
+#### Background Color Expression
+```
+SWITCH(
+  [status],
+  "confirmed", "#E8F5E9",
+  "pending", "#FFF3E0",
+  "cancelled", "#FFEBEE",
+  "completed", "#E3F2FD",
+  "#F5F5F5"
+)
+```
+
+#### Border Color Expression
+```
+SWITCH(
+  [status],
+  "confirmed", "#2E7D32",
+  "pending", "#F57C00",
+  "cancelled", "#C62828",
+  "completed", "#1565C0",
+  "#616161"
+)
+```
+
 ### Paso 4.4: Configurar Opciones del Calendario
 
 ```
@@ -274,13 +298,14 @@ Input mode: LongText
 Placeholder: Ej: Mesa cerca de la ventana, cumpleaños, etc.
 ```
 
-### Paso 5.3: Añadir Columna Virtual para Estado
+### Paso 5.3: Añadir Columnas Virtuales para Estado
 
 1. Ve a **Data > Columns** para la tabla Reservas
 2. Click en **"+ Add Virtual Column"**
 
+#### Columna 1: Estado Visual
 ```
-Column name: estado_color
+Column name: estado_visual
 Type: Text
 App formula:
 SWITCH(
@@ -290,6 +315,36 @@ SWITCH(
   "cancelled", "🔴 Cancelada",
   "completed", "🔵 Completada",
   "⚪ Desconocido"
+)
+```
+
+#### Columna 2: Color de Estado
+```
+Column name: color_estado
+Type: Text
+App formula:
+SWITCH(
+  [status],
+  "confirmed", "#4CAF50",
+  "pending", "#FFA500",
+  "cancelled", "#F44336",
+  "completed", "#2196F3",
+  "#808080"
+)
+```
+
+#### Columna 3: Icono de Estado
+```
+Column name: icono_estado
+Type: Text
+App formula:
+SWITCH(
+  [status],
+  "confirmed", "✅",
+  "pending", "⏳",
+  "cancelled", "❌",
+  "completed", "🎉",
+  "❓"
 )
 ```
 
@@ -370,9 +425,112 @@ Limit: 10
 Title: Próximas Reservas
 ```
 
+#### Widget 7: Gráfico de Estados
+```
+Widget type: Chart
+Chart type: Pie
+Group by: status
+Aggregate: COUNT
+Title: Distribución por Estado
+Colors:
+  - confirmed: #4CAF50
+  - pending: #FFA500
+  - cancelled: #F44336
+  - completed: #2196F3
+```
+
+#### Widget 8: Reservas Pendientes de Confirmar
+```
+Widget type: List
+Show: Reservas
+Filter: [status] = "pending" AND [data_reserva] >= NOW()
+Sort by: data_reserva (Ascending)
+Title: Pendientes de Confirmar
+```
+
 ---
 
-## 7️⃣ Personalización Avanzada
+## 7️⃣ Gestión de Estados de Reservas
+
+### Paso 7.1: Crear Vista de Gestión de Estados
+
+1. Ve a **UX > Views**
+2. Click en **"+ New View"**
+
+```
+View name: Gestión de Estados
+View type: List
+For this data: Reservas
+Primary view: No
+```
+
+### Paso 7.2: Configurar Columnas de Estado
+
+```
+Columnas a mostrar:
+1. estado_visual (Estado con emoji)
+2. nom_persona_reserva (Cliente)
+3. data_reserva (Fecha y Hora)
+4. num_persones (Personas)
+5. telefon (Teléfono)
+6. status (Estado para filtros)
+```
+
+### Paso 7.3: Añadir Filtros por Estado
+
+1. En la vista **"Gestión de Estados"**
+2. Ve a **Filters** y añade:
+
+```
+Filter 1: Todas las Pendientes
+Condition: [status] = "pending"
+
+Filter 2: Confirmadas Hoy
+Condition: [status] = "confirmed" AND DATE([data_reserva]) = TODAY()
+
+Filter 3: Canceladas
+Condition: [status] = "cancelled"
+
+Filter 4: Completadas
+Condition: [status] = "completed"
+```
+
+### Paso 7.4: Configurar Acciones Rápidas
+
+1. Ve a **Data > Columns** para Reservas
+2. Añade columna virtual:
+
+```
+Column name: acciones_estado
+Type: Action
+Actions:
+  - Confirmar: Update [status] = "confirmed"
+  - Cancelar: Update [status] = "cancelled"
+  - Completar: Update [status] = "completed"
+  - Marcar Pendiente: Update [status] = "pending"
+```
+
+### Paso 7.5: Configurar Colores de Fondo
+
+1. En la vista **"Gestión de Estados"**
+2. Ve a **Row Style**
+3. Configura:
+
+```
+Background Color Expression:
+SWITCH(
+  [status],
+  "confirmed", "#E8F5E9",
+  "pending", "#FFF3E0",
+  "cancelled", "#FFEBEE",
+  "completed", "#E3F2FD",
+  "#F5F5F5"
+)
+```
+
+---
+
+## 8️⃣ Personalización Avanzada
 
 ### Agregar Botón de Llamada Rápida
 

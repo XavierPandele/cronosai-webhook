@@ -114,13 +114,15 @@ export default async function handler(req, res) {
       telefono: row.telefon,
       num_personas: row.num_persones,
       estado: row.status,
+      estado_display: getStatusDisplay(row.status),
       fecha: row.fecha,
       hora: row.hora,
       dia_semana: row.dia_semana,
       
       // Color según estado
       color: getColorByStatus(row.status),
-      backgroundColor: getBackgroundColorByStatus(row.status)
+      backgroundColor: getBackgroundColorByStatus(row.status),
+      borderColor: getBorderColorByStatus(row.status)
     }));
 
     // Estadísticas del periodo
@@ -162,10 +164,20 @@ function calculateEndTime(startTime, durationMinutes) {
   return end.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function getStatusDisplay(status) {
+  const statusMap = {
+    'confirmed': '🟢 Confirmada',
+    'pending': '🟡 Pendiente',
+    'cancelled': '🔴 Cancelada',
+    'completed': '🔵 Completada'
+  };
+  return statusMap[status] || '⚪ Desconocido';
+}
+
 function getColorByStatus(status) {
   const colors = {
-    'pending': '#FFA500',    // Naranja
     'confirmed': '#4CAF50',  // Verde
+    'pending': '#FFA500',    // Naranja
     'cancelled': '#F44336',  // Rojo
     'completed': '#2196F3'   // Azul
   };
@@ -174,11 +186,21 @@ function getColorByStatus(status) {
 
 function getBackgroundColorByStatus(status) {
   const colors = {
-    'pending': '#FFF3E0',    // Naranja claro
     'confirmed': '#E8F5E9',  // Verde claro
+    'pending': '#FFF3E0',    // Naranja claro
     'cancelled': '#FFEBEE',  // Rojo claro
     'completed': '#E3F2FD'   // Azul claro
   };
   return colors[status] || '#F5F5F5';
+}
+
+function getBorderColorByStatus(status) {
+  const colors = {
+    'confirmed': '#2E7D32',  // Verde oscuro
+    'pending': '#F57C00',    // Naranja oscuro
+    'cancelled': '#C62828',  // Rojo oscuro
+    'completed': '#1565C0'   // Azul oscuro
+  };
+  return colors[status] || '#616161';
 }
 
