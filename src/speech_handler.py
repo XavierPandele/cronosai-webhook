@@ -19,6 +19,8 @@ class SpeechToTextHandler:
             
             self.speech_client = speech.SpeechClient()
             self.tts_client = texttospeech.TextToSpeechClient()
+            # Voz por defecto
+            self.voice_name = "es-ES-Neural2-A"
             print("Clientes de Google Cloud inicializados correctamente")
             
         except Exception as e:
@@ -72,33 +74,30 @@ class SpeechToTextHandler:
             print(f"Error en la transcripción: {e}")
             return ""
     
-    def synthesize_speech(self, text, language="es-ES"):
+    def synthesize_speech(self, text, language="es-ES", voice_name=None):
         """Convierte texto a audio"""
         try:
-            # Configuración simplificada de voces
-            voice_config = {
-                "es-ES": {
-                    "name": "es-ES-Neural2-A",
-                    "gender": texttospeech.SsmlVoiceGender.FEMALE
-                },
-                "de-DE": {
-                    "name": "de-DE-Neural2-F", 
-                    "gender": texttospeech.SsmlVoiceGender.FEMALE
-                },
-                "en-US": {
-                    "name": "en-US-Neural2-J",
-                    "gender": texttospeech.SsmlVoiceGender.FEMALE
-                }
-            }
+            # Usar la voz especificada o la voz por defecto de la instancia
+            if voice_name:
+                selected_voice = voice_name
+            else:
+                selected_voice = self.voice_name
             
-            voice = voice_config.get(language, voice_config["es-ES"])
+            # Extraer el código de idioma de la voz (ej: "es-ES" de "es-ES-Neural2-A")
+            lang_code = selected_voice.split('-')[0] + '-' + selected_voice.split('-')[1]
+            
+            # Determinar el género basado en la voz
+            if selected_voice.endswith('A') or selected_voice.endswith('C'):
+                gender = texttospeech.SsmlVoiceGender.FEMALE
+            else:
+                gender = texttospeech.SsmlVoiceGender.MALE
             
             # Configuración simplificada
             synthesis_input = texttospeech.SynthesisInput(text=text)
             voice_params = texttospeech.VoiceSelectionParams(
-                language_code=language,
-                name=voice["name"],
-                ssml_gender=voice["gender"]
+                language_code=lang_code,
+                name=selected_voice,
+                ssml_gender=gender
             )
             
             # Configuración de audio simplificada
