@@ -182,6 +182,15 @@ async function handlePost(req, res) {
       });
     }
 
+    // Validar estado si se proporciona
+    const validStatuses = ['confirmed', 'pending', 'cancelled', 'completed'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Estado inválido. Estados válidos: confirmed, pending, cancelled, completed'
+      });
+    }
+
     // Insertar reserva
     const query = `
       INSERT INTO reservas 
@@ -349,9 +358,31 @@ function formatReservation(reservation) {
     observacions: reservation.observacions,
     conversa_completa: reservation.conversa_completa,
     status: reservation.status,
+    status_display: getStatusDisplay(reservation.status),
+    status_color: getStatusColor(reservation.status),
     created_at: reservation.created_at,
     updated_at: reservation.updated_at
   };
+}
+
+function getStatusDisplay(status) {
+  const statusMap = {
+    'confirmed': '🟢 Confirmada',
+    'pending': '🟡 Pendiente',
+    'cancelled': '🔴 Cancelada',
+    'completed': '🔵 Completada'
+  };
+  return statusMap[status] || '⚪ Desconocido';
+}
+
+function getStatusColor(status) {
+  const colorMap = {
+    'confirmed': '#4CAF50',    // Verde
+    'pending': '#FFA500',      // Naranja
+    'cancelled': '#F44336',    // Rojo
+    'completed': '#2196F3'     // Azul
+  };
+  return colorMap[status] || '#808080'; // Gris por defecto
 }
 
 function isValidDate(dateString) {
