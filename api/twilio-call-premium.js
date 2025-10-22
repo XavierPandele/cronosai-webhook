@@ -53,14 +53,34 @@ module.exports = async (req, res) => {
       conversationStates.set(CallSid, state);
     }
     
+    // Agregar entrada del usuario al historial si existe
+    if (userInput && userInput.trim()) {
+      state.conversationHistory.push({
+        role: 'user',
+        message: userInput,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     // Procesar paso premium
     const response = await processPremiumStep(userInput, state);
+    
+    // Agregar respuesta del bot al historial
+    state.conversationHistory.push({
+      role: 'bot',
+      message: response,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Actualizar estado
+    conversationStates.set(CallSid, state);
     
     // Generar TwiML
     const twiml = generateTwiML(response, state.language);
     
     console.log(`🤖 Respuesta: "${response}"`);
     console.log(`🌍 Idioma: ${state.language}`);
+    console.log(`📊 Paso actual: ${state.step}`);
     
     res.setHeader('Content-Type', 'text/xml');
     res.send(twiml);
@@ -408,21 +428,28 @@ function extractInfoFallback(text, infoType) {
   
   switch (infoType) {
     case 'people':
-      return extractPeopleCountFallback(text);
+      const peopleCount = extractPeopleCountFallback(text);
+      return { people: peopleCount, confidence: peopleCount ? 0.8 : 0.0 };
     case 'date':
-      return extractDateFallback(text);
+      const date = extractDateFallback(text);
+      return { date: date, confidence: date ? 0.8 : 0.0 };
     case 'time':
-      return extractTimeFallback(text);
+      const time = extractTimeFallback(text);
+      return { time: time, confidence: time ? 0.8 : 0.0 };
     case 'name':
-      return extractNameFallback(text);
+      const name = extractNameFallback(text);
+      return { name: name, confidence: name ? 0.8 : 0.0 };
     case 'phone':
-      return extractPhoneNumberFallback(text);
+      const phone = extractPhoneNumberFallback(text);
+      return { phone: phone, confidence: phone ? 0.8 : 0.0 };
     default:
       return { [infoType]: null, confidence: 0.0 };
   }
 }
 
 function extractPeopleCountFallback(text) {
+  console.log('🔍 Extrayendo número de personas de:', text);
+  
   const wordToNumber = {
     // Español
     'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
@@ -461,7 +488,7 @@ function extractPeopleCountFallback(text) {
     // Portugués
     'não', 'melhor', 'espera', 'desculpa', 'mudar'
   ];
-  const hasCorrection = correctionWords.some(word => text.includes(word));
+  const hasCorrection = correctionWords.some(word => text.toLowerCase().includes(word));
 
   let foundNumbers = [];
 
@@ -483,14 +510,35 @@ function extractPeopleCountFallback(text) {
     }
   }
 
+  // Buscar patrones específicos como "para 4 personas", "for 4 people", etc.
+  const patterns = [
+    /(?:para|for|für|per|pour)\s*(\d+)/i,
+    /(\d+)\s*(?:personas|people|personen|persone|personnes|pessoas)/i,
+    /(?:mesa|table|tisch|tavolo|table|mesa)\s*(?:para|for|für|per|pour)?\s*(\d+)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const count = parseInt(match[1]);
+      if (count >= 1 && count <= 20) {
+        foundNumbers.push({ number: count, position: match.index });
+      }
+    }
+  }
+
+  console.log('🔍 Números encontrados:', foundNumbers);
+
   if (foundNumbers.length === 0) return null;
 
   // Si hay corrección o múltiples números, tomar el último
   if (hasCorrection || foundNumbers.length > 1) {
     foundNumbers.sort((a, b) => b.position - a.position);
+    console.log('🔍 Usando último número:', foundNumbers[0].number);
     return foundNumbers[0].number;
   }
 
+  console.log('🔍 Usando único número:', foundNumbers[0].number);
   return foundNumbers[0].number;
 }
 
@@ -588,19 +636,24 @@ function extractPhoneNumberFallback(text) {
 
 function generateTwiML(response, language) {
   const voice = getVoiceForLanguage(language);
+  const countryCode = getCountryCode(language);
+  
+  // Mensaje de espera en el idioma correcto
+  const waitMessage = getWaitMessage(language);
+  const timeoutMessage = getTimeoutMessage(language);
   
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${voice}" language="${language}-${getCountryCode(language)}">
-    ${response}
+  <Say voice="${voice}" language="${language}-${countryCode}">
+    ${escapeXml(response)}
   </Say>
-  <Gather input="speech" timeout="3" speechTimeout="2" action="/api/twilio-call-premium" method="POST">
-    <Say voice="${voice}" language="${language}-${getCountryCode(language)}">
-      Por favor, responda.
+  <Gather input="speech" timeout="5" speechTimeout="3" action="/api/twilio-call-premium" method="POST" language="${language}">
+    <Say voice="${voice}" language="${language}-${countryCode}">
+      ${escapeXml(waitMessage)}
     </Say>
   </Gather>
-  <Say voice="${voice}" language="${language}-${getCountryCode(language)}">
-    No he recibido respuesta. Gracias por llamar.
+  <Say voice="${voice}" language="${language}-${countryCode}">
+    ${escapeXml(timeoutMessage)}
   </Say>
   <Hangup/>
 </Response>`;
@@ -630,6 +683,41 @@ function getCountryCode(language) {
   };
   
   return codes[language] || 'ES';
+}
+
+function getWaitMessage(language) {
+  const messages = {
+    es: 'Por favor, responda.',
+    en: 'Please respond.',
+    de: 'Bitte antworten Sie.',
+    it: 'Per favore, rispondi.',
+    fr: 'Veuillez répondre.',
+    pt: 'Por favor, responda.'
+  };
+  
+  return messages[language] || messages.es;
+}
+
+function getTimeoutMessage(language) {
+  const messages = {
+    es: 'No he recibido respuesta. Gracias por llamar.',
+    en: 'I did not receive a response. Thank you for calling.',
+    de: 'Ich habe keine Antwort erhalten. Vielen Dank für den Anruf.',
+    it: 'Non ho ricevuto risposta. Grazie per la chiamata.',
+    fr: 'Je n\'ai pas reçu de réponse. Merci d\'avoir appelé.',
+    pt: 'Não recebi resposta. Obrigado por ligar.'
+  };
+  
+  return messages[language] || messages.es;
+}
+
+function escapeXml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 async function saveReservation(state) {
