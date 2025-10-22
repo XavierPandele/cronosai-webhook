@@ -1,6 +1,7 @@
 const { executeQuery, createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const RESPONSES_OPTIMIZED = require('../RESPUESTAS_OPTIMIZADAS_MULTIIDIOMA');
 
 // Configurar Gemini (opcional)
 let genAI = null;
@@ -113,8 +114,11 @@ async function processConversationStepPremium(state, userInput) {
   // 1. Analizar input del usuario con IA
   const analysis = await analyzeUserInputPremium(userInput, state.conversationHistory);
   
-  // 2. Actualizar estado con análisis
-  if (analysis.language) state.language = analysis.language;
+  // 2. Actualizar estado con análisis (solo si no está ya establecido)
+  if (analysis.language && !state.language) {
+    state.language = analysis.language;
+    console.log(`🌍 Idioma detectado y bloqueado: ${state.language}`);
+  }
   if (analysis.sentiment) state.sentiment = analysis.sentiment;
   if (analysis.urgency) state.urgency = analysis.urgency;
 
@@ -173,9 +177,11 @@ async function processConversationStepPremium(state, userInput) {
           sentiment: state.sentiment
         };
       } else {
-        const errorMessage = await generatePremiumResponse('ask_people_error', state.language, state.sentiment, state.urgency, state);
+        // Si no puede extraer, usar fallback y pedir de nuevo
+        console.log('⚠️ No se pudo extraer número de personas, usando fallback');
+        const fallbackMessage = await generatePremiumResponse('ask_people_error', state.language, state.sentiment, state.urgency, state);
         return {
-          message: errorMessage,
+          message: fallbackMessage,
           gather: true,
           language: state.language,
           sentiment: state.sentiment
@@ -613,8 +619,18 @@ async function generatePremiumResponse(step, language, sentiment, urgency, conte
 }
 
 function generateResponseFallback(step, language, sentiment) {
-  console.log('🔄 Usando respuestas fallback (sin Gemini)');
+  console.log('🔄 Usando respuestas fallback optimizadas (sin Gemini)');
   
+  // Usar respuestas optimizadas si están disponibles
+  if (RESPONSES_OPTIMIZED[step] && RESPONSES_OPTIMIZED[step][language]) {
+    const stepResponses = RESPONSES_OPTIMIZED[step][language][sentiment] || RESPONSES_OPTIMIZED[step][language]['neutral'];
+    if (stepResponses && stepResponses.length > 0) {
+      const randomIndex = Math.floor(Math.random() * stepResponses.length);
+      return stepResponses[randomIndex];
+    }
+  }
+  
+  // Fallback a respuestas básicas si no hay optimizadas
   const responses = {
     greeting: {
       es: {
@@ -662,6 +678,76 @@ function generateResponseFallback(step, language, sentiment) {
         negative: ['Entiendo. ¿Para cuántas personas?', 'Disculpe. ¿Cuántas personas serán?'],
         frustrated: ['Rápido, ¿cuántas personas?', '¿Cuántas personas? Necesito saberlo ya.']
       },
+      en: {
+        positive: ['Perfect! For how many people?', 'Excellent! How many people will it be?'],
+        neutral: ['For how many people?', 'How many people will it be?'],
+        negative: ['I understand. For how many people?', 'Sorry. How many people will it be?'],
+        frustrated: ['Quick, how many people?', 'How many people? I need to know now.']
+      },
+      de: {
+        positive: ['Perfekt! Für wie viele Personen?', 'Ausgezeichnet! Wie viele Personen werden es sein?'],
+        neutral: ['Für wie viele Personen?', 'Wie viele Personen werden es sein?'],
+        negative: ['Ich verstehe. Für wie viele Personen?', 'Entschuldigung. Wie viele Personen werden es sein?'],
+        frustrated: ['Schnell, wie viele Personen?', 'Wie viele Personen? Ich muss es jetzt wissen.']
+      },
+      it: {
+        positive: ['Perfetto! Per quante persone?', 'Eccellente! Quante persone saranno?'],
+        neutral: ['Per quante persone?', 'Quante persone saranno?'],
+        negative: ['Capisco. Per quante persone?', 'Scusi. Quante persone saranno?'],
+        frustrated: ['Veloce, quante persone?', 'Quante persone? Devo saperlo ora.']
+      },
+      fr: {
+        positive: ['Parfait! Pour combien de personnes?', 'Excellent! Combien de personnes seront-ce?'],
+        neutral: ['Pour combien de personnes?', 'Combien de personnes seront-ce?'],
+        negative: ['Je comprends. Pour combien de personnes?', 'Désolé. Combien de personnes seront-ce?'],
+        frustrated: ['Rapidement, combien de personnes?', 'Combien de personnes? Je dois le savoir maintenant.']
+      },
+      pt: {
+        positive: ['Perfeito! Para quantas pessoas?', 'Excelente! Quantas pessoas serão?'],
+        neutral: ['Para quantas pessoas?', 'Quantas pessoas serão?'],
+        negative: ['Entendo. Para quantas pessoas?', 'Desculpe. Quantas pessoas serão?'],
+        frustrated: ['Rápido, quantas pessoas?', 'Quantas pessoas? Preciso saber agora.']
+      }
+    },
+    
+    ask_people_error: {
+      es: {
+        positive: ['Disculpe, no entendí. ¿Para cuántas personas?', '¿Podría repetir? ¿Cuántas personas serán?'],
+        neutral: ['No entendí bien. ¿Para cuántas personas?', '¿Cuántas personas serán?'],
+        negative: ['Disculpe, no capté. ¿Para cuántas personas?', '¿Podría repetir? ¿Cuántas personas?'],
+        frustrated: ['Rápido, ¿cuántas personas?', '¿Cuántas personas? Dígalo claro.']
+      },
+      en: {
+        positive: ['Sorry, I didn\'t understand. For how many people?', 'Could you repeat? How many people will it be?'],
+        neutral: ['I didn\'t get that. For how many people?', 'How many people will it be?'],
+        negative: ['Sorry, I didn\'t catch that. For how many people?', 'Could you repeat? How many people?'],
+        frustrated: ['Quick, how many people?', 'How many people? Say it clearly.']
+      },
+      de: {
+        positive: ['Entschuldigung, ich habe nicht verstanden. Für wie viele Personen?', 'Könnten Sie wiederholen? Wie viele Personen werden es sein?'],
+        neutral: ['Ich habe das nicht verstanden. Für wie viele Personen?', 'Wie viele Personen werden es sein?'],
+        negative: ['Entschuldigung, ich habe das nicht erfasst. Für wie viele Personen?', 'Könnten Sie wiederholen? Wie viele Personen?'],
+        frustrated: ['Schnell, wie viele Personen?', 'Wie viele Personen? Sagen Sie es klar.']
+      },
+      it: {
+        positive: ['Scusi, non ho capito. Per quante persone?', 'Potrebbe ripetere? Quante persone saranno?'],
+        neutral: ['Non ho capito. Per quante persone?', 'Quante persone saranno?'],
+        negative: ['Scusi, non ho sentito. Per quante persone?', 'Potrebbe ripetere? Quante persone?'],
+        frustrated: ['Veloce, quante persone?', 'Quante persone? Dica chiaramente.']
+      },
+      fr: {
+        positive: ['Désolé, je n\'ai pas compris. Pour combien de personnes?', 'Pourriez-vous répéter? Combien de personnes seront-ce?'],
+        neutral: ['Je n\'ai pas compris. Pour combien de personnes?', 'Combien de personnes seront-ce?'],
+        negative: ['Désolé, je n\'ai pas saisi. Pour combien de personnes?', 'Pourriez-vous répéter? Combien de personnes?'],
+        frustrated: ['Rapidement, combien de personnes?', 'Combien de personnes? Dites-le clairement.']
+      },
+      pt: {
+        positive: ['Desculpe, não entendi. Para quantas pessoas?', 'Poderia repetir? Quantas pessoas serão?'],
+        neutral: ['Não entendi. Para quantas pessoas?', 'Quantas pessoas serão?'],
+        negative: ['Desculpe, não captei. Para quantas pessoas?', 'Poderia repetir? Quantas pessoas?'],
+        frustrated: ['Rápido, quantas pessoas?', 'Quantas pessoas? Diga claramente.']
+      }
+    },
       en: {
         positive: ['Perfect! For how many people?', 'Excellent! How many people will it be?'],
         neutral: ['For how many people?', 'How many people will it be?'],
@@ -829,13 +915,43 @@ function extractInfoFallback(text, infoType) {
 
 function extractPeopleCountFallback(text) {
   const wordToNumber = {
+    // Español
     'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
     'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
-    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15
+    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15,
+    // Inglés
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    // Alemán
+    'eins': 1, 'zwei': 2, 'drei': 3, 'vier': 4, 'fünf': 5,
+    'sechs': 6, 'sieben': 7, 'acht': 8, 'neun': 9, 'zehn': 10,
+    // Francés
+    'un': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5,
+    'six': 6, 'sept': 7, 'huit': 8, 'neuf': 9, 'dix': 10,
+    // Italiano
+    'uno': 1, 'due': 2, 'tre': 3, 'quattro': 4, 'cinque': 5,
+    'sei': 6, 'sette': 7, 'otto': 8, 'nove': 9, 'dieci': 10,
+    // Portugués
+    'um': 1, 'dois': 2, 'três': 3, 'quatro': 4, 'cinco': 5,
+    'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10
   };
 
-  // Detectar palabras de corrección
-  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  // Detectar palabras de corrección en múltiples idiomas
+  const correctionWords = [
+    // Español
+    'no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo',
+    // Inglés
+    'no', 'better', 'wait', 'sorry', 'change', 'correct',
+    // Alemán
+    'nein', 'besser', 'warte', 'entschuldigung', 'ändern',
+    // Francés
+    'non', 'mieux', 'attendez', 'désolé', 'changer',
+    // Italiano
+    'no', 'meglio', 'aspetta', 'scusa', 'cambiare',
+    // Portugués
+    'não', 'melhor', 'espera', 'desculpa', 'mudar'
+  ];
   const hasCorrection = correctionWords.some(word => text.includes(word));
 
   let foundNumbers = [];
