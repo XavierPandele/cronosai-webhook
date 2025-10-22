@@ -368,8 +368,41 @@ async function extractPeople(text, language) {
   return null;
 }
 
-// Extraer fecha
-function extractDate(text) {
+// Extraer fecha con Gemini o fallback
+async function extractDate(text, language) {
+  if (model) {
+    try {
+      const prompt = `
+      Extrae la fecha del siguiente texto: "${text}"
+      
+      IDIOMA: ${language}
+      
+      INSTRUCCIONES:
+      - Reconoce fechas relativas: "mañana", "tomorrow", "morgen", "domani", "demain", "amanhã"
+      - Reconoce "pasado mañana", "day after tomorrow", "übermorgen", "dopodomani", "après-demain", "depois de amanhã"
+      - Reconoce días de la semana: "viernes", "friday", "freitag", "venerdì", "vendredi", "sexta"
+      - Reconoce fechas específicas: "15 de octubre", "October 15th", "15. Oktober", "15 ottobre", "15 octobre", "15 de outubro"
+      - Si hay corrección (no, mejor, change), toma la última fecha mencionada
+      
+      RESPUESTA: Solo la fecha en formato YYYY-MM-DD o "null" si no encuentra nada.
+      `;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const extracted = response.text().trim();
+      
+      if (extracted !== 'null' && extracted !== '') {
+        // Validar formato de fecha
+        if (/^\d{4}-\d{2}-\d{2}$/.test(extracted)) {
+          return extracted;
+        }
+      }
+    } catch (error) {
+      console.error('Error con Gemini en extracción de fecha:', error);
+    }
+  }
+  
+  // Fallback a extracción básica
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -387,8 +420,41 @@ function extractDate(text) {
   return null;
 }
 
-// Extraer hora
-function extractTime(text) {
+// Extraer hora con Gemini o fallback
+async function extractTime(text, language) {
+  if (model) {
+    try {
+      const prompt = `
+      Extrae la hora del siguiente texto: "${text}"
+      
+      IDIOMA: ${language}
+      
+      INSTRUCCIONES:
+      - Reconoce formatos 24h: "20:30", "20.30", "20 30"
+      - Reconoce formatos 12h: "8:30 PM", "8.30 pm", "8 30 pm"
+      - Reconoce horas en palabras: "ocho y media", "eight thirty", "acht Uhr dreißig", "otto e mezza", "huit heures et demie", "oito e meia"
+      - Reconoce horas aproximadas: "alrededor de las 8", "around 8", "um 8 Uhr", "verso le 8", "vers 8h", "por volta das 8"
+      - Si hay corrección (no, mejor, change), toma la última hora mencionada
+      
+      RESPUESTA: Solo la hora en formato HH:MM (24h) o "null" si no encuentra nada.
+      `;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const extracted = response.text().trim();
+      
+      if (extracted !== 'null' && extracted !== '') {
+        // Validar formato de hora
+        if (/^\d{2}:\d{2}$/.test(extracted)) {
+          return extracted;
+        }
+      }
+    } catch (error) {
+      console.error('Error con Gemini en extracción de hora:', error);
+    }
+  }
+  
+  // Fallback a extracción básica
   const timeMatch = text.match(/(\d{1,2}):?(\d{2})?\s*(am|pm|AM|PM)?/);
   if (timeMatch) {
     let hour = parseInt(timeMatch[1]);
@@ -405,9 +471,38 @@ function extractTime(text) {
   return null;
 }
 
-// Extraer nombre
-function extractName(text) {
-  // Buscar patrones como "me llamo", "soy", "my name is", etc.
+// Extraer nombre con Gemini o fallback
+async function extractName(text, language) {
+  if (model) {
+    try {
+      const prompt = `
+      Extrae el nombre de persona del siguiente texto: "${text}"
+      
+      IDIOMA: ${language}
+      
+      INSTRUCCIONES:
+      - Reconoce patrones: "me llamo Juan", "soy María", "my name is John", "ich heiße Hans", "mi chiamo Marco", "je m'appelle Pierre", "meu nome é João"
+      - Reconoce nombres directos: "Juan", "John", "Hans", "Marco", "Pierre", "João"
+      - Reconoce nombres compuestos: "Juan Carlos", "Mary Jane", "Hans Peter", "Marco Antonio", "Pierre Louis", "João Carlos"
+      - Ignora palabras como "hola", "gracias", "por favor", "sí", "no"
+      - Si hay corrección (no, mejor, change), toma el último nombre mencionado
+      
+      RESPUESTA: Solo el nombre completo o "null" si no encuentra nada.
+      `;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const extracted = response.text().trim();
+      
+      if (extracted !== 'null' && extracted !== '') {
+        return extracted;
+      }
+    } catch (error) {
+      console.error('Error con Gemini en extracción de nombre:', error);
+    }
+  }
+  
+  // Fallback a extracción básica
   const patterns = [
     /(?:me llamo|soy|mi nombre es)\s+([a-zA-Z\s]+)/i,
     /(?:my name is|i am|i'm)\s+([a-zA-Z\s]+)/i,
@@ -590,7 +685,7 @@ export default async function handler(req, res) {
       break;
       
     case 'ask_date':
-      const date = extractDate(userInput);
+      const date = await extractDate(userInput, state.language);
       if (date) {
         state.data.date = date;
         state.step = 'ask_time';
@@ -601,7 +696,7 @@ export default async function handler(req, res) {
       break;
       
     case 'ask_time':
-      const time = extractTime(userInput);
+      const time = await extractTime(userInput, state.language);
       if (time) {
         state.data.time = time;
         state.step = 'ask_name';
@@ -612,7 +707,7 @@ export default async function handler(req, res) {
       break;
       
     case 'ask_name':
-      const name = extractName(userInput);
+      const name = await extractName(userInput, state.language);
       if (name) {
         state.data.name = name;
         state.step = 'ask_phone';
