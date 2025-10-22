@@ -2,9 +2,24 @@ const { executeQuery, createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Configurar Gemini
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// Configurar Gemini (opcional)
+let genAI = null;
+let model = null;
+
+// Verificar si Gemini está disponible
+if (process.env.GOOGLE_API_KEY) {
+  try {
+    genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+    model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    console.log('✅ Gemini AI configurado correctamente');
+  } catch (error) {
+    console.log('⚠️ Error configurando Gemini:', error.message);
+    console.log('🔄 Usando sistema híbrido (fallback a respuestas hard-coded)');
+  }
+} else {
+  console.log('⚠️ GOOGLE_API_KEY no configurada');
+  console.log('🔄 Usando sistema híbrido (fallback a respuestas hard-coded)');
+}
 
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
@@ -304,6 +319,11 @@ async function processConversationStepPremium(state, userInput) {
 // ==================== FUNCIONES DE IA PREMIUM ====================
 
 async function analyzeUserInputPremium(userInput, conversationHistory) {
+  // Si Gemini no está disponible, usar detección básica
+  if (!model) {
+    return analyzeUserInputFallback(userInput);
+  }
+  
   try {
     const prompt = `
     Analiza este input del usuario: "${userInput}"
@@ -333,27 +353,59 @@ async function analyzeUserInputPremium(userInput, conversationHistory) {
       return JSON.parse(text);
     } catch (parseError) {
       console.log('⚠️ Error parseando JSON, usando fallback');
-      return {
-        language: 'es',
-        sentiment: 'neutral',
-        intent: 'reservation',
-        urgency: 'medium',
-        confidence: 0.5
-      };
+      return analyzeUserInputFallback(userInput);
     }
   } catch (error) {
     console.error('❌ Error en análisis IA:', error);
-    return {
-      language: 'es',
-      sentiment: 'neutral',
-      intent: 'reservation',
-      urgency: 'medium',
-      confidence: 0.5
-    };
+    return analyzeUserInputFallback(userInput);
   }
 }
 
+function analyzeUserInputFallback(userInput) {
+  console.log('🔄 Usando análisis fallback (sin Gemini)');
+  
+  // Detección básica de idioma por palabras clave
+  const languagePatterns = {
+    en: /\b(hello|hi|reservation|table|people|time|date|yes|no|thank you)\b/i,
+    de: /\b(hallo|reservierung|tisch|personen|zeit|datum|ja|nein|danke)\b/i,
+    it: /\b(ciao|prenotazione|tavolo|persone|ora|data|sì|no|grazie)\b/i,
+    fr: /\b(bonjour|réservation|table|personnes|heure|date|oui|non|merci)\b/i,
+    pt: /\b(olá|reserva|mesa|pessoas|hora|data|sim|não|obrigado)\b/i
+  };
+  
+  let detectedLanguage = 'es'; // Español por defecto
+  for (const [lang, pattern] of Object.entries(languagePatterns)) {
+    if (pattern.test(userInput)) {
+      detectedLanguage = lang;
+      break;
+    }
+  }
+  
+  // Detección básica de sentimiento
+  let sentiment = 'neutral';
+  if (userInput.includes('gracias') || userInput.includes('perfecto') || userInput.includes('excelente')) {
+    sentiment = 'positive';
+  } else if (userInput.includes('no') || userInput.includes('mal') || userInput.includes('error')) {
+    sentiment = 'negative';
+  } else if (userInput.includes('urgente') || userInput.includes('rápido') || userInput.includes('ya')) {
+    sentiment = 'frustrated';
+  }
+  
+  return {
+    language: detectedLanguage,
+    sentiment: sentiment,
+    intent: 'reservation',
+    urgency: 'medium',
+    confidence: 0.7
+  };
+}
+
 async function generatePremiumResponse(step, language, sentiment, urgency, context) {
+  // Si Gemini no está disponible, usar respuestas hard-coded
+  if (!model) {
+    return generateResponseFallback(step, language, sentiment);
+  }
+  
   try {
     const prompts = {
       greeting: {
@@ -556,8 +608,104 @@ async function generatePremiumResponse(step, language, sentiment, urgency, conte
     
   } catch (error) {
     console.error('❌ Error generando respuesta premium:', error);
-    return getFallbackMessage(step, language);
+    return generateResponseFallback(step, language, sentiment);
   }
+}
+
+function generateResponseFallback(step, language, sentiment) {
+  console.log('🔄 Usando respuestas fallback (sin Gemini)');
+  
+  const responses = {
+    greeting: {
+      es: {
+        positive: ['¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?', '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy?'],
+        neutral: ['¡Hola! Gracias por llamar. ¿En qué puedo asistirle?', '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita?'],
+        negative: ['¡Hola! Entiendo que puede estar molesto. ¿En qué puedo ayudarle?', '¡Hola! Lamento cualquier inconveniente. ¿Cómo puedo asistirle?'],
+        frustrated: ['¡Hola! Entiendo su urgencia. ¿En qué puedo ayudarle rápidamente?', '¡Hola! Veo que necesita ayuda urgente. ¿Qué puedo hacer por usted?']
+      },
+      en: {
+        positive: ['Hello! Welcome to our restaurant. How can I help you?', 'Good morning! Welcome. How can I assist you today?'],
+        neutral: ['Hello! Thank you for calling. How can I help you?', 'Good afternoon! Welcome to the restaurant. What do you need?'],
+        negative: ['Hello! I understand you may be upset. How can I help you?', 'Hello! I apologize for any inconvenience. How can I assist you?'],
+        frustrated: ['Hello! I understand your urgency. How can I help you quickly?', 'Hello! I see you need urgent help. What can I do for you?']
+      },
+      de: {
+        positive: ['Hallo! Willkommen in unserem Restaurant. Wie kann ich Ihnen helfen?', 'Guten Morgen! Willkommen. Wie kann ich Ihnen heute helfen?'],
+        neutral: ['Hallo! Vielen Dank für den Anruf. Wie kann ich Ihnen helfen?', 'Guten Tag! Willkommen im Restaurant. Was benötigen Sie?'],
+        negative: ['Hallo! Ich verstehe, dass Sie verärgert sein könnten. Wie kann ich Ihnen helfen?', 'Hallo! Entschuldigung für die Unannehmlichkeiten. Wie kann ich Ihnen helfen?'],
+        frustrated: ['Hallo! Ich verstehe Ihre Dringlichkeit. Wie kann ich Ihnen schnell helfen?', 'Hallo! Ich sehe, Sie brauchen dringend Hilfe. Was kann ich für Sie tun?']
+      },
+      it: {
+        positive: ['Ciao! Benvenuto nel nostro ristorante. Come posso aiutarti?', 'Buongiorno! Benvenuto. Come posso aiutarti oggi?'],
+        neutral: ['Ciao! Grazie per la chiamata. Come posso aiutarti?', 'Buon pomeriggio! Benvenuto nel ristorante. Di cosa hai bisogno?'],
+        negative: ['Ciao! Capisco che potresti essere arrabbiato. Come posso aiutarti?', 'Ciao! Mi scuso per qualsiasi inconveniente. Come posso aiutarti?'],
+        frustrated: ['Ciao! Capisco la tua urgenza. Come posso aiutarti rapidamente?', 'Ciao! Vedo che hai bisogno di aiuto urgente. Cosa posso fare per te?']
+      },
+      fr: {
+        positive: ['Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider?', 'Bonjour! Bienvenue. Comment puis-je vous aider aujourd\'hui?'],
+        neutral: ['Bonjour! Merci d\'avoir appelé. Comment puis-je vous aider?', 'Bonjour! Bienvenue au restaurant. De quoi avez-vous besoin?'],
+        negative: ['Bonjour! Je comprends que vous pourriez être contrarié. Comment puis-je vous aider?', 'Bonjour! Je m\'excuse pour tout inconvénient. Comment puis-je vous aider?'],
+        frustrated: ['Bonjour! Je comprends votre urgence. Comment puis-je vous aider rapidement?', 'Bonjour! Je vois que vous avez besoin d\'aide urgente. Que puis-je faire pour vous?']
+      },
+      pt: {
+        positive: ['Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo?', 'Bom dia! Bem-vindo. Como posso ajudá-lo hoje?'],
+        neutral: ['Olá! Obrigado por ligar. Como posso ajudá-lo?', 'Boa tarde! Bem-vindo ao restaurante. Do que precisa?'],
+        negative: ['Olá! Entendo que pode estar chateado. Como posso ajudá-lo?', 'Olá! Peço desculpa por qualquer inconveniente. Como posso ajudá-lo?'],
+        frustrated: ['Olá! Entendo a sua urgência. Como posso ajudá-lo rapidamente?', 'Olá! Vejo que precisa de ajuda urgente. O que posso fazer por si?']
+      }
+    },
+    
+    ask_people: {
+      es: {
+        positive: ['¡Perfecto! ¿Para cuántas personas?', '¡Excelente! ¿Cuántas personas serán?'],
+        neutral: ['¿Para cuántas personas?', '¿Cuántas personas serán?'],
+        negative: ['Entiendo. ¿Para cuántas personas?', 'Disculpe. ¿Cuántas personas serán?'],
+        frustrated: ['Rápido, ¿cuántas personas?', '¿Cuántas personas? Necesito saberlo ya.']
+      },
+      en: {
+        positive: ['Perfect! For how many people?', 'Excellent! How many people will it be?'],
+        neutral: ['For how many people?', 'How many people will it be?'],
+        negative: ['I understand. For how many people?', 'Sorry. How many people will it be?'],
+        frustrated: ['Quick, how many people?', 'How many people? I need to know now.']
+      },
+      de: {
+        positive: ['Perfekt! Für wie viele Personen?', 'Ausgezeichnet! Wie viele Personen werden es sein?'],
+        neutral: ['Für wie viele Personen?', 'Wie viele Personen werden es sein?'],
+        negative: ['Ich verstehe. Für wie viele Personen?', 'Entschuldigung. Wie viele Personen werden es sein?'],
+        frustrated: ['Schnell, wie viele Personen?', 'Wie viele Personen? Ich muss es jetzt wissen.']
+      },
+      it: {
+        positive: ['Perfetto! Per quante persone?', 'Eccellente! Quante persone saranno?'],
+        neutral: ['Per quante persone?', 'Quante persone saranno?'],
+        negative: ['Capisco. Per quante persone?', 'Scusi. Quante persone saranno?'],
+        frustrated: ['Veloce, quante persone?', 'Quante persone? Devo saperlo ora.']
+      },
+      fr: {
+        positive: ['Parfait! Pour combien de personnes?', 'Excellent! Combien de personnes seront-ce?'],
+        neutral: ['Pour combien de personnes?', 'Combien de personnes seront-ce?'],
+        negative: ['Je comprends. Pour combien de personnes?', 'Désolé. Combien de personnes seront-ce?'],
+        frustrated: ['Rapidement, combien de personnes?', 'Combien de personnes? Je dois le savoir maintenant.']
+      },
+      pt: {
+        positive: ['Perfeito! Para quantas pessoas?', 'Excelente! Quantas pessoas serão?'],
+        neutral: ['Para quantas pessoas?', 'Quantas pessoas serão?'],
+        negative: ['Entendo. Para quantas pessoas?', 'Desculpe. Quantas pessoas serão?'],
+        frustrated: ['Rápido, quantas pessoas?', 'Quantas pessoas? Preciso saber agora.']
+      }
+    }
+    
+    // ... más respuestas para otros pasos
+  };
+  
+  const stepResponses = responses[step]?.[language]?.[sentiment] || responses[step]?.[language]?.['neutral'] || responses[step]?.['es']?.['neutral'];
+  
+  if (stepResponses && stepResponses.length > 0) {
+    const randomIndex = Math.floor(Math.random() * stepResponses.length);
+    return stepResponses[randomIndex];
+  }
+  
+  // Fallback final
+  return getFallbackMessage(step, language);
 }
 
 async function extractInfoWithGemini(text, infoType, state) {
