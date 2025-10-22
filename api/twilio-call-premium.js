@@ -106,7 +106,7 @@ async function processPremiumStep(userInput, state) {
   console.log(`📋 Procesando paso premium: ${state.step}, Input: "${userInput}"`);
   
   // 1. Analizar input del usuario con IA
-  const analysis = await analyzeUserInputPremium(userInput, state.conversationHistory);
+  const analysis = await analyzeUserInputPremium(userInput, state.conversationHistory, state.language);
   
   // 2. Actualizar estado con análisis (solo si no está ya establecido)
   if (analysis.language && !state.language) {
@@ -175,11 +175,14 @@ async function processPremiumStep(userInput, state) {
       
     case 'complete':
       // Guardar reserva
+      console.log('💾 Guardando reserva...', state.data);
       const saved = await saveReservation(state);
       if (saved) {
+        console.log('✅ Reserva guardada exitosamente');
         state.step = 'finished';
         return await generatePremiumResponse('complete', state.language, state.sentiment, state.urgency, state);
       } else {
+        console.log('❌ Error guardando reserva');
         return await generatePremiumResponse('complete_error', state.language, state.sentiment, state.urgency, state);
       }
       
@@ -188,7 +191,7 @@ async function processPremiumStep(userInput, state) {
   }
 }
 
-async function analyzeUserInputPremium(userInput, conversationHistory) {
+async function analyzeUserInputPremium(userInput, conversationHistory, currentLanguage) {
   // Si Gemini no está disponible, usar análisis básico
   if (!model) {
     return analyzeUserInputFallback(userInput);
@@ -198,10 +201,14 @@ async function analyzeUserInputPremium(userInput, conversationHistory) {
     const prompt = `
     Analiza este input del usuario: "${userInput}"
     
+    Idioma actual de la conversación: ${currentLanguage || 'desconocido'}
     Contexto de conversación: ${JSON.stringify(conversationHistory.slice(-3))}
     
+    IMPORTANTE: Si ya hay un idioma establecido (${currentLanguage}), mantén ese idioma.
+    Solo cambia el idioma si es MUY claro que el usuario cambió de idioma.
+    
     Determina:
-    1. Idioma (es, en, de, it, fr, pt)
+    1. Idioma (es, en, de, it, fr, pt) - MANTÉN el idioma actual si ya está establecido
     2. Sentimiento (positive, neutral, negative, frustrated)
     3. Urgencia (low, medium, high)
     4. Confianza (0.0-1.0)
@@ -222,7 +229,15 @@ async function analyzeUserInputPremium(userInput, conversationHistory) {
     console.log('🧠 Análisis IA:', text);
     
     try {
-      return JSON.parse(text);
+      const analysis = JSON.parse(text);
+      
+      // Si ya hay un idioma establecido, mantenerlo a menos que sea muy claro el cambio
+      if (currentLanguage && analysis.language !== currentLanguage) {
+        console.log(`🔄 Manteniendo idioma establecido: ${currentLanguage} (detectado: ${analysis.language})`);
+        analysis.language = currentLanguage;
+      }
+      
+      return analysis;
     } catch (parseError) {
       console.log('⚠️ Error parseando análisis, usando fallback');
       return analyzeUserInputFallback(userInput);
@@ -281,7 +296,42 @@ function analyzeUserInputFallback(userInput) {
 async function generatePremiumResponse(step, language, sentiment, urgency, state) {
   console.log(`🤖 Generando respuesta para: ${step}, idioma: ${language}, sentimiento: ${sentiment}`);
   
-  // Usar respuestas optimizadas directamente
+  // Si Gemini está disponible, usarlo para respuestas naturales
+  if (model) {
+    try {
+      const prompt = `
+      Eres un asistente de restaurante muy natural y conversacional.
+      
+      Paso actual: ${step}
+      Idioma: ${language}
+      Sentimiento del cliente: ${sentiment}
+      Urgencia: ${urgency}
+      
+      Datos de la reserva hasta ahora:
+      - Personas: ${state.data.NumeroReserva || 'No especificado'}
+      - Fecha: ${state.data.FechaReserva || 'No especificada'}
+      - Hora: ${state.data.HoraReserva || 'No especificada'}
+      - Nombre: ${state.data.NomReserva || 'No especificado'}
+      - Teléfono: ${state.data.TelefonReserva || 'No especificado'}
+      
+      Responde de forma natural, conversacional y amigable. Máximo 20 palabras.
+      Responde SOLO en ${language}.
+      `;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      console.log('🤖 Respuesta Gemini:', text);
+      return text;
+      
+    } catch (error) {
+      console.error('❌ Error con Gemini, usando fallback:', error);
+      return generateResponseFallback(step, language, sentiment);
+    }
+  }
+  
+  // Usar respuestas optimizadas como fallback
   return generateResponseFallback(step, language, sentiment);
 }
 
@@ -367,7 +417,52 @@ function getFallbackMessage(step, language) {
 async function extractInfoWithGemini(text, infoType, state) {
   console.log(`🔍 Extrayendo ${infoType} de: "${text}"`);
   
-  // Usar extracción fallback directamente
+  // Si Gemini está disponible, usarlo para extracción precisa
+  if (model) {
+    try {
+      const prompts = {
+        people: `Extrae el número de personas del texto: "${text}". Responde SOLO con un número (1-20). Si no hay número claro, responde "null".`,
+        date: `Extrae la fecha del texto: "${text}". Responde en formato YYYY-MM-DD. Si no hay fecha clara, responde "null".`,
+        time: `Extrae la hora del texto: "${text}". Responde en formato HH:MM. Si no hay hora clara, responde "null".`,
+        name: `Extrae el nombre de persona del texto: "${text}". Responde SOLO el nombre. Si no hay nombre claro, responde "null".`,
+        phone: `Extrae el número de teléfono del texto: "${text}". Responde SOLO el número. Si no hay teléfono claro, responde "null".`
+      };
+      
+      const prompt = prompts[infoType];
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const extractedText = response.text().trim();
+      
+      console.log(`🔍 Extracción Gemini (${infoType}):`, extractedText);
+      
+      if (extractedText === 'null' || extractedText === '') {
+        return extractInfoFallback(text, infoType);
+      }
+      
+      // Formatear respuesta según el tipo
+      switch (infoType) {
+        case 'people':
+          const peopleNum = parseInt(extractedText);
+          return peopleNum ? { people: peopleNum, confidence: 0.9 } : extractInfoFallback(text, infoType);
+        case 'date':
+          return { date: extractedText, confidence: 0.9 };
+        case 'time':
+          return { time: extractedText, confidence: 0.9 };
+        case 'name':
+          return { name: extractedText, confidence: 0.9 };
+        case 'phone':
+          return { phone: extractedText, confidence: 0.9 };
+        default:
+          return extractInfoFallback(text, infoType);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error con Gemini en extracción:', error);
+      return extractInfoFallback(text, infoType);
+    }
+  }
+  
+  // Usar extracción fallback si no hay Gemini
   return extractInfoFallback(text, infoType);
 }
 
