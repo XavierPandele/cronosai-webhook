@@ -1,5 +1,27 @@
+// Cargar variables de entorno
+require('dotenv').config();
+
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
+
+// Inicializar Gemini 2.0 Flash con configuración optimizada
+let genAI, model;
+if (process.env.GOOGLE_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+  model = genAI.getGenerativeModel({ 
+    model: "gemini-2.0-flash-exp",
+    generationConfig: {
+      temperature: 0.3, // Menos creatividad, más precisión
+      topP: 0.8,
+      topK: 40,
+      maxOutputTokens: 1024,
+    }
+  });
+  console.log('✅ Gemini 2.0 Flash Enhanced inicializado');
+} else {
+  console.log('⚠️ GOOGLE_API_KEY no configurado, usando sistema hardcodeado');
+}
 
 // Estados de conversación
 const conversationStates = new Map();
