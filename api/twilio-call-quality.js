@@ -516,7 +516,7 @@ async function generateResponse(step, language, context) {
     try {
       // Prompts simplificados y más naturales
       const simplePrompts = {
-        greeting: `Saluda amigablemente y pregunta cuántas personas necesitan mesa. Responde en ${language}.`,
+        greeting: `Saluda amigablemente y da la bienvenida al cliente al restaurante. Responde en ${language}.`,
         ask_people: `Pregunta cuántas personas serán para la reserva. Responde en ${language}.`,
         ask_date: `Pregunta para qué fecha necesitan la mesa. Responde en ${language}.`,
         ask_time: `Pregunta a qué hora quieren venir. Responde en ${language}.`,
