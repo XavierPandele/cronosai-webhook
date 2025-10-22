@@ -84,7 +84,7 @@ const RESPONSES_OPTIMIZED = {
         'Hallo! Entschuldigung für die Unannehmlichkeiten. Wie kann ich Ihnen helfen?',
         'Hallo! Entschuldigung für die Probleme. Wie kann ich Ihnen helfen?',
         'Hallo! Ich verstehe Ihre Frustration. Wie kann ich Ihnen helfen?',
-        'Hallo! Entschuldigung für die Unannehmlichkeiten. Wie kann ich Ihnen helfen?'
+        'Hallo! Entschuldigung für den Ärger. Wie kann ich Ihnen helfen?'
       ],
       frustrated: [
         'Hallo! Ich verstehe Ihre Dringlichkeit. Wie kann ich Ihnen schnell helfen?',
@@ -473,7 +473,7 @@ const RESPONSES_OPTIMIZED = {
         'Quante persone saranno?',
         'Non ho sentito. Per quante persone?',
         'Potrebbe ripetere? Quante persone?',
-        'Non ho capito. Per quante persone?'
+        'Non ho compreso. Per quante persone?'
       ],
       negative: [
         'Scusi, non ho sentito. Per quante persone?',
@@ -503,7 +503,7 @@ const RESPONSES_OPTIMIZED = {
         'Combien de personnes seront-ce?',
         'Je n\'ai pas saisi. Pour combien de personnes?',
         'Pourriez-vous répéter? Combien de personnes?',
-        'Je n\'ai pas compris. Pour combien de personnes?'
+        'Je n\'ai pas entendu. Pour combien de personnes?'
       ],
       negative: [
         'Désolé, je n\'ai pas saisi. Pour combien de personnes?',
@@ -533,7 +533,7 @@ const RESPONSES_OPTIMIZED = {
         'Quantas pessoas serão?',
         'Não captei. Para quantas pessoas?',
         'Poderia repetir? Quantas pessoas?',
-        'Não entendi. Para quantas pessoas?'
+        'Não compreendi. Para quantas pessoas?'
       ],
       negative: [
         'Desculpe, não captei. Para quantas pessoas?',
