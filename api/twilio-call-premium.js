@@ -128,7 +128,7 @@ async function processPremiumStep(userInput, state) {
       if (peopleCount && peopleCount.people) {
         state.data.NumeroReserva = peopleCount.people;
         state.step = 'ask_date';
-        return await generatePremiumResponse('ask_people', state.language, state.sentiment, state.urgency, state);
+        return await generatePremiumResponse('ask_date', state.language, state.sentiment, state.urgency, state);
       } else {
         return await generatePremiumResponse('ask_people_error', state.language, state.sentiment, state.urgency, state);
       }
@@ -138,7 +138,7 @@ async function processPremiumStep(userInput, state) {
       if (date && date.date) {
         state.data.FechaReserva = date.date;
         state.step = 'ask_time';
-        return await generatePremiumResponse('ask_date', state.language, state.sentiment, state.urgency, state);
+        return await generatePremiumResponse('ask_time', state.language, state.sentiment, state.urgency, state);
       } else {
         return await generatePremiumResponse('ask_date_error', state.language, state.sentiment, state.urgency, state);
       }
@@ -148,7 +148,7 @@ async function processPremiumStep(userInput, state) {
       if (time && time.time) {
         state.data.HoraReserva = time.time;
         state.step = 'ask_name';
-        return await generatePremiumResponse('ask_time', state.language, state.sentiment, state.urgency, state);
+        return await generatePremiumResponse('ask_name', state.language, state.sentiment, state.urgency, state);
       } else {
         return await generatePremiumResponse('ask_time_error', state.language, state.sentiment, state.urgency, state);
       }
@@ -158,7 +158,7 @@ async function processPremiumStep(userInput, state) {
       if (name && name.name) {
         state.data.NomReserva = name.name;
         state.step = 'ask_phone';
-        return await generatePremiumResponse('ask_name', state.language, state.sentiment, state.urgency, state);
+        return await generatePremiumResponse('ask_phone', state.language, state.sentiment, state.urgency, state);
       } else {
         return await generatePremiumResponse('ask_name_error', state.language, state.sentiment, state.urgency, state);
       }
@@ -168,7 +168,7 @@ async function processPremiumStep(userInput, state) {
       if (phone && phone.phone) {
         state.data.TelefonReserva = phone.phone;
         state.step = 'complete';
-        return await generatePremiumResponse('ask_phone', state.language, state.sentiment, state.urgency, state);
+        return await generatePremiumResponse('complete', state.language, state.sentiment, state.urgency, state);
       } else {
         return await generatePremiumResponse('ask_phone_error', state.language, state.sentiment, state.urgency, state);
       }
@@ -279,34 +279,10 @@ function analyzeUserInputFallback(userInput) {
 }
 
 async function generatePremiumResponse(step, language, sentiment, urgency, state) {
-  // Si Gemini no está disponible, usar respuestas optimizadas
-  if (!model) {
-    return generateResponseFallback(step, language, sentiment);
-  }
+  console.log(`🤖 Generando respuesta para: ${step}, idioma: ${language}, sentimiento: ${sentiment}`);
   
-  try {
-    const prompt = `
-    Genera una respuesta natural para el paso: ${step}
-    Idioma: ${language}
-    Sentimiento del cliente: ${sentiment}
-    Urgencia: ${urgency}
-    
-    Contexto: ${JSON.stringify(state.data)}
-    
-    Responde de forma natural y conversacional, máximo 15 palabras.
-    `;
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    
-    console.log('🤖 Respuesta IA generada:', text);
-    return text;
-    
-  } catch (error) {
-    console.error('❌ Error generando respuesta premium:', error);
-    return generateResponseFallback(step, language, sentiment);
-  }
+  // Usar respuestas optimizadas directamente
+  return generateResponseFallback(step, language, sentiment);
 }
 
 function generateResponseFallback(step, language, sentiment) {
@@ -389,38 +365,10 @@ function getFallbackMessage(step, language) {
 }
 
 async function extractInfoWithGemini(text, infoType, state) {
-  // Si Gemini no está disponible, usar extracción básica
-  if (!model) {
-    return extractInfoFallback(text, infoType);
-  }
+  console.log(`🔍 Extrayendo ${infoType} de: "${text}"`);
   
-  try {
-    const prompts = {
-      people: `Extrae el número de personas de: "${text}"`,
-      date: `Extrae la fecha de: "${text}"`,
-      time: `Extrae la hora de: "${text}"`,
-      name: `Extrae el nombre de: "${text}"`,
-      phone: `Extrae el teléfono de: "${text}"`
-    };
-    
-    const prompt = prompts[infoType];
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    
-    console.log(`🔍 Extracción IA (${infoType}):`, text);
-    
-    try {
-      return JSON.parse(text);
-    } catch (parseError) {
-      console.log('⚠️ Error parseando extracción, usando fallback');
-      return extractInfoFallback(text, infoType);
-    }
-    
-  } catch (error) {
-    console.error('❌ Error en extracción IA:', error);
-    return extractInfoFallback(text, infoType);
-  }
+  // Usar extracción fallback directamente
+  return extractInfoFallback(text, infoType);
 }
 
 function extractInfoFallback(text, infoType) {
