@@ -1,64 +1,49 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
 
-// Inicializar Gemini solo si hay API key
-let model = null;
-if (process.env.GOOGLE_API_KEY) {
-  try {
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-    model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    console.log('[GEMINI] Inicializado correctamente');
-  } catch (error) {
-    console.log('[WARN] Error inicializando Gemini:', error.message);
-  }
-} else {
-  console.log('[WARN] GOOGLE_API_KEY no configurada, usando respuestas optimizadas');
-}
-
-// Estados de conversación con persistencia mejorada
+// Estados de conversación
 const conversationStates = new Map();
 
-// Respuestas optimizadas - MÁS NATURALES Y VARIADAS
+// Respuestas optimizadas y naturales
 const RESPONSES = {
   greeting: {
     es: [
-      '¡Hola! ¿Para cuántas personas necesitan mesa?',
-      '¡Buenos días! ¿Cuántas personas serán?',
+      '¡Hola! Bienvenido a nuestro restaurante. ¿Para cuántas personas necesitan mesa?',
+      '¡Buenos días! ¿Cuántas personas serán para la reserva?',
       '¡Hola! ¿Para cuántos comensales?',
       '¡Saludos! ¿Cuántas personas en su grupo?',
       '¡Hola! ¿Para cuántas personas es la reserva?'
     ],
     en: [
-      'Hello! How many people will be dining?',
+      'Hello! Welcome to our restaurant. How many people will be dining?',
       'Good day! How many guests are we expecting?',
       'Hi there! How many people in your party?',
       'Hello! How many diners will we have?',
       'Good morning! How many people for the reservation?'
     ],
     de: [
-      'Hallo! Für wie viele Personen?',
+      'Hallo! Willkommen in unserem Restaurant. Für wie viele Personen?',
       'Guten Tag! Wie viele Gäste erwarten wir?',
       'Hallo! Wie viele Personen in Ihrer Gruppe?',
       'Guten Morgen! Für wie viele Personen reservieren Sie?',
       'Hallo! Wie viele Gäste werden es sein?'
     ],
     it: [
-      'Ciao! Per quante persone?',
+      'Ciao! Benvenuto nel nostro ristorante. Per quante persone?',
       'Buongiorno! Quanti ospiti aspettiamo?',
       'Ciao! Quante persone nel vostro gruppo?',
       'Salve! Per quante persone prenotate?',
       'Ciao! Quanti ospiti saranno?'
     ],
     fr: [
-      'Bonjour! Pour combien de personnes?',
+      'Bonjour! Bienvenue dans notre restaurant. Pour combien de personnes?',
       'Bonjour! Combien d\'invités attendons-nous?',
       'Salut! Combien de personnes dans votre groupe?',
       'Bonjour! Pour combien de personnes réservez-vous?',
       'Salut! Combien d\'invités seront là?'
     ],
     pt: [
-      'Olá! Para quantas pessoas?',
+      'Olá! Bem-vindo ao nosso restaurante. Para quantas pessoas?',
       'Bom dia! Quantos convidados esperamos?',
       'Oi! Quantas pessoas no seu grupo?',
       'Olá! Para quantas pessoas está reservando?',
@@ -287,17 +272,17 @@ const RESPONSES = {
   }
 };
 
-// Detectar idioma con patrones mejorados
+// Detectar idioma de forma simple y efectiva
 function detectLanguage(text) {
   console.log(`[IDIOMA] Detectando idioma en: "${text}"`);
   
   const patterns = {
-    es: /\b(hola|buenos|buenas|gracias|por favor|sí|no|reservar|mesa|personas|fecha|hora|nombre|teléfono|mañana|pasado mañana)\b/i,
-    en: /\b(hello|hi|good|thanks|please|yes|no|book|table|people|date|time|name|phone|tomorrow|day after tomorrow)\b/i,
-    de: /\b(hallo|guten|danke|bitte|ja|nein|buchen|tisch|personen|datum|zeit|name|telefon|morgen|übermorgen)\b/i,
-    it: /\b(ciao|buongiorno|grazie|per favore|sì|no|prenotare|tavolo|persone|data|ora|nome|telefono|domani|dopodomani)\b/i,
-    fr: /\b(bonjour|salut|merci|s'il vous plaît|oui|non|réserver|table|personnes|date|heure|nom|téléphone|demain|après-demain)\b/i,
-    pt: /\b(olá|bom|obrigado|por favor|sim|não|reservar|mesa|pessoas|data|hora|nome|telefone|amanhã|depois de amanhã)\b/i
+    es: /\b(hola|buenos|buenas|gracias|por favor|sí|no|reservar|mesa|personas|fecha|hora|nombre|teléfono|mañana|pasado mañana|cuatro|cinco|seis|siete|ocho|nueve|diez)\b/i,
+    en: /\b(hello|hi|good|thanks|please|yes|no|book|table|people|date|time|name|phone|tomorrow|day after tomorrow|four|five|six|seven|eight|nine|ten)\b/i,
+    de: /\b(hallo|guten|danke|bitte|ja|nein|buchen|tisch|personen|datum|zeit|name|telefon|morgen|übermorgen|vier|fünf|sechs|sieben|acht|neun|zehn)\b/i,
+    it: /\b(ciao|buongiorno|grazie|per favore|sì|no|prenotare|tavolo|persone|data|ora|nome|telefono|domani|dopodomani|quattro|cinque|sei|sette|otto|nove|dieci)\b/i,
+    fr: /\b(bonjour|salut|merci|s'il vous plaît|oui|non|réserver|table|personnes|date|heure|nom|téléphone|demain|après-demain|quatre|cinq|six|sept|huit|neuf|dix)\b/i,
+    pt: /\b(olá|bom|obrigado|por favor|sim|não|reservar|mesa|pessoas|data|hora|nome|telefone|amanhã|depois de amanhã|quatro|cinco|seis|sete|oito|nove|dez)\b/i
   };
   
   for (const [lang, pattern] of Object.entries(patterns)) {
@@ -308,177 +293,179 @@ function detectLanguage(text) {
   }
   
   console.log(`[IDIOMA] No detectado, usando español por defecto`);
-  return 'es'; // Default
+  return 'es';
 }
 
-// Extraer número de personas con Gemini mejorado
-async function extractPeople(text, language) {
+// Extraer número de personas - VERSIÓN ROBUSTA
+function extractPeople(text) {
   console.log(`[EXTRACCION] Extrayendo personas de: "${text}"`);
   
-  if (model) {
-    try {
-      const prompt = `Extrae el número de personas del texto: "${text}". Responde solo con un número (1-20) o "null" si no hay número claro.`;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const extracted = response.text().trim();
-      
-      console.log(`[GEMINI] Extracción personas: "${extracted}"`);
-      
-      if (extracted !== 'null' && extracted !== '') {
-        const num = parseInt(extracted);
-        if (num >= 1 && num <= 20) {
-          return num;
-        }
-      }
-    } catch (error) {
-      console.error('[ERROR] Gemini falló en extracción personas:', error.message);
-    }
-  }
+  // Palabras de corrección
+  const correctionWords = [
+    'no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo',
+    'no', 'better', 'wait', 'sorry', 'change', 'correct',
+    'nein', 'besser', 'warte', 'entschuldigung', 'ändern',
+    'non', 'mieux', 'attendez', 'désolé', 'changer',
+    'no', 'meglio', 'aspetta', 'scusa', 'cambiare',
+    'não', 'melhor', 'espera', 'desculpa', 'mudar'
+  ];
   
-  // Fallback mejorado
-  const numbers = text.match(/\b(\d+)\b/g);
-  if (numbers) {
-    const num = parseInt(numbers[numbers.length - 1]);
-    if (num >= 1 && num <= 20) {
-      console.log(`[FALLBACK] Número encontrado: ${num}`);
-      return num;
-    }
-  }
+  const hasCorrection = correctionWords.some(word => text.toLowerCase().includes(word));
   
-  // Palabras en diferentes idiomas
+  // Números en palabras
   const wordNumbers = {
+    // Español
     'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+    'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15,
+    // Inglés
     'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    // Alemán
     'eins': 1, 'zwei': 2, 'drei': 3, 'vier': 4, 'fünf': 5,
-    'uno': 1, 'due': 2, 'tre': 3, 'quattro': 4, 'cinque': 5,
+    'sechs': 6, 'sieben': 7, 'acht': 8, 'neun': 9, 'zehn': 10,
+    // Francés
     'un': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5,
-    'um': 1, 'dois': 2, 'três': 3, 'quatro': 4, 'cinco': 5
+    'six': 6, 'sept': 7, 'huit': 8, 'neuf': 9, 'dix': 10,
+    // Italiano
+    'uno': 1, 'due': 2, 'tre': 3, 'quattro': 4, 'cinque': 5,
+    'sei': 6, 'sette': 7, 'otto': 8, 'nove': 9, 'dieci': 10,
+    // Portugués
+    'um': 1, 'dois': 2, 'três': 3, 'quatro': 4, 'cinco': 5,
+    'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10
   };
   
-  for (const [word, num] of Object.entries(wordNumbers)) {
-    if (text.toLowerCase().includes(word)) {
-      console.log(`[FALLBACK] Palabra encontrada: ${word} = ${num}`);
-      return num;
+  let foundNumbers = [];
+  
+  // Buscar números en palabras
+  for (const [word, number] of Object.entries(wordNumbers)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      foundNumbers.push({ number, position: match.index });
     }
   }
   
-  console.log(`[EXTRACCION] No se encontró número de personas`);
-  return null;
+  // Buscar números digitales
+  const digitMatches = text.matchAll(/\b(\d+)\b/g);
+  for (const match of digitMatches) {
+    const count = parseInt(match[1]);
+    if (count >= 1 && count <= 20) {
+      foundNumbers.push({ number: count, position: match.index });
+    }
+  }
+  
+  // Buscar patrones específicos
+  const patterns = [
+    /(?:para|for|für|per|pour)\s*(\d+)/i,
+    /(\d+)\s*(?:personas|people|personen|persone|personnes|pessoas)/i,
+    /(?:mesa|table|tisch|tavolo|table|mesa)\s*(?:para|for|für|per|pour)?\s*(\d+)/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const count = parseInt(match[1]);
+      if (count >= 1 && count <= 20) {
+        foundNumbers.push({ number: count, position: match.index });
+      }
+    }
+  }
+  
+  console.log(`[EXTRACCION] Números encontrados:`, foundNumbers);
+  
+  if (foundNumbers.length === 0) return null;
+  
+  // Si hay corrección o múltiples números, tomar el último
+  if (hasCorrection || foundNumbers.length > 1) {
+    foundNumbers.sort((a, b) => b.position - a.position);
+    console.log(`[EXTRACCION] Usando último número: ${foundNumbers[0].number}`);
+    return foundNumbers[0].number;
+  }
+  
+  console.log(`[EXTRACCION] Usando único número: ${foundNumbers[0].number}`);
+  return foundNumbers[0].number;
 }
 
-// Extraer fecha con Gemini mejorado
-async function extractDate(text, language) {
+// Extraer fecha - VERSIÓN MEJORADA
+function extractDate(text) {
   console.log(`[EXTRACCION] Extrayendo fecha de: "${text}"`);
   
-  if (model) {
-    try {
-      const prompt = `Extrae la fecha del texto: "${text}". Responde en formato YYYY-MM-DD o "null" si no hay fecha clara.`;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const extracted = response.text().trim();
-      
-      console.log(`[GEMINI] Extracción fecha: "${extracted}"`);
-      
-      if (extracted !== 'null' && extracted !== '') {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(extracted)) {
-          return extracted;
-        }
-      }
-    } catch (error) {
-      console.error('[ERROR] Gemini falló en extracción fecha:', error.message);
-    }
-  }
-  
-  // Fallback mejorado
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   
-  if (text.toLowerCase().includes('mañana') || text.toLowerCase().includes('tomorrow')) {
-    console.log(`[FALLBACK] Fecha detectada: mañana`);
-    return tomorrow.toISOString().split('T')[0];
-  }
+  // Fechas relativas en múltiples idiomas
+  const relativeDates = {
+    'mañana': tomorrow,
+    'tomorrow': tomorrow,
+    'morgen': tomorrow,
+    'domani': tomorrow,
+    'demain': tomorrow,
+    'amanhã': tomorrow,
+    'pasado mañana': new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000),
+    'day after tomorrow': new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000),
+    'übermorgen': new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000),
+    'dopodomani': new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000),
+    'après-demain': new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000),
+    'depois de amanhã': new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000)
+  };
   
-  if (text.toLowerCase().includes('pasado mañana') || text.toLowerCase().includes('day after tomorrow')) {
-    const dayAfter = new Date(today);
-    dayAfter.setDate(dayAfter.getDate() + 2);
-    console.log(`[FALLBACK] Fecha detectada: pasado mañana`);
-    return dayAfter.toISOString().split('T')[0];
+  for (const [phrase, date] of Object.entries(relativeDates)) {
+    if (text.toLowerCase().includes(phrase)) {
+      const result = date.toISOString().split('T')[0];
+      console.log(`[EXTRACCION] Fecha detectada: ${phrase} = ${result}`);
+      return result;
+    }
   }
   
   console.log(`[EXTRACCION] No se encontró fecha`);
   return null;
 }
 
-// Extraer hora con Gemini mejorado
-async function extractTime(text, language) {
+// Extraer hora - VERSIÓN MEJORADA
+function extractTime(text) {
   console.log(`[EXTRACCION] Extrayendo hora de: "${text}"`);
   
-  if (model) {
-    try {
-      const prompt = `Extrae la hora del texto: "${text}". Responde en formato HH:MM (24h) o "null" si no hay hora clara.`;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const extracted = response.text().trim();
-      
-      console.log(`[GEMINI] Extracción hora: "${extracted}"`);
-      
-      if (extracted !== 'null' && extracted !== '') {
-        if (/^\d{2}:\d{2}$/.test(extracted)) {
-          return extracted;
-        }
-      }
-    } catch (error) {
-      console.error('[ERROR] Gemini falló en extracción hora:', error.message);
-    }
-  }
+  // Patrones de hora más flexibles
+  const timePatterns = [
+    /(\d{1,2}):(\d{2})/,
+    /(\d{1,2})\.(\d{2})/,
+    /(\d{1,2})\s+(\d{2})/,
+    /(\d{1,2})\s*(am|pm|AM|PM)/,
+    /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)/
+  ];
   
-  // Fallback mejorado
-  const timeMatch = text.match(/(\d{1,2}):?(\d{2})?\s*(am|pm|AM|PM)?/);
-  if (timeMatch) {
-    let hour = parseInt(timeMatch[1]);
-    const minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-    const period = timeMatch[3];
-    
-    if (period && period.toLowerCase() === 'pm' && hour < 12) {
-      hour += 12;
+  for (const pattern of timePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      let hour = parseInt(match[1]);
+      const minute = match[2] ? parseInt(match[2]) : 0;
+      const period = match[3];
+      
+      if (period && period.toLowerCase() === 'pm' && hour < 12) {
+        hour += 12;
+      }
+      
+      if (period && period.toLowerCase() === 'am' && hour === 12) {
+        hour = 0;
+      }
+      
+      const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      console.log(`[EXTRACCION] Hora detectada: ${time}`);
+      return time;
     }
-    
-    const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-    console.log(`[FALLBACK] Hora detectada: ${time}`);
-    return time;
   }
   
   console.log(`[EXTRACCION] No se encontró hora`);
   return null;
 }
 
-// Extraer nombre con Gemini mejorado
-async function extractName(text, language) {
+// Extraer nombre - VERSIÓN MEJORADA
+function extractName(text) {
   console.log(`[EXTRACCION] Extrayendo nombre de: "${text}"`);
   
-  if (model) {
-    try {
-      const prompt = `Extrae el nombre de persona del texto: "${text}". Responde solo el nombre o "null" si no hay nombre claro.`;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const extracted = response.text().trim();
-      
-      console.log(`[GEMINI] Extracción nombre: "${extracted}"`);
-      
-      if (extracted !== 'null' && extracted !== '') {
-        return extracted;
-      }
-    } catch (error) {
-      console.error('[ERROR] Gemini falló en extracción nombre:', error.message);
-    }
-  }
-  
-  // Fallback mejorado
   const patterns = [
     /(?:me llamo|soy|mi nombre es)\s+([a-zA-Z\s]+)/i,
     /(?:my name is|i am|i'm)\s+([a-zA-Z\s]+)/i,
@@ -492,15 +479,20 @@ async function extractName(text, language) {
     const match = text.match(pattern);
     if (match) {
       const name = match[1].trim();
-      console.log(`[FALLBACK] Nombre detectado: ${name}`);
+      console.log(`[EXTRACCION] Nombre detectado: ${name}`);
       return name;
     }
   }
   
   // Si no hay patrón, tomar la primera palabra que parezca nombre
-  const words = text.split(' ').filter(word => word.length > 2 && /^[a-zA-Z]+$/.test(word));
+  const words = text.split(' ').filter(word => 
+    word.length > 2 && 
+    /^[a-zA-Z]+$/.test(word) &&
+    !['hola', 'hello', 'hi', 'gracias', 'thanks', 'por', 'for', 'favor', 'please'].includes(word.toLowerCase())
+  );
+  
   if (words.length > 0) {
-    console.log(`[FALLBACK] Nombre por palabra: ${words[0]}`);
+    console.log(`[EXTRACCION] Nombre por palabra: ${words[0]}`);
     return words[0];
   }
   
@@ -508,67 +500,27 @@ async function extractName(text, language) {
   return null;
 }
 
-// Generar respuesta con Gemini simplificado o fallback
-async function generateResponse(step, language, context) {
+// Generar respuesta natural
+function generateResponse(step, language) {
   console.log(`[RESPUESTA] Generando para paso: ${step}, idioma: ${language}`);
   
-  if (model) {
-    try {
-      // Prompts simplificados y más naturales
-      const simplePrompts = {
-        greeting: `Saluda amigablemente y da la bienvenida al cliente al restaurante. Responde en ${language}.`,
-        ask_people: `Pregunta cuántas personas serán para la reserva. Responde en ${language}.`,
-        ask_date: `Pregunta para qué fecha necesitan la mesa. Responde en ${language}.`,
-        ask_time: `Pregunta a qué hora quieren venir. Responde en ${language}.`,
-        ask_name: `Pregunta el nombre de la persona que hace la reserva. Responde en ${language}.`,
-        ask_phone: `Pregunta si usan este número de teléfono para confirmar. Responde en ${language}.`,
-        complete: `Confirma que la reserva está lista y se despide amigablemente. Responde en ${language}.`
-      };
-      
-      const prompt = simplePrompts[step] || `Responde naturalmente en ${language}.`;
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text().trim();
-      
-      console.log(`[GEMINI] Respuesta generada: "${text}"`);
-      return text;
-      
-    } catch (error) {
-      console.error('[ERROR] Gemini falló, usando fallback:', error.message);
-    }
-  }
-  
-  // Fallback mejorado con respuestas más naturales
   const responses = RESPONSES[step]?.[language] || RESPONSES[step]?.['es'];
   if (responses && Array.isArray(responses)) {
     const selected = responses[Math.floor(Math.random() * responses.length)];
-    console.log(`[FALLBACK] Respuesta seleccionada: "${selected}"`);
+    console.log(`[RESPUESTA] Seleccionada: "${selected}"`);
     return selected;
   }
   
-  // Fallback final más natural
-  const finalFallbacks = {
-    greeting: {
-      es: '¡Hola! ¿Para cuántas personas necesitan mesa?',
-      en: 'Hello! How many people will be dining?',
-      de: 'Hallo! Für wie viele Personen?',
-      it: 'Ciao! Per quante persone?',
-      fr: 'Bonjour! Pour combien de personnes?',
-      pt: 'Olá! Para quantas pessoas?'
-    }
-  };
-  
-  return finalFallbacks[step]?.[language] || finalFallbacks[step]?.['es'] || '¿En qué puedo ayudarle?';
+  return '¿En qué puedo ayudarle?';
 }
 
-// Guardar reserva con validación mejorada
+// Guardar reserva
 async function saveReservation(state) {
   try {
     console.log('[GUARDAR] Iniciando guardado de reserva...');
     console.log('[GUARDAR] Datos:', state.data);
     
-    // Validar datos antes de guardar
+    // Validar datos
     if (!state.data.people || !state.data.date || !state.data.time || !state.data.name) {
       console.error('[ERROR] Datos incompletos para guardar reserva');
       return false;
@@ -600,8 +552,8 @@ async function saveReservation(state) {
         state.data.people,
         state.data.phone,
         state.data.name,
-        'Reserva por teléfono - Sistema Premium',
-        JSON.stringify(state.conversation)
+        'Reserva por teléfono - Sistema Final',
+        JSON.stringify(state.conversationHistory)
       ]);
       
       await connection.commit();
@@ -622,8 +574,8 @@ async function saveReservation(state) {
   }
 }
 
-// Función principal mejorada
-export default async function handler(req, res) {
+// Función principal
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -637,9 +589,9 @@ export default async function handler(req, res) {
   // Obtener o crear estado de conversación
   let state = conversationStates.get(From) || {
     step: 'greeting',
-    language: null, // Se detectará en la primera interacción
+    language: null,
     data: {},
-    conversation: []
+    conversationHistory: []
   };
   
   // Detectar idioma si es la primera interacción
@@ -660,50 +612,50 @@ export default async function handler(req, res) {
     switch (state.step) {
       case 'greeting':
         state.step = 'ask_people';
-        response = await generateResponse('greeting', state.language, {});
+        response = generateResponse('greeting', state.language);
         break;
         
       case 'ask_people':
-        const people = await extractPeople(userInput, state.language);
+        const people = extractPeople(userInput);
         if (people) {
           state.data.people = people;
           state.step = 'ask_date';
-          response = await generateResponse('ask_date', state.language, state.data);
+          response = generateResponse('ask_date', state.language);
         } else {
-          response = await generateResponse('ask_people', state.language, state.data);
+          response = generateResponse('ask_people', state.language);
         }
         break;
         
       case 'ask_date':
-        const date = await extractDate(userInput, state.language);
+        const date = extractDate(userInput);
         if (date) {
           state.data.date = date;
           state.step = 'ask_time';
-          response = await generateResponse('ask_time', state.language, state.data);
+          response = generateResponse('ask_time', state.language);
         } else {
-          response = await generateResponse('ask_date', state.language, state.data);
+          response = generateResponse('ask_date', state.language);
         }
         break;
         
       case 'ask_time':
-        const time = await extractTime(userInput, state.language);
+        const time = extractTime(userInput);
         if (time) {
           state.data.time = time;
           state.step = 'ask_name';
-          response = await generateResponse('ask_name', state.language, state.data);
+          response = generateResponse('ask_name', state.language);
         } else {
-          response = await generateResponse('ask_time', state.language, state.data);
+          response = generateResponse('ask_time', state.language);
         }
         break;
         
       case 'ask_name':
-        const name = await extractName(userInput, state.language);
+        const name = extractName(userInput);
         if (name) {
           state.data.name = name;
           state.step = 'ask_phone';
-          response = await generateResponse('ask_phone', state.language, state.data);
+          response = generateResponse('ask_phone', state.language);
         } else {
-          response = await generateResponse('ask_name', state.language, state.data);
+          response = generateResponse('ask_name', state.language);
         }
         break;
         
@@ -715,7 +667,7 @@ export default async function handler(req, res) {
         // Guardar reserva
         const saved = await saveReservation(state);
         if (saved) {
-          response = await generateResponse('complete', state.language, state.data);
+          response = generateResponse('complete', state.language);
           state.step = 'finished';
         } else {
           response = 'Lo siento, ha habido un error. Por favor, contacte con el restaurante.';
@@ -723,7 +675,7 @@ export default async function handler(req, res) {
         break;
         
       default:
-        response = await generateResponse('greeting', state.language, {});
+        response = generateResponse('greeting', state.language);
     }
     
   } catch (error) {
@@ -732,23 +684,28 @@ export default async function handler(req, res) {
   }
   
   // Guardar conversación
-  state.conversation.push({
-    user: userInput,
-    bot: response,
-    timestamp: new Date().toISOString(),
-    step: state.step
+  state.conversationHistory.push({
+    role: 'user',
+    message: userInput,
+    timestamp: new Date().toISOString()
+  });
+  
+  state.conversationHistory.push({
+    role: 'bot',
+    message: response,
+    timestamp: new Date().toISOString()
   });
   
   // Actualizar estado
   conversationStates.set(From, state);
   
-  // Generar TwiML con timeouts aumentados
+  // Generar TwiML con timeouts optimizados
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Lupe" language="${state.language}-ES">
     ${response}
   </Say>
-  <Gather input="speech" timeout="8" speechTimeout="5" action="/api/twilio-call-quality" method="POST">
+  <Gather input="speech" timeout="8" speechTimeout="5" action="/api/twilio-call-final" method="POST">
     <Say voice="Polly.Lupe" language="${state.language}-ES">
       Por favor, responda.
     </Say>
@@ -761,4 +718,4 @@ export default async function handler(req, res) {
   
   res.setHeader('Content-Type', 'text/xml');
   res.status(200).send(twiml);
-}
+};
