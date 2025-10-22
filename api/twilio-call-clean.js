@@ -19,55 +19,271 @@ if (process.env.GOOGLE_API_KEY) {
 // Estados de conversación
 const conversationStates = new Map();
 
-// Respuestas optimizadas por idioma
+// Respuestas optimizadas por idioma - Variadas y específicas
 const RESPONSES = {
   greeting: {
-    es: '¡Hola! Bienvenido a nuestro restaurante. ¿Para cuántas personas desea reservar?',
-    en: 'Hello! Welcome to our restaurant. For how many people would you like to make a reservation?',
-    de: 'Hallo! Willkommen in unserem Restaurant. Für wie viele Personen möchten Sie reservieren?',
-    it: 'Ciao! Benvenuto nel nostro ristorante. Per quante persone vorreste prenotare?',
-    fr: 'Bonjour! Bienvenue dans notre restaurant. Pour combien de personnes souhaitez-vous réserver?',
-    pt: 'Olá! Bem-vindo ao nosso restaurante. Para quantas pessoas gostaria de fazer uma reserva?'
+    es: [
+      '¡Hola! Soy el asistente de reservas. ¿Para cuántas personas necesitan mesa?',
+      '¡Buenos días! ¿Cuántas personas serán para la reserva?',
+      '¡Hola! Bienvenidos. ¿Para cuántos comensales?',
+      '¡Saludos! ¿Cuántas personas en su grupo?',
+      '¡Hola! ¿Para cuántas personas es la reserva?'
+    ],
+    en: [
+      'Hello! I\'m your reservation assistant. How many people will be dining?',
+      'Good day! How many guests are we expecting?',
+      'Hi there! How many people in your party?',
+      'Hello! How many diners will we have?',
+      'Good morning! How many people for the reservation?'
+    ],
+    de: [
+      'Hallo! Ich bin Ihr Reservierungsassistent. Für wie viele Personen?',
+      'Guten Tag! Wie viele Gäste erwarten wir?',
+      'Hallo! Wie viele Personen in Ihrer Gruppe?',
+      'Guten Morgen! Für wie viele Personen reservieren Sie?',
+      'Hallo! Wie viele Gäste werden es sein?'
+    ],
+    it: [
+      'Ciao! Sono il vostro assistente prenotazioni. Per quante persone?',
+      'Buongiorno! Quanti ospiti aspettiamo?',
+      'Ciao! Quante persone nel vostro gruppo?',
+      'Salve! Per quante persone prenotate?',
+      'Ciao! Quanti ospiti saranno?'
+    ],
+    fr: [
+      'Bonjour! Je suis votre assistant réservations. Pour combien de personnes?',
+      'Bonjour! Combien d\'invités attendons-nous?',
+      'Salut! Combien de personnes dans votre groupe?',
+      'Bonjour! Pour combien de personnes réservez-vous?',
+      'Salut! Combien d\'invités seront là?'
+    ],
+    pt: [
+      'Olá! Sou seu assistente de reservas. Para quantas pessoas?',
+      'Bom dia! Quantos convidados esperamos?',
+      'Oi! Quantas pessoas no seu grupo?',
+      'Olá! Para quantas pessoas está reservando?',
+      'Oi! Quantos convidados serão?'
+    ]
   },
   ask_date: {
-    es: 'Perfecto. ¿Para qué fecha?',
-    en: 'Perfect. For what date?',
-    de: 'Perfekt. Für welches Datum?',
-    it: 'Perfetto. Per quale data?',
-    fr: 'Parfait. Pour quelle date?',
-    pt: 'Perfeito. Para que data?'
+    es: [
+      'Perfecto. ¿Para qué día necesitan la mesa?',
+      'Excelente. ¿Qué fecha prefieren?',
+      'Genial. ¿Para cuándo es la reserva?',
+      'Muy bien. ¿Qué día les conviene?',
+      'Perfecto. ¿Cuándo quieren venir?'
+    ],
+    en: [
+      'Perfect. What day do you need the table?',
+      'Great. What date works for you?',
+      'Excellent. When would you like to come?',
+      'Wonderful. What day suits you?',
+      'Perfect. When do you want to dine?'
+    ],
+    de: [
+      'Perfekt. Für welchen Tag brauchen Sie den Tisch?',
+      'Großartig. Welches Datum passt Ihnen?',
+      'Ausgezeichnet. Wann möchten Sie kommen?',
+      'Wunderbar. Welcher Tag passt Ihnen?',
+      'Perfekt. Wann möchten Sie essen?'
+    ],
+    it: [
+      'Perfetto. Per quale giorno avete bisogno del tavolo?',
+      'Ottimo. Quale data vi conviene?',
+      'Eccellente. Quando vorreste venire?',
+      'Meraviglioso. Quale giorno vi va bene?',
+      'Perfetto. Quando volete cenare?'
+    ],
+    fr: [
+      'Parfait. Pour quel jour avez-vous besoin de la table?',
+      'Excellent. Quelle date vous convient?',
+      'Parfait. Quand aimeriez-vous venir?',
+      'Merveilleux. Quel jour vous arrange?',
+      'Parfait. Quand voulez-vous dîner?'
+    ],
+    pt: [
+      'Perfeito. Para que dia precisam da mesa?',
+      'Ótimo. Que data lhes convém?',
+      'Excelente. Quando gostariam de vir?',
+      'Maravilhoso. Que dia lhes serve?',
+      'Perfeito. Quando querem jantar?'
+    ]
   },
   ask_time: {
-    es: '¿A qué hora?',
-    en: 'At what time?',
-    de: 'Um welche Uhrzeit?',
-    it: 'A che ora?',
-    fr: 'À quelle heure?',
-    pt: 'A que horas?'
+    es: [
+      '¿A qué hora prefieren venir?',
+      '¿Qué hora les conviene?',
+      '¿A qué hora quieren la mesa?',
+      '¿Cuál es su hora preferida?',
+      '¿A qué hora desean cenar?'
+    ],
+    en: [
+      'What time would you prefer?',
+      'What time works for you?',
+      'What time do you want the table?',
+      'What\'s your preferred time?',
+      'What time would you like to dine?'
+    ],
+    de: [
+      'Um welche Uhrzeit möchten Sie kommen?',
+      'Welche Zeit passt Ihnen?',
+      'Um welche Uhrzeit brauchen Sie den Tisch?',
+      'Was ist Ihre bevorzugte Zeit?',
+      'Um welche Uhrzeit möchten Sie essen?'
+    ],
+    it: [
+      'A che ora preferite venire?',
+      'Che ora vi conviene?',
+      'A che ora volete il tavolo?',
+      'Qual è il vostro orario preferito?',
+      'A che ora volete cenare?'
+    ],
+    fr: [
+      'À quelle heure préférez-vous venir?',
+      'Quelle heure vous convient?',
+      'À quelle heure voulez-vous la table?',
+      'Quel est votre horaire préféré?',
+      'À quelle heure voulez-vous dîner?'
+    ],
+    pt: [
+      'A que hora preferem vir?',
+      'Que hora lhes convém?',
+      'A que hora querem a mesa?',
+      'Qual é o seu horário preferido?',
+      'A que hora querem jantar?'
+    ]
   },
   ask_name: {
-    es: '¿Su nombre completo?',
-    en: 'Your full name?',
-    de: 'Ihr vollständiger Name?',
-    it: 'Il suo nome completo?',
-    fr: 'Votre nom complet?',
-    pt: 'O seu nome completo?'
+    es: [
+      '¿Cómo se llama la persona que hace la reserva?',
+      '¿Cuál es el nombre para la reserva?',
+      '¿Bajo qué nombre reservamos?',
+      '¿Cómo debo anotar el nombre?',
+      '¿Cuál es su nombre completo?'
+    ],
+    en: [
+      'What\'s the name for the reservation?',
+      'Who should I put the reservation under?',
+      'What name should I use?',
+      'How should I note the name?',
+      'What\'s your full name?'
+    ],
+    de: [
+      'Unter welchem Namen soll ich reservieren?',
+      'Wie ist der Name für die Reservierung?',
+      'Welchen Namen soll ich verwenden?',
+      'Wie soll ich den Namen notieren?',
+      'Wie ist Ihr vollständiger Name?'
+    ],
+    it: [
+      'Sotto quale nome devo prenotare?',
+      'Qual è il nome per la prenotazione?',
+      'Che nome devo usare?',
+      'Come devo annotare il nome?',
+      'Qual è il vostro nome completo?'
+    ],
+    fr: [
+      'Sous quel nom dois-je réserver?',
+      'Quel est le nom pour la réservation?',
+      'Quel nom dois-je utiliser?',
+      'Comment dois-je noter le nom?',
+      'Quel est votre nom complet?'
+    ],
+    pt: [
+      'Sob qual nome devo reservar?',
+      'Qual é o nome para a reserva?',
+      'Que nome devo usar?',
+      'Como devo anotar o nome?',
+      'Qual é o seu nome completo?'
+    ]
   },
   ask_phone: {
-    es: '¿Desea usar este número de teléfono?',
-    en: 'Would you like to use this phone number?',
-    de: 'Möchten Sie diese Telefonnummer verwenden?',
-    it: 'Vorrebbe usare questo numero di telefono?',
-    fr: 'Souhaitez-vous utiliser ce numéro de téléphone?',
-    pt: 'Gostaria de usar este número de telefone?'
+    es: [
+      '¿Usamos este número de teléfono para confirmar?',
+      '¿Este es el número de contacto correcto?',
+      '¿Confirmamos con este teléfono?',
+      '¿Este número está bien para avisos?',
+      '¿Usamos este teléfono para la confirmación?'
+    ],
+    en: [
+      'Should we use this phone number for confirmation?',
+      'Is this the correct contact number?',
+      'Do we confirm with this phone?',
+      'Is this number good for notifications?',
+      'Do we use this phone for confirmation?'
+    ],
+    de: [
+      'Sollen wir diese Telefonnummer zur Bestätigung verwenden?',
+      'Ist das die richtige Kontaktnummer?',
+      'Bestätigen wir mit diesem Telefon?',
+      'Ist diese Nummer gut für Benachrichtigungen?',
+      'Verwenden wir dieses Telefon zur Bestätigung?'
+    ],
+    it: [
+      'Dovremmo usare questo numero di telefono per la conferma?',
+      'È questo il numero di contatto corretto?',
+      'Confermiamo con questo telefono?',
+      'Questo numero va bene per le notifiche?',
+      'Usiamo questo telefono per la conferma?'
+    ],
+    fr: [
+      'Devons-nous utiliser ce numéro de téléphone pour la confirmation?',
+      'Est-ce le bon numéro de contact?',
+      'Confirmons-nous avec ce téléphone?',
+      'Ce numéro est-il bon pour les notifications?',
+      'Utilisons-nous ce téléphone pour la confirmation?'
+    ],
+    pt: [
+      'Devemos usar este número de telefone para confirmação?',
+      'Este é o número de contato correto?',
+      'Confirmamos com este telefone?',
+      'Este número serve para notificações?',
+      'Usamos este telefone para confirmação?'
+    ]
   },
   complete: {
-    es: 'Reserva confirmada. ¡Les esperamos!',
-    en: 'Reservation confirmed. We look forward to seeing you!',
-    de: 'Reservierung bestätigt. Wir freuen uns auf Sie!',
-    it: 'Prenotazione confermata. Non vediamo l\'ora di vedervi!',
-    fr: 'Réservation confirmée. Nous avons hâte de vous voir!',
-    pt: 'Reserva confirmada. Esperamos vê-los!'
+    es: [
+      '¡Reserva confirmada! Los esperamos con gusto.',
+      '¡Perfecto! Su mesa está reservada. ¡Hasta pronto!',
+      '¡Excelente! Reserva lista. ¡Nos vemos pronto!',
+      '¡Confirmado! Su reserva está lista. ¡Buen provecho!',
+      '¡Listo! Mesa reservada. ¡Que disfruten!'
+    ],
+    en: [
+      'Reservation confirmed! We look forward to seeing you.',
+      'Perfect! Your table is reserved. See you soon!',
+      'Excellent! Reservation is ready. See you soon!',
+      'Confirmed! Your reservation is set. Enjoy!',
+      'Done! Table reserved. Have a great time!'
+    ],
+    de: [
+      'Reservierung bestätigt! Wir freuen uns auf Sie.',
+      'Perfekt! Ihr Tisch ist reserviert. Bis bald!',
+      'Ausgezeichnet! Reservierung ist bereit. Bis bald!',
+      'Bestätigt! Ihre Reservierung ist festgelegt. Viel Spaß!',
+      'Fertig! Tisch reserviert. Haben Sie eine schöne Zeit!'
+    ],
+    it: [
+      'Prenotazione confermata! Non vediamo l\'ora di vedervi.',
+      'Perfetto! Il vostro tavolo è prenotato. A presto!',
+      'Eccellente! La prenotazione è pronta. A presto!',
+      'Confermato! La vostra prenotazione è fissata. Buon appetito!',
+      'Fatto! Tavolo prenotato. Divertitevi!'
+    ],
+    fr: [
+      'Réservation confirmée! Nous avons hâte de vous voir.',
+      'Parfait! Votre table est réservée. À bientôt!',
+      'Excellent! La réservation est prête. À bientôt!',
+      'Confirmé! Votre réservation est fixée. Bon appétit!',
+      'Terminé! Table réservée. Amusez-vous bien!'
+    ],
+    pt: [
+      'Reserva confirmada! Esperamos vê-los.',
+      'Perfeito! Sua mesa está reservada. Até logo!',
+      'Excelente! A reserva está pronta. Até logo!',
+      'Confirmado! Sua reserva está marcada. Bom apetite!',
+      'Pronto! Mesa reservada. Divirtam-se!'
+    ]
   }
 };
 
@@ -91,8 +307,40 @@ function detectLanguage(text) {
   return 'es'; // Default
 }
 
-// Extraer número de personas
-function extractPeople(text) {
+// Extraer número de personas con Gemini o fallback
+async function extractPeople(text, language) {
+  if (model) {
+    try {
+      const prompt = `
+      Extrae el número de personas del siguiente texto: "${text}"
+      
+      IDIOMA: ${language}
+      
+      INSTRUCCIONES:
+      - Busca números de personas (1-20)
+      - Reconoce palabras como "uno", "two", "drei", "quattro", "cinq", "um"
+      - Reconoce frases como "para 4 personas", "for 4 people", "für 4 Personen"
+      - Si hay corrección (no, mejor, change), toma el último número mencionado
+      
+      RESPUESTA: Solo el número (1-20) o "null" si no encuentra nada.
+      `;
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const extracted = response.text().trim();
+      
+      if (extracted !== 'null' && extracted !== '') {
+        const num = parseInt(extracted);
+        if (num >= 1 && num <= 20) {
+          return num;
+        }
+      }
+    } catch (error) {
+      console.error('Error con Gemini en extracción de personas:', error);
+    }
+  }
+  
+  // Fallback a extracción básica
   const numbers = text.match(/\b(\d+)\b/g);
   if (numbers) {
     const num = parseInt(numbers[numbers.length - 1]);
@@ -186,14 +434,54 @@ async function generateResponse(step, language, context) {
   if (model) {
     try {
       const prompt = `
-      Eres un asistente de restaurante amigable y profesional.
+      Eres un asistente de restaurante muy profesional, amigable y conversacional.
       
-      Paso: ${step}
-      Idioma: ${language}
-      Contexto: ${JSON.stringify(context)}
+      SITUACIÓN: Cliente llamando para hacer una reserva
+      PASO ACTUAL: ${step}
+      IDIOMA: ${language}
+      CONTEXTO: ${JSON.stringify(context)}
       
-      Responde de forma natural y conversacional en ${language}.
-      Máximo 15 palabras.
+      INSTRUCCIONES ESPECÍFICAS:
+      - Responde SOLO en ${language}
+      - Sé natural, amigable y profesional
+      - Usa un tono conversacional, no robótico
+      - Máximo 15 palabras
+      - Sé específico y directo
+      - No uses frases genéricas
+      
+      EJEMPLOS DE RESPUESTAS NATURALES POR PASO:
+      
+      GREETING (${language}):
+      - "¡Hola! Soy el asistente de reservas. ¿Para cuántas personas necesitan mesa?"
+      - "¡Buenos días! ¿Cuántas personas serán para la reserva?"
+      - "¡Hola! Bienvenidos. ¿Para cuántos comensales?"
+      
+      ASK_DATE (${language}):
+      - "Perfecto. ¿Para qué día necesitan la mesa?"
+      - "Excelente. ¿Qué fecha prefieren?"
+      - "Genial. ¿Para cuándo es la reserva?"
+      
+      ASK_TIME (${language}):
+      - "¿A qué hora prefieren venir?"
+      - "¿Qué hora les conviene?"
+      - "¿A qué hora quieren la mesa?"
+      
+      ASK_NAME (${language}):
+      - "¿Cómo se llama la persona que hace la reserva?"
+      - "¿Cuál es el nombre para la reserva?"
+      - "¿Bajo qué nombre reservamos?"
+      
+      ASK_PHONE (${language}):
+      - "¿Usamos este número de teléfono para confirmar?"
+      - "¿Este es el número de contacto correcto?"
+      - "¿Confirmamos con este teléfono?"
+      
+      COMPLETE (${language}):
+      - "¡Reserva confirmada! Los esperamos con gusto."
+      - "¡Perfecto! Su mesa está reservada. ¡Hasta pronto!"
+      - "¡Excelente! Reserva lista. ¡Nos vemos pronto!"
+      
+      GENERA UNA RESPUESTA NATURAL Y CONVERSACIONAL PARA EL PASO ${step} EN ${language}:
       `;
       
       const result = await model.generateContent(prompt);
@@ -204,8 +492,13 @@ async function generateResponse(step, language, context) {
     }
   }
   
-  // Fallback a respuestas hardcoded
-  return RESPONSES[step]?.[language] || RESPONSES[step]?.['es'] || '¿En qué puedo ayudarle?';
+  // Fallback a respuestas hardcoded variadas
+  const responses = RESPONSES[step]?.[language] || RESPONSES[step]?.['es'];
+  if (responses && Array.isArray(responses)) {
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+  
+  return '¿En qué puedo ayudarle?';
 }
 
 // Guardar reserva
@@ -286,7 +579,7 @@ export default async function handler(req, res) {
       break;
       
     case 'ask_people':
-      const people = extractPeople(userInput);
+      const people = await extractPeople(userInput, state.language);
       if (people) {
         state.data.people = people;
         state.step = 'ask_date';
