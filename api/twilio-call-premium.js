@@ -709,6 +709,11 @@ function generateResponseFallback(step, language, sentiment) {
 }
 
 async function extractInfoWithGemini(text, infoType, state) {
+  // Si Gemini no está disponible, usar extracción básica
+  if (!model) {
+    return extractInfoFallback(text, infoType);
+  }
+  
   try {
     const prompts = {
       people: `
@@ -799,8 +804,300 @@ async function extractInfoWithGemini(text, infoType, state) {
     
   } catch (error) {
     console.error('❌ Error en extracción IA:', error);
-    return { [infoType]: null, confidence: 0.0 };
+    return extractInfoFallback(text, infoType);
   }
+}
+
+function extractInfoFallback(text, infoType) {
+  console.log('🔄 Usando extracción fallback (sin Gemini)');
+  
+  switch (infoType) {
+    case 'people':
+      return { people: extractPeopleCountFallback(text), confidence: 0.8 };
+    case 'date':
+      return { date: extractDateFallback(text), confidence: 0.8 };
+    case 'time':
+      return { time: extractTimeFallback(text), confidence: 0.8 };
+    case 'name':
+      return { name: extractNameFallback(text), confidence: 0.8 };
+    case 'phone':
+      return { phone: extractPhoneNumberFallback(text), confidence: 0.8 };
+    default:
+      return { [infoType]: null, confidence: 0.0 };
+  }
+}
+
+function extractPeopleCountFallback(text) {
+  const wordToNumber = {
+    'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+    'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15
+  };
+
+  // Detectar palabras de corrección
+  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  const hasCorrection = correctionWords.some(word => text.includes(word));
+
+  let foundNumbers = [];
+
+  // Buscar números en palabras
+  for (const [word, number] of Object.entries(wordToNumber)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      foundNumbers.push({ number, position: match.index });
+    }
+  }
+
+  // Buscar números digitales
+  const digitMatches = text.matchAll(/\b(\d+)\b/g);
+  for (const match of digitMatches) {
+    const count = parseInt(match[1]);
+    if (count >= 1 && count <= 20) {
+      foundNumbers.push({ number: count, position: match.index });
+    }
+  }
+
+  if (foundNumbers.length === 0) return null;
+
+  // Si hay corrección o múltiples números, tomar el último
+  if (hasCorrection || foundNumbers.length > 1) {
+    foundNumbers.sort((a, b) => b.position - a.position);
+    return foundNumbers[0].number;
+  }
+
+  return foundNumbers[0].number;
+}
+
+function extractDateFallback(text) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Detectar palabras de corrección
+  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  const hasCorrection = correctionWords.some(word => text.includes(word));
+
+  let foundDates = [];
+  let textToAnalyze = text;
+  
+  if (hasCorrection) {
+    let lastCorrectionIndex = -1;
+    correctionWords.forEach(word => {
+      const index = text.lastIndexOf(word);
+      if (index > lastCorrectionIndex) {
+        lastCorrectionIndex = index;
+      }
+    });
+    if (lastCorrectionIndex !== -1) {
+      textToAnalyze = text.substring(lastCorrectionIndex);
+    }
+  }
+
+  // Manejar "pasado mañana"
+  if (textToAnalyze.includes('pasado mañana') || (textToAnalyze.includes('pasado') && textToAnalyze.includes('mañana'))) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + 2);
+    return formatDateISO(date);
+  }
+  
+  // Manejar "mañana"
+  if (textToAnalyze.includes('mañana') && !textToAnalyze.includes('pasado')) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + 1);
+    return formatDateISO(date);
+  }
+  
+  if (textToAnalyze.includes('hoy')) {
+    return formatDateISO(today);
+  }
+
+  // Mapeo de nombres de meses
+  const monthNames = {
+    'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
+    'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
+    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+  };
+
+  // Extraer fecha con nombre de mes
+  for (const [monthName, monthNumber] of Object.entries(monthNames)) {
+    if (textToAnalyze.includes(monthName)) {
+      const patterns = [
+        new RegExp(`(\\d{1,2})\\s*de\\s*${monthName}`, 'i'),
+        new RegExp(`(\\d{1,2})\\s*${monthName}`, 'i'),
+        new RegExp(`${monthName}\\s*(\\d{1,2})`, 'i'),
+      ];
+      
+      for (const pattern of patterns) {
+        const match = textToAnalyze.match(pattern);
+        if (match) {
+          const day = parseInt(match[1]);
+          if (day >= 1 && day <= 31) {
+            const year = today.getFullYear();
+            try {
+              const date = new Date(year, monthNumber - 1, day);
+              if (date < today) {
+                date.setFullYear(year + 1);
+              }
+              return formatDateISO(date);
+            } catch (e) {
+              return null;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Días de la semana
+  const daysOfWeek = {
+    'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
+    'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
+  };
+
+  for (const [dayName, dayNumber] of Object.entries(daysOfWeek)) {
+    if (textToAnalyze.includes(dayName)) {
+      const currentDay = today.getDay();
+      let daysUntil = dayNumber - currentDay;
+      
+      if (daysUntil <= 0) {
+        daysUntil += 7;
+      }
+      
+      if (textToAnalyze.includes('que viene') || textToAnalyze.includes('próximo') || textToAnalyze.includes('proximo')) {
+        if (daysUntil < 7) {
+          daysUntil += 7;
+        }
+      }
+      
+      const date = new Date(today);
+      date.setDate(date.getDate() + daysUntil);
+      return formatDateISO(date);
+    }
+  }
+
+  return null;
+}
+
+function extractTimeFallback(text) {
+  const wordToNumber = {
+    'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+    'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+    'once': 11, 'doce': 12
+  };
+
+  const correctionWords = ['no', 'mejor', 'espera', 'espere', 'perdón', 'disculpa', 'corrijo'];
+  const hasCorrection = correctionWords.some(word => text.includes(word));
+
+  let foundTimes = [];
+
+  // Buscar horas en palabras
+  for (const [word, number] of Object.entries(wordToNumber)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      let hours = number;
+      let minutes = 0;
+
+      if (text.includes('media') || text.includes('treinta')) {
+        minutes = 30;
+      } else if (text.includes('cuarto') || text.includes('quince')) {
+        minutes = 15;
+      }
+
+      if (text.includes('noche') || text.includes('tarde')) {
+        if (hours < 12) hours += 12;
+      }
+
+      if (hours >= 0 && hours <= 23) {
+        foundTimes.push({
+          time: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`,
+          position: match.index
+        });
+      }
+    }
+  }
+
+  // Buscar horas en formato digital
+  const timeMatches = text.matchAll(/\b(\d{1,2})(?::(\d{2}))?\b/g);
+  for (const match of timeMatches) {
+    let hours = parseInt(match[1]);
+    const minutes = match[2] ? parseInt(match[2]) : 0;
+
+    if (text.includes('noche') || text.includes('tarde')) {
+      if (hours < 12) hours += 12;
+    }
+
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      foundTimes.push({
+        time: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`,
+        position: match.index
+      });
+    }
+  }
+
+  if (foundTimes.length === 0) return null;
+
+  if (hasCorrection || foundTimes.length > 1) {
+    foundTimes.sort((a, b) => b.position - a.position);
+    return foundTimes[0].time;
+  }
+
+  return foundTimes[0].time;
+}
+
+function extractNameFallback(text) {
+  const cleaned = text
+    .replace(/mi nombre es/gi, '')
+    .replace(/me llamo/gi, '')
+    .replace(/soy/gi, '')
+    .trim();
+  
+  if (cleaned.length > 1) {
+    return cleaned
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  }
+  
+  return null;
+}
+
+function extractPhoneNumberFallback(text) {
+  const directMatch = text.match(/\d{9,}/);
+  if (directMatch) {
+    return directMatch[0];
+  }
+
+  const wordToDigit = {
+    'cero': '0', 'uno': '1', 'una': '1', 'dos': '2', 'tres': '3', 
+    'cuatro': '4', 'cinco': '5', 'seis': '6', 'siete': '7', 
+    'ocho': '8', 'nueve': '9'
+  };
+
+  let phoneNumber = '';
+  const words = text.split(/\s+/);
+  
+  for (const word of words) {
+    const cleanWord = word.toLowerCase().replace(/[,\.]/g, '');
+    if (wordToDigit[cleanWord]) {
+      phoneNumber += wordToDigit[cleanWord];
+    } else if (/^\d$/.test(cleanWord)) {
+      phoneNumber += cleanWord;
+    }
+  }
+
+  if (phoneNumber.length >= 9) {
+    return phoneNumber;
+  }
+
+  return null;
+}
+
+function formatDateISO(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 async function analyzeIntentionWithGemini(text, state) {
