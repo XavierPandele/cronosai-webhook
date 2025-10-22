@@ -1,0 +1,38 @@
+ANALISIS DEL ERROR EN LLAMADA DE RESERVAS
+========================================
+
+Archivo: error_trucada.m4a
+Tamaño: 894529 bytes
+Fecha: 2025-10-22 18:21:24.663490
+
+PROBLEMAS IDENTIFICADOS:
+------------------------------
+1. [ROBOT] Respuestas robóticas y repetitivas
+2. [IDIOMA] Mezcla de idiomas durante la conversación
+3. [REPETICION] Preguntas que se repiten constantemente
+4. [ERROR] Errores técnicos que cuelgan la llamada
+5. [COLGAR] Llamada se cuelga antes de completar reserva
+6. [EXTRACCION] No entiende números de personas, fechas, horas
+7. [FLUJO] Se queda atascado en un paso del flujo
+
+RECOMENDACIONES:
+--------------------
+• • Simplificar prompts de Gemini para respuestas más naturales
+• • Mejorar respuestas hardcodeadas con más variaciones
+• • Implementar extracción más robusta con múltiples patrones
+• • Bloquear idioma una vez detectado para evitar cambios
+• • Aumentar timeouts para dar más tiempo al usuario
+• • Mejorar manejo de errores con fallbacks más inteligentes
+• • Agregar logs detallados para debugging
+• • Implementar validación de datos antes de guardar
+
+SOLUCIONES ESPECIFICAS:
+-------------------------
+• 1. REVISAR PROMPTS: Hacer prompts más simples y específicos
+• 2. MEJORAR FALLBACK: Respuestas más naturales sin Gemini
+• 3. ROBUSTEZ: Múltiples patrones de extracción por idioma
+• 4. CONSISTENCIA: Bloquear idioma desde la primera detección
+• 5. TIMEOUTS: Aumentar timeouts a 8-10 segundos
+• 6. ERRORES: Fallbacks inteligentes en cada paso
+• 7. LOGS: Agregar logs detallados para cada paso
+• 8. VALIDACION: Validar datos antes de avanzar al siguiente paso
