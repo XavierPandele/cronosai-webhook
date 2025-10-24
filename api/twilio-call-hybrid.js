@@ -322,43 +322,105 @@ Idioma:`;
     return null;
   }
   
-  // Extraer hora
+  // Extraer hora - SISTEMA SÚPER ROBUSTO
   static extractTime(input, language) {
-    // Buscar formato HH:MM
-    const timeMatch = input.match(/(\d{1,2}):?(\d{2})?\s*(am|pm|de la tarde|de la noche|Uhr|heures)?/i);
-    if (timeMatch) {
-      let hour = parseInt(timeMatch[1]);
-      const minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-      const period = timeMatch[3];
-      
-      // Convertir a 24h si es necesario
-      if (period && (period.toLowerCase().includes('pm') || 
-                    period.toLowerCase().includes('tarde') || 
-                    period.toLowerCase().includes('noche'))) {
-        if (hour < 12) hour += 12;
-      }
-      
-      return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-    }
+    console.log(`[EXTRACCION] Extrayendo hora de: "${input}"`);
     
-    // Palabras específicas por idioma
-    const timeWords = {
-      es: ['mediodía', 'medianoche', 'tarde', 'noche'],
-      en: ['noon', 'midnight', 'afternoon', 'evening'],
-      de: ['mittag', 'mitternacht', 'nachmittag', 'abend'],
-      it: ['mezzogiorno', 'mezzanotte', 'pomeriggio', 'sera'],
-      fr: ['midi', 'minuit', 'après-midi', 'soir'],
-      pt: ['meio-dia', 'meia-noite', 'tarde', 'noite']
+    // Patrones de hora exhaustivos
+    const timePatterns = [
+      // Formato 24h
+      /(\d{1,2}):(\d{2})/g,
+      /(\d{1,2})\.(\d{2})/g,
+      /(\d{1,2})\s+(\d{2})/g,
+      
+      // Formato 12h con AM/PM
+      /(\d{1,2})\s*(am|pm|AM|PM)/g,
+      /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)/g,
+      
+      // Formato 12h con palabras
+      /(\d{1,2})\s*(de la mañana|de la tarde|de la noche)/gi,
+      /(\d{1,2}):(\d{2})\s*(de la mañana|de la tarde|de la noche)/gi
+    ];
+    
+    // Horas en palabras en todos los idiomas
+    const wordTimes = {
+      // ESPAÑOL
+      'mediodía': '12:00', 'medianoche': '00:00',
+      'una': '01:00', 'dos': '02:00', 'tres': '03:00', 'cuatro': '04:00',
+      'cinco': '05:00', 'seis': '06:00', 'siete': '07:00', 'ocho': '08:00',
+      'nueve': '09:00', 'diez': '10:00', 'once': '11:00', 'doce': '12:00',
+      'una de la tarde': '13:00', 'dos de la tarde': '14:00', 'tres de la tarde': '15:00',
+      'cuatro de la tarde': '16:00', 'cinco de la tarde': '17:00', 'seis de la tarde': '18:00',
+      'siete de la noche': '19:00', 'ocho de la noche': '20:00', 'nueve de la noche': '21:00',
+      'diez de la noche': '22:00', 'once de la noche': '23:00',
+      
+      // INGLÉS
+      'noon': '12:00', 'midnight': '00:00',
+      'one': '01:00', 'two': '02:00', 'three': '03:00', 'four': '04:00',
+      'five': '05:00', 'six': '06:00', 'seven': '07:00', 'eight': '08:00',
+      'nine': '09:00', 'ten': '10:00', 'eleven': '11:00', 'twelve': '12:00',
+      'one pm': '13:00', 'two pm': '14:00', 'three pm': '15:00', 'four pm': '16:00',
+      'five pm': '17:00', 'six pm': '18:00', 'seven pm': '19:00', 'eight pm': '20:00',
+      'nine pm': '21:00', 'ten pm': '22:00', 'eleven pm': '23:00',
+      
+      // ALEMÁN
+      'mittag': '12:00', 'mitternacht': '00:00',
+      'eins': '01:00', 'zwei': '02:00', 'drei': '03:00', 'vier': '04:00',
+      'fünf': '05:00', 'sechs': '06:00', 'sieben': '07:00', 'acht': '08:00',
+      'neun': '09:00', 'zehn': '10:00', 'elf': '11:00', 'zwölf': '12:00',
+      
+      // ITALIANO
+      'mezzogiorno': '12:00', 'mezzanotte': '00:00',
+      'una': '01:00', 'due': '02:00', 'tre': '03:00', 'quattro': '04:00',
+      'cinque': '05:00', 'sei': '06:00', 'sette': '07:00', 'otto': '08:00',
+      'nove': '09:00', 'dieci': '10:00', 'undici': '11:00', 'dodici': '12:00',
+      
+      // FRANCÉS
+      'midi': '12:00', 'minuit': '00:00',
+      'une': '01:00', 'deux': '02:00', 'trois': '03:00', 'quatre': '04:00',
+      'cinq': '05:00', 'six': '06:00', 'sept': '07:00', 'huit': '08:00',
+      'neuf': '09:00', 'dix': '10:00', 'onze': '11:00', 'douze': '12:00',
+      
+      // PORTUGUÉS
+      'meio-dia': '12:00', 'meia-noite': '00:00',
+      'uma': '01:00', 'duas': '02:00', 'três': '03:00', 'quatro': '04:00',
+      'cinco': '05:00', 'seis': '06:00', 'sete': '07:00', 'oito': '08:00',
+      'nove': '09:00', 'dez': '10:00', 'onze': '11:00', 'doze': '12:00'
     };
     
-    const words = timeWords[language] || [];
-    if (input.includes('mediodía') || input.includes('noon') || input.includes('mittag')) {
-      return '12:00';
-    }
-    if (input.includes('medianoche') || input.includes('midnight') || input.includes('mitternacht')) {
-      return '00:00';
+    // Buscar horas en palabras
+    for (const [word, time] of Object.entries(wordTimes)) {
+      if (input.toLowerCase().includes(word)) {
+        console.log(`[EXTRACCION] Hora en palabras detectada: ${word} = ${time}`);
+        return time;
+      }
     }
     
+    // Buscar patrones de hora
+    for (const pattern of timePatterns) {
+      const match = input.match(pattern);
+      if (match) {
+        let hour = parseInt(match[1]);
+        const minute = match[2] ? parseInt(match[2]) : 0;
+        const period = match[3];
+        
+        // Convertir AM/PM a 24h
+        if (period) {
+          const periodLower = period.toLowerCase();
+          if (periodLower === 'pm' && hour < 12) {
+            hour += 12;
+          } else if (periodLower === 'am' && hour === 12) {
+            hour = 0;
+          }
+        }
+        
+        const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        console.log(`[EXTRACCION] Hora detectada: ${time}`);
+        return time;
+      }
+    }
+    
+    console.log(`[EXTRACCION] No se encontró hora`);
     return null;
   }
   
