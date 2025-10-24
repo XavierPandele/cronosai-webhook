@@ -249,7 +249,7 @@ async function processConversationStep(state, userInput) {
         'tutto bene', 'tutto ok', 'tutto perfetto', 'va tutto bene',
         'conferma', 'confermare', 'accettare', 'procedere',
         // Francés
-        'ce', 'même', 'oui', 'bon', 'parfait', 'ce numéro',
+        'ce', 'meme', 'oui', 'bon', 'parfait', 'ce numero',
         // Portugués
         'este', 'mesmo', 'sim', 'bom', 'perfeito', 'este número'
       ];
