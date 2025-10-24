@@ -976,7 +976,10 @@ function generateTwiML(message, language = 'es') {
   <Say voice="${config.voice}" language="${config.language}">
     ${message}
   </Say>
-  <Gather input="speech" language="${config.language}" timeout="8" speechTimeout="5" action="/api/twilio-call-hybrid-vercel" method="POST">
+  <Gather input="speech" language="${config.language}" timeout="10" speechTimeout="4" action="/api/twilio-call-hybrid-vercel" method="POST" numDigits="0" enhanced="true">
+    <Say voice="${config.voice}" language="${config.language}">
+      ${getWaitMessage(language)}
+    </Say>
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">
     ${getTimeoutMessage(language)}
@@ -988,12 +991,12 @@ function generateTwiML(message, language = 'es') {
 // Mensajes de espera por idioma
 function getWaitMessage(language) {
   const messages = {
-    es: 'Por favor, responda.',
-    en: 'Please respond.',
-    de: 'Bitte antworten Sie.',
-    it: 'Per favore, rispondi.',
-    fr: 'Veuillez répondre.',
-    pt: 'Por favor, responda.'
+    es: 'Por favor, hable claramente.',
+    en: 'Please speak clearly.',
+    de: 'Bitte sprechen Sie deutlich.',
+    it: 'Per favore, parli chiaramente.',
+    fr: 'Veuillez parler clairement.',
+    pt: 'Por favor, fale claramente.'
   };
   return messages[language] || messages.es;
 }
@@ -1001,12 +1004,12 @@ function getWaitMessage(language) {
 // Mensajes de timeout por idioma
 function getTimeoutMessage(language) {
   const messages = {
-    es: 'No he recibido respuesta. Gracias por llamar.',
-    en: 'I haven\'t received a response. Thank you for calling.',
-    de: 'Ich habe keine Antwort erhalten. Vielen Dank für den Anruf.',
-    it: 'Non ho ricevuto una risposta. Grazie per la chiamata.',
-    fr: 'Je n\'ai pas reçu de réponse. Merci d\'avoir appelé.',
-    pt: 'Não recebi uma resposta. Obrigado por ligar.'
+    es: 'No pude entender su respuesta. Por favor, llame de nuevo. Gracias.',
+    en: 'I couldn\'t understand your response. Please call again. Thank you.',
+    de: 'Ich konnte Ihre Antwort nicht verstehen. Bitte rufen Sie erneut an. Vielen Dank.',
+    it: 'Non sono riuscito a capire la sua risposta. Per favore, richiami. Grazie.',
+    fr: 'Je n\'ai pas pu comprendre votre réponse. Veuillez rappeler. Merci.',
+    pt: 'Não consegui entender sua resposta. Por favor, ligue novamente. Obrigado.'
   };
   return messages[language] || messages.es;
 }
@@ -1017,7 +1020,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { From, SpeechResult } = req.body;
+  const { From, SpeechResult, CallSid } = req.body;
   const userInput = SpeechResult || '';
   
   const startTime = Date.now();
@@ -1025,6 +1028,11 @@ module.exports = async function handler(req, res) {
   console.log(`[LLAMADA] De: ${From}`);
   console.log(`[LLAMADA] Input: "${userInput}"`);
   console.log(`[LLAMADA] Timestamp: ${new Date().toISOString()}`);
+  
+  // Si no hay input y es una llamada nueva, usar saludo
+  if (!userInput && !conversationStates.has(From)) {
+    console.log(`[NUEVA_LLAMADA] Iniciando conversación para ${From}`);
+  }
   
   // Obtener o crear estado de conversación
   let state = conversationStates.get(From) || {
@@ -1044,6 +1052,25 @@ module.exports = async function handler(req, res) {
   
   if (!state.language) {
     state.language = 'es';
+  }
+  
+  // Manejar caso cuando no se entiende la respuesta
+  if (!userInput || userInput.trim().length === 0) {
+    console.log(`[SIN_INPUT] No se recibió respuesta del cliente`);
+    state.retryCount = (state.retryCount || 0) + 1;
+    
+    if (state.retryCount >= 3) {
+      console.log(`[MAX_RETRIES] Máximo de reintentos alcanzado para ${From}`);
+      const twiml = generateTwiML('Lo siento, no pude entender. Por favor, llame de nuevo. Gracias.', state.language);
+      res.setHeader('Content-Type', 'text/xml');
+      return res.status(200).send(twiml);
+    }
+    
+    // Dar una respuesta de aclaración
+    const clarificationResponse = HybridSystem.getClarificationResponse(state.step, state.language);
+    const twiml = generateTwiML(clarificationResponse, state.language);
+    res.setHeader('Content-Type', 'text/xml');
+    return res.status(200).send(twiml);
   }
   
   // Análisis de intención HARDCODEADO (sin Gemini)
