@@ -96,6 +96,17 @@ async function processConversationStep(state, userInput) {
   switch (step) {
      case 'greeting':
        // Primera interacción - saludo general
+       // Si detectamos un idioma diferente al español y hay intención de reserva, saltar al siguiente paso
+       if (state.language !== 'es' && userInput && isReservationRequest(userInput)) {
+         state.step = 'ask_people';
+         const reservationMessages = getMultilingualMessages('reservation', state.language);
+         return {
+           message: getRandomMessage(reservationMessages),
+           gather: true
+         };
+       }
+       
+       // Saludo normal
        state.step = 'ask_intention';
        const greetingMessages = getMultilingualMessages('greeting', state.language);
        return {
