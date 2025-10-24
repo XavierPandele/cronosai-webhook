@@ -744,7 +744,7 @@ function generateTwiML(message, language = 'es') {
   <Say voice="${config.voice}" language="${config.language}">
     ${message}
   </Say>
-  <Gather input="speech" language="${config.language}" timeout="10" speechTimeout="6" action="/api/twilio-call-hybrid" method="POST">
+  <Gather input="speech" language="${config.language}" timeout="10" speechTimeout="4" action="/api/twilio-call-hybrid" method="POST" numDigits="0" enhanced="true">
     <Say voice="${config.voice}" language="${config.language}">
       ${getWaitMessage(language)}
     </Say>
