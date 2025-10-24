@@ -44,7 +44,7 @@ class HybridSystemVerifier {
       'GOOGLE_API_KEY',
       'DB_HOST',
       'DB_USER', 
-      'DB_PASSWORD',
+      'DB_PASS',
       'DB_NAME'
     ];
 
