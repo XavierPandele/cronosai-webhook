@@ -1943,8 +1943,28 @@ function extractDate(text) {
     console.log('✅ Detectado: hoy');
     return formatDateISO(today);
   }
+  
+  // Manejar fechas en italiano
+  if (textToAnalyze.includes('oggi')) {
+    console.log('✅ Detectado: oggi (hoy en italiano)');
+    return formatDateISO(today);
+  }
+  
+  if (textToAnalyze.includes('domani')) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + 1);
+    console.log('✅ Detectado: domani (mañana en italiano)');
+    return formatDateISO(date);
+  }
+  
+  if (textToAnalyze.includes('dopodomani')) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + 2);
+    console.log('✅ Detectado: dopodomani (pasado mañana en italiano)');
+    return formatDateISO(date);
+  }
 
-  // Mapeo de nombres de meses en español e inglés (ANTES de días de la semana para priorizar)
+  // Mapeo de nombres de meses en español, inglés e italiano (ANTES de días de la semana para priorizar)
   const monthNames = {
     // Español
     'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
@@ -1953,7 +1973,11 @@ function extractDate(text) {
     // Inglés
     'january': 1, 'february': 2, 'march': 3, 'april': 4,
     'may': 5, 'june': 6, 'july': 7, 'august': 8,
-    'september': 9, 'october': 10, 'november': 11, 'december': 12
+    'september': 9, 'october': 10, 'november': 11, 'december': 12,
+    // Italiano
+    'gennaio': 1, 'febbraio': 2, 'marzo': 3, 'aprile': 4,
+    'maggio': 5, 'giugno': 6, 'luglio': 7, 'agosto': 8,
+    'settembre': 9, 'ottobre': 10, 'novembre': 11, 'dicembre': 12
   };
 
   // Intentar extraer fecha con nombre de mes: "10 de octubre", "15 de enero"
@@ -2022,7 +2046,12 @@ function extractDate(text) {
     'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0,
     // Inglés
     'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
-    'friday': 5, 'saturday': 6, 'sunday': 0
+    'friday': 5, 'saturday': 6, 'sunday': 0,
+    // Italiano
+    'lunedì': 1, 'martedì': 2, 'mercoledì': 3, 'giovedì': 4,
+    'venerdì': 5, 'sabato': 6, 'domenica': 0,
+    'lunedi': 1, 'martedi': 2, 'mercoledi': 3, 'giovedi': 4,
+    'venerdi': 5
   };
 
   for (const [dayName, dayNumber] of Object.entries(daysOfWeek)) {
