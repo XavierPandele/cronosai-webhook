@@ -247,7 +247,7 @@ async function processConversationStep(state, userInput) {
         'perfetto', 'ottimo', 'bene', 'giusto', 'esatto', 'corretto',
         'confermo', 'accetto', 'procedo', 'continua', 'avanti',
         'tutto bene', 'tutto ok', 'tutto perfetto', 'va tutto bene',
-        'conferma', 'confermare', 'accettare', 'procedere'
+        'conferma', 'confermare', 'accettare', 'procedere',
         // Francés
         'ce', 'même', 'oui', 'bon', 'parfait', 'ce numéro',
         // Portugués
@@ -267,7 +267,7 @@ async function processConversationStep(state, userInput) {
         'altro numero', 'numero diverso', 'numero nuovo', 'telefono diverso',
         'telefono nuovo', 'cambiare numero', 'modificare numero',
         'non questo', 'non va bene', 'non mi piace', 'non accetto',
-        'sbagliato', 'errato', 'non corretto', 'non è giusto'
+        'sbagliato', 'errato', 'non corretto', 'non è giusto',
         // Francés
         'autre', 'différent', 'non', 'changer', 'nouveau',
         // Portugués
@@ -1240,7 +1240,7 @@ function handleConfirmationResponse(text) {
     'confermo', 'accetto', 'procedo', 'continua', 'avanti', 'procedi',
     'tutto bene', 'tutto ok', 'tutto perfetto', 'va tutto bene',
     'questo numero', 'questo telefono', 'stesso numero', 'stesso telefono',
-    'conferma', 'confermare', 'accettare', 'procedere'
+    'conferma', 'confermare', 'accettare', 'procedere',
     // Francés
     'oui', 'correct', 'confirmer', 'parfait', 'bien', 'd\'accord',
     'exactement', 'c\'est correct', 'confirmé', 'accepter',
@@ -1264,7 +1264,7 @@ function handleConfirmationResponse(text) {
     'sbagliato', 'errato', 'non corretto', 'non va bene', 'non mi piace',
     'cambiare', 'modificare', 'correggere', 'altro', 'diverso', 'nuovo',
     'non accetto', 'non confermo', 'non va', 'non è corretto',
-    'altro numero', 'numero diverso', 'numero nuovo', 'telefono diverso'
+    'altro numero', 'numero diverso', 'numero nuovo', 'telefono diverso',
     // Francés
     'non', 'incorrect', 'faux', 'erreur', 'changer', 'corriger', 'pas correct',
     // Portugués
