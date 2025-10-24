@@ -14,9 +14,9 @@ if (process.env.GOOGLE_API_KEY) {
     model: "gemini-2.0-flash-exp",
     generationConfig: {
       temperature: 0.1, // Muy baja creatividad para detección precisa
-      topP: 0.5,
-      topK: 20,
-      maxOutputTokens: 10, // Solo necesitamos el código del idioma
+      topP: 0.3, // Más determinístico
+      topK: 10, // Menos opciones = más rápido
+      maxOutputTokens: 5, // Solo necesitamos el código del idioma
     }
   });
   console.log('✅ Gemini 2.0 Flash inicializado SOLO para detección de idioma');
@@ -38,13 +38,9 @@ class HybridSystem {
     }
     
     try {
-      const prompt = `Analiza el idioma del siguiente texto y responde SOLO con el código del idioma.
+      const prompt = `Idioma de: "${userInput}"
 
-TEXTO: "${userInput}"
-
-Responde únicamente con uno de estos códigos: es, en, de, it, fr, pt
-
-Idioma:`;
+Responde solo: es, en, de, it, fr, pt`;
 
       console.log(`[GEMINI_REQUEST] ${phoneNumber}: Enviando a language_detection_only`);
       
@@ -529,26 +525,30 @@ Idioma:`;
   static extractTime(input, language) {
     console.log(`[EXTRACCION] Extrayendo hora de: "${input}"`);
     
-    // Patrones de hora mejorados - evitar falsos positivos
+    // Patrones de hora más amplios y naturales
     const timePatterns = [
-      // Formato 24h con separadores claros
-      /(\d{1,2}):(\d{2})\b/g,
-      /(\d{1,2})\.(\d{2})\b/g,
-      /(\d{1,2})h(?:\s*(\d{2}))?\b/gi,
-      // Contexto específico para "horas" - evitar falsos positivos
-      /(?:a\s+las\s+|às\s+|um\s+|alle\s+)(\d{1,2})\s+horas?\b/i,
+      // Formato 24h - más flexible
+      /(\d{1,2}):(\d{2})/g,
+      /(\d{1,2})\.(\d{2})/g,
+      /(\d{1,2})h(?:\s*(\d{2}))?/gi,
+      /(\d{1,2})\s+horas?/gi,
       
-      // Formato 12h con AM/PM
-      /(\d{1,2})\s*(am|pm|AM|PM)\b/g,
-      /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)\b/g,
+      // Formato 12h con AM/PM - más flexible
+      /(\d{1,2})\s*(am|pm|AM|PM)/g,
+      /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)/g,
       
-      // Formato 12h con palabras
-      /(\d{1,2})\s*(de la mañana|de la tarde|de la noche)\b/gi,
-      /(\d{1,2}):(\d{2})\s*(de la mañana|de la tarde|de la noche)\b/gi,
+      // Formato 12h con palabras - más natural
+      /(\d{1,2})\s*(de la mañana|de la tarde|de la noche)/gi,
+      /(\d{1,2}):(\d{2})\s*(de la mañana|de la tarde|de la noche)/gi,
       
-      // Medias y cuartos
-      /(\d{1,2})\s+y\s+(media|cuarto)\b/gi,
-      /(\d{1,2})\s+y\s+(\d{1,2})\b/gi
+      // Medias y cuartos - más natural
+      /(\d{1,2})\s+y\s+(media|cuarto)/gi,
+      /(\d{1,2})\s+y\s+(\d{1,2})/gi,
+      
+      // Patrones adicionales para mejor reconocimiento
+      /a\s+las\s+(\d{1,2})/gi,
+      /a\s+las\s+(\d{1,2}):(\d{2})/gi,
+      /a\s+las\s+(\d{1,2})\s+horas?/gi
     ];
     
     // Horas en palabras en todos los idiomas
@@ -696,6 +696,23 @@ Idioma:`;
       return match[0];
     }
     return null;
+  }
+  
+  // Detectar si quiere usar el mismo teléfono
+  static wantsToUseSamePhone(userInput, language) {
+    const lowerInput = userInput.toLowerCase();
+    
+    const samePhonePhrases = {
+      es: ['sí', 'si', 'correcto', 'ese mismo', 'el mismo', 'este mismo', 'sí es correcto', 'sí es el mismo', 'confirmo', 'sí confirmo'],
+      en: ['yes', 'correct', 'same', 'this one', 'yes it is', 'yes correct', 'confirm', 'yes confirm'],
+      de: ['ja', 'richtig', 'dasselbe', 'dieses', 'ja ist richtig', 'ja bestätigen'],
+      it: ['sì', 'corretto', 'stesso', 'questo', 'sì è corretto', 'sì confermo'],
+      fr: ['oui', 'correct', 'même', 'celui-ci', 'oui c\'est correct', 'oui confirmer'],
+      pt: ['sim', 'correto', 'mesmo', 'este', 'sim é correto', 'sim confirmo']
+    };
+    
+    const phrases = samePhonePhrases[language] || samePhonePhrases.es;
+    return phrases.some(phrase => lowerInput.includes(phrase));
   }
   
   // Obtener siguiente paso
@@ -868,12 +885,48 @@ Idioma:`;
         pt: 'Como se chama?'
       },
       ask_phone: {
-        es: '¿Podría confirmar su número de teléfono?',
-        en: 'Could you confirm your phone number?',
-        de: 'Könnten Sie Ihre Telefonnummer bestätigen?',
-        it: 'Potrebbe confermare il suo numero di telefono?',
-        fr: 'Pourriez-vous confirmer votre numéro de téléphone?',
-        pt: 'Poderia confirmar o seu número de telefone?'
+        es: [
+          '¿Quiere usar el mismo número desde el que llama o prefiere dar otro?',
+          '¿Usa el mismo teléfono o tiene otro número?',
+          '¿Confirma este número o prefiere otro?',
+          '¿Es correcto este número o tiene otro?',
+          '¿Usa este teléfono o tiene otro diferente?'
+        ],
+        en: [
+          'Would you like to use the same number you\'re calling from or do you prefer to give another one?',
+          'Should I use this number or do you have a different one?',
+          'Is this number correct or would you prefer another?',
+          'Use this phone or do you have a different number?',
+          'Is this the right number or do you have another one?'
+        ],
+        de: [
+          'Möchten Sie dieselbe Nummer verwenden, von der Sie anrufen, oder bevorzugen Sie eine andere?',
+          'Soll ich diese Nummer verwenden oder haben Sie eine andere?',
+          'Ist diese Nummer korrekt oder bevorzugen Sie eine andere?',
+          'Diese Nummer verwenden oder haben Sie eine andere?',
+          'Ist das die richtige Nummer oder haben Sie eine andere?'
+        ],
+        it: [
+          'Vuole usare lo stesso numero da cui sta chiamando o preferisce darne un altro?',
+          'Dovrei usare questo numero o ne ha un altro?',
+          'È corretto questo numero o preferisce un altro?',
+          'Usare questo telefono o ne ha un altro diverso?',
+          'È il numero giusto o ne ha un altro?'
+        ],
+        fr: [
+          'Voulez-vous utiliser le même numéro d\'où vous appelez ou préférez-vous en donner un autre?',
+          'Dois-je utiliser ce numéro ou en avez-vous un autre?',
+          'Ce numéro est-il correct ou préférez-vous un autre?',
+          'Utiliser ce téléphone ou en avez-vous un autre différent?',
+          'Est-ce le bon numéro ou en avez-vous un autre?'
+        ],
+        pt: [
+          'Quer usar o mesmo número de onde está ligando ou prefere dar outro?',
+          'Devo usar este número ou tem outro diferente?',
+          'Este número está correto ou prefere outro?',
+          'Usar este telefone ou tem outro diferente?',
+          'É o número certo ou tem outro?'
+        ]
       },
       complete: {
         es: '¡Perfecto! Su reserva está confirmada. ¡Que disfruten!',
@@ -1108,10 +1161,7 @@ function generateTwiML(message, language = 'es') {
   <Say voice="${config.voice}" language="${config.language}">
     ${message}
   </Say>
-  <Gather input="speech" language="${config.language}" timeout="10" speechTimeout="4" action="/api/twilio-call-hybrid-vercel" method="POST" numDigits="0" enhanced="true">
-    <Say voice="${config.voice}" language="${config.language}">
-      ${getWaitMessage(language)}
-    </Say>
+  <Gather input="speech" language="${config.language}" timeout="6" speechTimeout="2" action="/api/twilio-call-hybrid-vercel" method="POST" numDigits="0" enhanced="true">
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">
     ${getTimeoutMessage(language)}
@@ -1339,15 +1389,20 @@ module.exports = async function handler(req, res) {
           break;
           
         case 'ask_phone':
-          // Usar teléfono extraído del input, fallback al número del llamador
-          if (intentAnalysis.extracted_data.phone) {
-            state.data.phone = intentAnalysis.extracted_data.phone;
-            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Teléfono extraído del input)`);
-          } else {
+          // Detectar si quiere usar el mismo número o dar otro
+          if (HybridSystem.wantsToUseSamePhone(userInput, state.language)) {
             state.data.phone = From;
-            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Teléfono del llamador asignado)`);
+            nextStep = 'complete';
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Usando mismo teléfono)`);
+          } else if (intentAnalysis.extracted_data.phone) {
+            state.data.phone = intentAnalysis.extracted_data.phone;
+            nextStep = 'complete';
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Teléfono diferente proporcionado)`);
+          } else {
+            // No entendió, repetir pregunta
+            nextStep = 'ask_phone';
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Repitiendo pregunta de teléfono)`);
           }
-          nextStep = 'complete';
           break;
           
         case 'complete':
