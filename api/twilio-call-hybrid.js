@@ -4,6 +4,7 @@ require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
+const { DateTime } = require('luxon');
 const logger = require('../lib/logger');
 
 // Inicializar Gemini SOLO para detección de idioma
@@ -797,8 +798,11 @@ module.exports = async function handler(req, res) {
   console.log(`[LLAMADA] Input: "${userInput}"`);
   console.log(`[LLAMADA] Timestamp: ${new Date().toISOString()}`);
   
+  // Usar CallSid como clave única, fallback a From
+  const stateKey = CallSid || From;
+  
   // Obtener o crear estado de conversación
-  let state = conversationStates.get(From) || {
+  let state = conversationStates.get(stateKey) || {
     step: 'greeting',
     language: null,
     data: {},
