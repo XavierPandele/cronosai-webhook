@@ -1853,9 +1853,17 @@ function isReservationRequest(text) {
 
 function extractPeopleCount(text) {
   const wordToNumber = {
+    // Español
     'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
     'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
-    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15
+    'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15,
+    // Italiano
+    'uno': 1, 'una': 1, 'due': 2, 'tre': 3, 'quattro': 4, 'cinque': 5,
+    'sei': 6, 'sette': 7, 'otto': 8, 'nove': 9, 'dieci': 10,
+    'undici': 11, 'dodici': 12, 'tredici': 13, 'quattordici': 14, 'quindici': 15,
+    // Inglés
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
   };
 
   // Detectar palabras de corrección - EXPANDIDAS
