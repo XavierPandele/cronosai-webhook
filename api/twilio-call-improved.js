@@ -1057,32 +1057,111 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     }
   };
 
-  return messages[type] && messages[type][language] ? messages[type][language] : messages[type]['es'];
+  // Verificar que el tipo de mensaje existe
+  if (!messages[type]) {
+    console.log(`⚠️ Tipo de mensaje no encontrado: ${type}`);
+    return ['Disculpe, no tengo esa respuesta disponible.'];
+  }
+  
+  // Verificar que el idioma existe para este tipo
+  if (!messages[type][language]) {
+    console.log(`⚠️ Idioma ${language} no encontrado para tipo ${type}, usando español`);
+    return messages[type]['es'] || ['Disculpe, no tengo esa respuesta disponible.'];
+  }
+  
+  console.log(`✅ Usando mensajes en ${language} para tipo ${type}`);
+  return messages[type][language];
 }
 
-// Detección básica de idioma
+// Detección mejorada de idioma
 function detectLanguage(text) {
   const languagePatterns = {
-    en: ['hello', 'hi', 'good morning', 'good afternoon', 'good evening', 'book', 'reservation', 'table', 'want', 'need', 'would like'],
-    de: ['hallo', 'guten tag', 'guten morgen', 'guten abend', 'reservierung', 'tisch', 'möchte', 'brauche'],
-    it: ['ciao', 'buongiorno', 'buonasera', 'prenotazione', 'tavolo', 'vorrei', 'ho bisogno'],
-    fr: ['bonjour', 'bonsoir', 'réservation', 'table', 'je voudrais', 'j\'ai besoin'],
-    pt: ['olá', 'bom dia', 'boa tarde', 'reserva', 'mesa', 'gostaria', 'preciso'],
-    es: ['hola', 'buenos días', 'buenas tardes', 'reserva', 'mesa', 'quiero', 'necesito']
+    en: [
+      'hello', 'hi', 'good morning', 'good afternoon', 'good evening', 'good night',
+      'book', 'booking', 'reservation', 'table', 'tables', 'restaurant',
+      'want', 'need', 'would like', 'looking for', 'seeking', 'require',
+      'book a table', 'make a reservation', 'table reservation', 'reserve a table',
+      'for dinner', 'for lunch', 'for breakfast', 'to eat', 'to dine',
+      'yes', 'okay', 'ok', 'sure', 'good', 'perfect', 'great', 'fine',
+      'continue', 'proceed', 'accept', 'confirm', 'agreed'
+    ],
+    de: [
+      'hallo', 'guten tag', 'guten morgen', 'guten abend', 'gute nacht',
+      'reservierung', 'reservieren', 'tisch', 'tische', 'restaurant',
+      'möchte', 'brauche', 'würde gerne', 'suche', 'benötige', 'verlange',
+      'tisch reservieren', 'reservierung machen', 'tisch buchen', 'tisch reservieren für',
+      'zum essen', 'zum abendessen', 'zum mittagessen', 'zum frühstück',
+      'ja', 'gut', 'perfekt', 'okay', 'klar', 'natürlich', 'gerne',
+      'fortfahren', 'fortsetzen', 'akzeptieren', 'bestätigen', 'einverstanden',
+      'ich möchte', 'ich brauche', 'ich würde gerne', 'ich suche',
+      // Palabras muy específicas del alemán
+      'bitte', 'danke', 'entschuldigung', 'verzeihung', 'wie', 'was', 'wo',
+      'heute', 'morgen', 'abend', 'nacht', 'zeit', 'uhr', 'stunde',
+      'personen', 'leute', 'gäste', 'familie', 'freunde'
+    ],
+    it: [
+      'ciao', 'buongiorno', 'buonasera', 'buonanotte', 'salve',
+      'prenotazione', 'prenotare', 'tavolo', 'tavoli', 'ristorante',
+      'vorrei', 'ho bisogno', 'cerco', 'necessito', 'desidero', 'voglio',
+      'prenotare tavolo', 'fare prenotazione', 'prenotazione tavolo', 'prenotare un tavolo',
+      'per mangiare', 'per cenare', 'per pranzo', 'per colazione',
+      'sì', 'va bene', 'perfetto', 'okay', 'chiaro', 'naturalmente', 'volentieri',
+      'continuare', 'procedere', 'accettare', 'confermare', 'd\'accordo',
+      'mi chiamo', 'come ti chiami', 'il mio nome',
+      // Palabras muy específicas del italiano
+      'per favore', 'grazie', 'scusi', 'scusa', 'come', 'cosa', 'dove',
+      'oggi', 'domani', 'sera', 'notte', 'tempo', 'ora', 'ore',
+      'persone', 'gente', 'ospiti', 'famiglia', 'amici'
+    ],
+    fr: [
+      'bonjour', 'bonsoir', 'bonne nuit', 'salut', 'bonne journée',
+      'réservation', 'réserver', 'table', 'tables', 'restaurant',
+      'je voudrais', 'j\'ai besoin', 'je cherche', 'je nécessite', 'je désire', 'je veux',
+      'réserver table', 'faire réservation', 'réservation table', 'réserver une table',
+      'pour manger', 'pour dîner', 'pour déjeuner', 'pour petit-déjeuner',
+      'oui', 'd\'accord', 'parfait', 'okay', 'clair', 'naturellement', 'volontiers',
+      'continuer', 'procéder', 'accepter', 'confirmer', 'd\'accord',
+      'je m\'appelle', 'comment vous appelez-vous', 'mon nom'
+    ],
+    pt: [
+      'olá', 'bom dia', 'boa tarde', 'boa noite', 'oi',
+      'reserva', 'reservar', 'mesa', 'mesas', 'restaurante',
+      'quero', 'preciso', 'gostaria', 'busco', 'necessito', 'desejo',
+      'fazer reserva', 'reservar mesa', 'reserva mesa', 'reservar uma mesa',
+      'para comer', 'para jantar', 'para almoçar', 'para café da manhã',
+      'sim', 'bom', 'perfeito', 'okay', 'claro', 'naturalmente', 'com prazer',
+      'continuar', 'proceder', 'aceitar', 'confirmar', 'concordo',
+      'meu nome', 'como você se chama', 'me chamo'
+    ],
+    es: [
+      'hola', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos',
+      'reserva', 'reservar', 'mesa', 'mesas', 'restaurante',
+      'quiero', 'necesito', 'me gustaría', 'quisiera', 'deseo', 'busco',
+      'hacer una reserva', 'reservar mesa', 'reservar una mesa', 'hacer reserva',
+      'para comer', 'para cenar', 'para almorzar', 'para desayunar',
+      'si', 'sí', 'vale', 'bueno', 'perfecto', 'claro', 'por supuesto',
+      'adelante', 'continúo', 'procedo', 'acepto', 'confirmo',
+      'me llamo', 'como te llamas', 'mi nombre'
+    ]
   };
 
   const lowerText = text.toLowerCase();
   let maxMatches = 0;
   let detectedLanguage = 'es'; // Por defecto español
 
+  console.log(`🔍 Detectando idioma para: "${text}"`);
+
   for (const [lang, patterns] of Object.entries(languagePatterns)) {
     const matches = patterns.filter(pattern => lowerText.includes(pattern)).length;
+    console.log(`  ${lang}: ${matches} coincidencias`);
+    
     if (matches > maxMatches) {
       maxMatches = matches;
       detectedLanguage = lang;
     }
   }
 
+  console.log(`✅ Idioma detectado: ${detectedLanguage} (${maxMatches} coincidencias)`);
   return detectedLanguage;
 }
 
