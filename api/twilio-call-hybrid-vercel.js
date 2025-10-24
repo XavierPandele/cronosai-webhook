@@ -4,6 +4,7 @@ require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
+const { DateTime } = require('luxon');
 
 // Inicializar Gemini SOLO para detección de idioma
 let genAI, model;
@@ -49,7 +50,10 @@ Idioma:`;
       
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const detectedLang = response.text().trim().toLowerCase();
+      const rawLang = response.text().trim();
+      
+      // Sanitizar y normalizar idioma
+      const detectedLang = this.normalizeLanguage(rawLang);
       
       const supportedLangs = ['es', 'en', 'de', 'it', 'fr', 'pt'];
       if (supportedLangs.includes(detectedLang)) {
@@ -65,6 +69,17 @@ Idioma:`;
       console.error('[IDIOMA] Error detectando idioma:', error);
       return 'es';
     }
+  }
+  
+  // Normalizar idioma detectado por Gemini
+  static normalizeLanguage(raw) {
+    const s = raw.trim().toLowerCase().replace(/[`"' \t\n\r]/g, '');
+    const two = s.slice(0, 2);
+    const alias = {
+      'es-es': 'es', 'en-us': 'en', 'pt-br': 'pt', 
+      'fr-fr': 'fr', 'de-de': 'de', 'it-it': 'it'
+    };
+    return alias[s] || alias[two] || (['es', 'en', 'de', 'it', 'fr', 'pt'].includes(two) ? two : 'es');
   }
   
   // Análisis de intención HARDCODEADO (sin Gemini)
@@ -304,6 +319,12 @@ Idioma:`;
       if (name) data.name = name;
     }
     
+    // Extraer teléfono
+    if (currentStep === 'ask_name' || currentStep === 'ask_phone') {
+      const phone = this.extractPhone(userInput);
+      if (phone) data.phone = phone;
+    }
+    
     return data;
   }
   
@@ -334,14 +355,15 @@ Idioma:`;
     return null;
   }
   
-  // Extraer fecha - SISTEMA SÚPER ROBUSTO
+  // Extraer fecha - SISTEMA SÚPER ROBUSTO con zona horaria Europe/Madrid
   static extractDate(input, language) {
     console.log(`[EXTRACCION] Extrayendo fecha de: "${input}"`);
     
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const dayAfterTomorrow = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000);
+    // Usar zona horaria Europe/Madrid
+    const now = DateTime.now().setZone('Europe/Madrid');
+    const today = now.toJSDate();
+    const tomorrow = now.plus({ days: 1 }).toJSDate();
+    const dayAfterTomorrow = now.plus({ days: 2 }).toJSDate();
     
     // Fechas relativas exhaustivas en todos los idiomas
     const relativeDates = {
@@ -415,19 +437,25 @@ Idioma:`;
       }
     }
     
-    // Buscar fechas específicas (DD/MM/YYYY, MM/DD/YYYY, etc.)
+    // Buscar fechas específicas y normalizar a ISO
     const datePatterns = [
-      /(\d{1,2})\/(\d{1,2})\/(\d{4})/g,
-      /(\d{4})-(\d{1,2})-(\d{1,2})/g,
-      /(\d{1,2}) de (\w+) de (\d{4})/gi
+      // DD/MM/YYYY
+      { pattern: /(\d{1,2})\/(\d{1,2})\/(\d{4})/g, format: 'DD/MM/YYYY' },
+      // YYYY-MM-DD (ya está en formato correcto)
+      { pattern: /(\d{4})-(\d{1,2})-(\d{1,2})/g, format: 'YYYY-MM-DD' },
+      // DD de mes de YYYY
+      { pattern: /(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/gi, format: 'DD de mes de YYYY' }
     ];
     
-    for (const pattern of datePatterns) {
+    for (const { pattern, format } of datePatterns) {
       const match = input.match(pattern);
       if (match) {
         console.log(`[EXTRACCION] Fecha específica encontrada: ${match[0]}`);
-        // Aquí podrías parsear la fecha específica
-        return match[0]; // Por ahora devolvemos el texto encontrado
+        const normalized = this.normalizeDate(match[0], format, language);
+        if (normalized) {
+          console.log(`[EXTRACCION] Fecha normalizada: ${normalized}`);
+          return normalized;
+        }
       }
     }
     
@@ -435,33 +463,92 @@ Idioma:`;
     return null;
   }
   
-  // Función auxiliar para obtener el próximo día de la semana
+  // Función auxiliar para obtener el próximo día de la semana (Europe/Madrid)
   static getNextWeekday(weekday) {
-    const today = new Date();
+    const now = DateTime.now().setZone('Europe/Madrid');
+    const today = now.toJSDate();
     const daysUntilTarget = (weekday - today.getDay() + 7) % 7;
     const targetDate = new Date(today);
     targetDate.setDate(today.getDate() + (daysUntilTarget === 0 ? 7 : daysUntilTarget));
     return targetDate;
   }
   
+  // Normalizar fecha a formato ISO YYYY-MM-DD
+  static normalizeDate(dateString, format, language) {
+    try {
+      // Mapeo de meses por idioma
+      const monthMaps = {
+        es: { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+             julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10,
+             noviembre: 11, diciembre: 12 },
+        en: { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+              july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 },
+        de: { januar: 1, februar: 2, märz: 3, april: 4, mai: 5, juni: 6,
+              juli: 7, august: 8, september: 9, oktober: 10, november: 11, dezember: 12 },
+        it: { gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
+              luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12 },
+        fr: { janvier: 1, février: 2, mars: 3, avril: 4, mai: 5, juin: 6,
+              juillet: 7, août: 8, septembre: 9, octobre: 10, novembre: 11, décembre: 12 },
+        pt: { janeiro: 1, fevereiro: 2, março: 3, abril: 4, maio: 5, junho: 6,
+              julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12 }
+      };
+      
+      const months = monthMaps[language] || monthMaps.es;
+      
+      if (format === 'DD/MM/YYYY') {
+        const [_, day, month, year] = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+      
+      if (format === 'YYYY-MM-DD') {
+        // Normalizar también este formato para asegurar ceros
+        const m = dateString.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (m) {
+          const [, y, mo, d] = m;
+          return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
+        return dateString;
+      }
+      
+      if (format === 'DD de mes de YYYY') {
+        const [_, day, monthName, year] = dateString.match(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
+        const month = months[monthName.toLowerCase()];
+        if (month) {
+          return `${year}-${month.toString().padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[ERROR] Error normalizando fecha:', error);
+      return null;
+    }
+  }
+  
   // Extraer hora - SISTEMA SÚPER ROBUSTO
   static extractTime(input, language) {
     console.log(`[EXTRACCION] Extrayendo hora de: "${input}"`);
     
-    // Patrones de hora exhaustivos
+    // Patrones de hora mejorados - evitar falsos positivos
     const timePatterns = [
-      // Formato 24h
-      /(\d{1,2}):(\d{2})/g,
-      /(\d{1,2})\.(\d{2})/g,
-      /(\d{1,2})\s+(\d{2})/g,
+      // Formato 24h con separadores claros
+      /(\d{1,2}):(\d{2})\b/g,
+      /(\d{1,2})\.(\d{2})\b/g,
+      /(\d{1,2})h(?:\s*(\d{2}))?\b/gi,
+      // Contexto específico para "horas" - evitar falsos positivos
+      /(?:a\s+las\s+|às\s+|um\s+|alle\s+)(\d{1,2})\s+horas?\b/i,
       
       // Formato 12h con AM/PM
-      /(\d{1,2})\s*(am|pm|AM|PM)/g,
-      /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)/g,
+      /(\d{1,2})\s*(am|pm|AM|PM)\b/g,
+      /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)\b/g,
       
       // Formato 12h con palabras
-      /(\d{1,2})\s*(de la mañana|de la tarde|de la noche)/gi,
-      /(\d{1,2}):(\d{2})\s*(de la mañana|de la tarde|de la noche)/gi
+      /(\d{1,2})\s*(de la mañana|de la tarde|de la noche)\b/gi,
+      /(\d{1,2}):(\d{2})\s*(de la mañana|de la tarde|de la noche)\b/gi,
+      
+      // Medias y cuartos
+      /(\d{1,2})\s+y\s+(media|cuarto)\b/gi,
+      /(\d{1,2})\s+y\s+(\d{1,2})\b/gi
     ];
     
     // Horas en palabras en todos los idiomas
@@ -523,7 +610,7 @@ Idioma:`;
       const match = input.match(pattern);
       if (match) {
         let hour = parseInt(match[1]);
-        const minute = match[2] ? parseInt(match[2]) : 0;
+        let minute = match[2] ? parseInt(match[2]) : 0;
         const period = match[3];
         
         // Convertir AM/PM a 24h
@@ -536,6 +623,16 @@ Idioma:`;
           }
         }
         
+        // Manejar "y cuarto", "y media", "menos cuarto"
+        if (/menos\s+cuarto/i.test(input)) {
+          hour = (hour + 23) % 24;
+          minute = 45;
+        } else if (/y\s+cuarto/i.test(input)) {
+          minute = 15;
+        } else if (/y\s+media/i.test(input)) {
+          minute = 30;
+        }
+        
         const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         console.log(`[EXTRACCION] Hora detectada: ${time}`);
         return time;
@@ -546,23 +643,58 @@ Idioma:`;
     return null;
   }
   
-  // Extraer nombre
+  // Extraer nombre con soporte para acentos y múltiples palabras
   static extractName(input, language) {
+    // Patrón Unicode para letras, acentos, apóstrofos y guiones
+    const w = "[\\p{L}\\p{M}'´`-]+";
     const namePatterns = {
-      es: [/me llamo (\w+)/i, /mi nombre es (\w+)/i, /soy (\w+)/i],
-      en: [/my name is (\w+)/i, /i'm (\w+)/i, /i am (\w+)/i],
-      de: [/ich heiße (\w+)/i, /mein name ist (\w+)/i, /ich bin (\w+)/i],
-      it: [/mi chiamo (\w+)/i, /il mio nome è (\w+)/i, /sono (\w+)/i],
-      fr: [/je m'appelle (\w+)/i, /mon nom est (\w+)/i, /je suis (\w+)/i],
-      pt: [/meu nome é (\w+)/i, /me chamo (\w+)/i, /sou (\w+)/i]
+      es: [
+        new RegExp(`(?:me llamo|mi nombre es|soy)\\s+(${w}(?:\\s+${w}){0,2})`, 'iu'),
+        new RegExp(`(?:me llamo|mi nombre es|soy)\\s+(${w})`, 'iu')
+      ],
+      en: [
+        new RegExp(`(?:my name is|i'm|i am)\\s+(${w}(?:\\s+${w}){0,2})`, 'iu'),
+        new RegExp(`(?:my name is|i'm|i am)\\s+(${w})`, 'iu')
+      ],
+      de: [
+        new RegExp(`(?:ich heiße|mein name ist|ich bin)\\s+(${w}(?:\\s+${w}){0,2})`, 'iu'),
+        new RegExp(`(?:ich heiße|mein name ist|ich bin)\\s+(${w})`, 'iu')
+      ],
+      it: [
+        new RegExp(`(?:mi chiamo|il mio nome è|sono)\\s+(${w}(?:\\s+${w}){0,2})`, 'iu'),
+        new RegExp(`(?:mi chiamo|il mio nome è|sono)\\s+(${w})`, 'iu')
+      ],
+      fr: [
+        new RegExp(`(?:je m'appelle|mon nom est|je suis)\\s+(${w}(?:\\s+${w}){0,2})`, 'iu'),
+        new RegExp(`(?:je m'appelle|mon nom est|je suis)\\s+(${w})`, 'iu')
+      ],
+      pt: [
+        new RegExp(`(?:meu nome é|me chamo|sou)\\s+(${w}(?:\\s+${w}){0,2})`, 'iu'),
+        new RegExp(`(?:meu nome é|me chamo|sou)\\s+(${w})`, 'iu')
+      ]
     };
     
-    const patterns = namePatterns[language] || [];
+    const patterns = namePatterns[language] || namePatterns.es;
     for (const pattern of patterns) {
       const match = input.match(pattern);
-      if (match) return match[1];
+      if (match) {
+        const name = match[1].trim();
+        console.log(`[EXTRACCION] Nombre extraído: ${name}`);
+        return name;
+      }
     }
     
+    return null;
+  }
+  
+  // Extraer teléfono del input del usuario
+  static extractPhone(input) {
+    const digits = (input || '').replace(/[^\d+]/g, '');
+    const match = digits.match(/\+?\d{7,15}/);
+    if (match) {
+      console.log(`[EXTRACCION] Teléfono extraído: ${match[0]}`);
+      return match[0];
+    }
     return null;
   }
   
@@ -1034,8 +1166,11 @@ module.exports = async function handler(req, res) {
     console.log(`[NUEVA_LLAMADA] Iniciando conversación para ${From}`);
   }
   
+  // Usar CallSid como clave única, fallback a From
+  const stateKey = CallSid || From;
+  
   // Obtener o crear estado de conversación
-  let state = conversationStates.get(From) || {
+  let state = conversationStates.get(stateKey) || {
     step: 'greeting',
     language: null,
     data: {},
@@ -1052,6 +1187,11 @@ module.exports = async function handler(req, res) {
   
   if (!state.language) {
     state.language = 'es';
+  }
+  
+  // Reset de reintentos si hay input válido
+  if (userInput && userInput.trim().length > 0) {
+    state.retryCount = 0;
   }
   
   // Manejar caso cuando no se entiende la respuesta
@@ -1199,9 +1339,15 @@ module.exports = async function handler(req, res) {
           break;
           
         case 'ask_phone':
-          state.data.phone = From;
+          // Usar teléfono extraído del input, fallback al número del llamador
+          if (intentAnalysis.extracted_data.phone) {
+            state.data.phone = intentAnalysis.extracted_data.phone;
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Teléfono extraído del input)`);
+          } else {
+            state.data.phone = From;
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Teléfono del llamador asignado)`);
+          }
           nextStep = 'complete';
-          console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Teléfono del llamador asignado)`);
           break;
           
         case 'complete':
@@ -1220,15 +1366,24 @@ module.exports = async function handler(req, res) {
       console.log(`[RESPONSE] ${From}: hardcoded (${state.language})`);
     }
     
-    // Si es el paso final, guardar reserva
+    // Si es el paso final, validar y guardar reserva
     if (nextStep === 'complete' && state.data.people && state.data.date && state.data.time && state.data.name) {
-      const saved = await saveReservation(state);
-      if (saved) {
-        response = HybridSystem.getResponse('complete', state.language);
-        nextStep = 'finished';
+      // Validar reserva antes de guardar
+      const validation = await validarReserva(state.data);
+      if (!validation?.ok) {
+        response = validation?.mensaje || 'No hay disponibilidad para esa fecha y hora. Por favor, elija otra.';
+        nextStep = 'ask_date'; // Volver a pedir fecha
+        console.log(`[VALIDACION] Reserva rechazada: ${validation?.mensaje}`);
       } else {
-        response = 'Lo siento, ha habido un error. Por favor, contacte con el restaurante.';
-        nextStep = 'error';
+        const saved = await saveReservation(state);
+        if (saved) {
+          response = HybridSystem.getResponse('complete', state.language);
+          nextStep = 'finished';
+          console.log(`[GUARDADO] Reserva guardada exitosamente`);
+        } else {
+          response = 'Lo siento, ha habido un error. Por favor, contacte con el restaurante.';
+          nextStep = 'error';
+        }
       }
     }
     
@@ -1255,8 +1410,14 @@ module.exports = async function handler(req, res) {
   
   // Actualizar estado
   state.step = nextStep;
-  conversationStates.set(From, state);
+  conversationStates.set(stateKey, state);
   console.log(`[STATE] ${From}: ${state.step} (${state.language})`);
+  
+  // Limpiar estado al finalizar
+  if (nextStep === 'finished' || nextStep === 'error') {
+    conversationStates.delete(stateKey);
+    console.log(`[CLEANUP] Estado eliminado para ${stateKey}`);
+  }
   
   // Generar TwiML
   const twiml = generateTwiML(response, state.language);
