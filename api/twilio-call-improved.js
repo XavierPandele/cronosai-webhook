@@ -89,17 +89,23 @@ async function processConversationStep(state, userInput) {
 
   // Detectar idioma si es el primer paso
   if (step === 'greeting' && userInput) {
+    console.log(`🔍 [DEBUG] Detectando idioma para: "${userInput}"`);
     state.language = detectLanguage(userInput);
-    console.log(`🌍 Idioma detectado: ${state.language}`);
+    console.log(`🌍 [DEBUG] Idioma detectado: ${state.language}`);
+    console.log(`📝 [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
   }
 
   switch (step) {
      case 'greeting':
        // Primera interacción - saludo general
+       console.log(`🎯 [DEBUG] GREETING: language=${state.language}, userInput="${userInput}"`);
+       
        // Si detectamos un idioma diferente al español y hay intención de reserva, saltar al siguiente paso
        if (state.language !== 'es' && userInput && isReservationRequest(userInput)) {
+         console.log(`🚀 [DEBUG] Saltando saludo - idioma=${state.language}, intención detectada`);
          state.step = 'ask_people';
          const reservationMessages = getMultilingualMessages('reservation', state.language);
+         console.log(`💬 [DEBUG] Mensajes de reserva obtenidos:`, reservationMessages);
          return {
            message: getRandomMessage(reservationMessages),
            gather: true
@@ -107,8 +113,10 @@ async function processConversationStep(state, userInput) {
        }
        
        // Si es español o no hay intención clara de reserva, hacer saludo normal
+       console.log(`👋 [DEBUG] Saludo normal - idioma=${state.language}`);
        state.step = 'ask_intention';
        const greetingMessages = getMultilingualMessages('greeting', state.language);
+       console.log(`💬 [DEBUG] Mensajes de saludo obtenidos:`, greetingMessages);
        return {
          message: getRandomMessage(greetingMessages),
          gather: true
@@ -343,6 +351,9 @@ async function processConversationStep(state, userInput) {
 function generateTwiML(response, language = 'es') {
   const { message, gather = true } = response;
 
+  console.log(`🎤 [DEBUG] generateTwiML - Idioma recibido: ${language}`);
+  console.log(`🎤 [DEBUG] generateTwiML - Mensaje: "${message}"`);
+
   // Configuración de voz por idioma - Google Neural cuando esté disponible
   const voiceConfig = {
     es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
@@ -354,6 +365,7 @@ function generateTwiML(response, language = 'es') {
   };
 
   const config = voiceConfig[language] || voiceConfig.es;
+  console.log(`🎤 [DEBUG] Configuración de voz seleccionada:`, config);
 
   if (gather) {
     // Usar Gather para capturar la respuesta del usuario
@@ -1720,8 +1732,20 @@ function isReservationRequest(text) {
   
   const lowerText = text.toLowerCase();
   
+  console.log(`🔍 [DEBUG] isReservationRequest - Analizando: "${text}"`);
+  console.log(`🔍 [DEBUG] Texto en minúsculas: "${lowerText}"`);
+  
   // Buscar coincidencias exactas de palabras
   const hasReservationWords = reservationWords.some(word => lowerText.includes(word));
+  console.log(`🔍 [DEBUG] Palabras de reserva encontradas: ${hasReservationWords}`);
+  
+  // Debug específico para italiano
+  if (lowerText.includes('ciao') || lowerText.includes('vorrei') || lowerText.includes('prenotare')) {
+    console.log(`🇮🇹 [DEBUG] Detectadas palabras italianas en: "${lowerText}"`);
+    const italianWords = ['ciao', 'vorrei', 'prenotare', 'tavolo', 'prenotazione', 'ho bisogno'];
+    const foundItalian = italianWords.filter(word => lowerText.includes(word));
+    console.log(`🇮🇹 [DEBUG] Palabras italianas encontradas:`, foundItalian);
+  }
   
   // Buscar patrones de frases comunes
   const commonPatterns = [
@@ -1768,8 +1792,12 @@ function isReservationRequest(text) {
   ];
   
   const hasPatterns = commonPatterns.some(pattern => pattern.test(lowerText));
+  console.log(`🔍 [DEBUG] Patrones regex encontrados: ${hasPatterns}`);
   
-  return hasReservationWords || hasPatterns;
+  const result = hasReservationWords || hasPatterns;
+  console.log(`🔍 [DEBUG] Resultado final isReservationRequest: ${result}`);
+  
+  return result;
 }
 
 function extractPeopleCount(text) {
