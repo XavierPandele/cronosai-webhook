@@ -87,11 +87,24 @@ async function processConversationStep(state, userInput) {
 
   console.log(`📋 Procesando paso: ${step}, Input: "${userInput}"`);
 
-  // Detectar idioma si es el primer paso
-  if (step === 'greeting' && userInput) {
+  // Detectar idioma en TODOS los pasos si hay input del usuario
+  if (userInput && userInput.trim()) {
+    const detectedLanguage = detectLanguage(userInput);
     console.log(`🔍 [DEBUG] Detectando idioma para: "${userInput}"`);
-    state.language = detectLanguage(userInput);
-    console.log(`🌍 [DEBUG] Idioma detectado: ${state.language}`);
+    console.log(`🌍 [DEBUG] Idioma detectado: ${detectedLanguage}`);
+    console.log(`🌍 [DEBUG] Idioma actual del estado: ${state.language}`);
+    
+    // Actualizar idioma si:
+    // 1. Es el primer paso (greeting) - siempre actualizar
+    // 2. Detectamos un idioma diferente al español con confianza
+    // 3. El idioma actual es español y detectamos otro idioma
+    if (step === 'greeting' || 
+        (detectedLanguage !== 'es' && detectedLanguage !== state.language) ||
+        (state.language === 'es' && detectedLanguage !== 'es')) {
+      console.log(`🔄 [DEBUG] Cambiando idioma de ${state.language} a ${detectedLanguage}`);
+      state.language = detectedLanguage;
+    }
+    
     console.log(`📝 [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
   }
 
