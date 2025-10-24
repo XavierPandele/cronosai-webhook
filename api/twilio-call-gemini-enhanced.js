@@ -4,6 +4,7 @@ require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva } = require('../lib/utils');
+const logger = require('../lib/logger');
 
 // Inicializar Gemini 2.0 Flash con configuración optimizada
 let genAI, model;
@@ -30,8 +31,13 @@ const conversationStates = new Map();
 class EnhancedComprehensionSystem {
   
   // Analizar intención del cliente con contexto completo
-  static async analyzeIntent(userInput, conversationHistory, currentStep, language) {
-    if (!model) return this.getFallbackIntent(userInput, currentStep);
+  static async analyzeIntent(userInput, conversationHistory, currentStep, language, phoneNumber = 'unknown') {
+    const startTime = Date.now();
+    
+    if (!model) {
+      logger.logFallbackUsage(phoneNumber, 'Modelo no disponible', 'getFallbackIntent');
+      return this.getFallbackIntent(userInput, currentStep);
+    }
     
     try {
       const context = this.buildConversationContext(conversationHistory, currentStep);
@@ -73,9 +79,14 @@ IMPORTANTE:
 
 Análisis:`;
 
+      logger.logGeminiRequest(phoneNumber, prompt, 'gemini-2.0-flash-exp');
+      
       const result = await model.generateContent(prompt);
       const response = await result.response;
       let responseText = response.text().trim();
+      
+      const processingTime = Date.now() - startTime;
+      logger.logGeminiResponse(phoneNumber, responseText, processingTime);
       
       // Limpiar markdown si está presente
       if (responseText.includes('```json')) {
@@ -84,20 +95,24 @@ Análisis:`;
       
       const analysis = JSON.parse(responseText);
       
+      logger.logIntentAnalysis(phoneNumber, analysis, currentStep);
       console.log(`[GEMINI-ENHANCED] Análisis de intención:`, analysis);
       return analysis;
       
     } catch (error) {
+      logger.logGeminiError(phoneNumber, error, 0);
       console.error('[GEMINI-ENHANCED] Error analizando intención:', error);
       
       // Si es error de sobrecarga, usar fallback inmediatamente
       if (error.status === 503 || error.message?.includes('overloaded')) {
+        logger.logFallbackUsage(phoneNumber, 'Modelo sobrecargado (503)', 'getFallbackIntent');
         console.log('[GEMINI-ENHANCED] Modelo sobrecargado, usando fallback');
         return this.getFallbackIntent(userInput, currentStep);
       }
       
       // Si es error de JSON, intentar limpiar y parsear
       if (error.message?.includes('JSON')) {
+        logger.logFallbackUsage(phoneNumber, 'Error de JSON', 'json_cleanup');
         console.log('[GEMINI-ENHANCED] Error de JSON, intentando limpiar respuesta');
         try {
           let responseText = error.response?.text()?.trim() || '';
@@ -105,12 +120,15 @@ Análisis:`;
             responseText = responseText.replace(/```json\s*/, '').replace(/```\s*$/, '');
           }
           const analysis = JSON.parse(responseText);
+          logger.logIntentAnalysis(phoneNumber, analysis, currentStep);
           return analysis;
         } catch (jsonError) {
+          logger.logFallbackUsage(phoneNumber, 'No se pudo limpiar JSON', 'getFallbackIntent');
           console.log('[GEMINI-ENHANCED] No se pudo limpiar JSON, usando fallback');
         }
       }
       
+      logger.logFallbackUsage(phoneNumber, `Error general: ${error.message}`, 'getFallbackIntent');
       return this.getFallbackIntent(userInput, currentStep);
     }
   }
@@ -188,8 +206,11 @@ Respuesta:`;
   }
   
   // Detectar idioma con contexto
-  static async detectLanguageWithContext(userInput, conversationHistory) {
-    if (!model) return 'es';
+  static async detectLanguageWithContext(userInput, conversationHistory, phoneNumber = 'unknown') {
+    if (!model) {
+      logger.logLanguageDetection(phoneNumber, 'es', 1.0, 'fallback');
+      return 'es';
+    }
     
     try {
       const context = conversationHistory && conversationHistory.length > 0 
@@ -205,18 +226,23 @@ Responde SOLO con el código del idioma: es, en, de, it, fr, pt
 
 Idioma:`;
 
+      logger.logGeminiRequest(phoneNumber, prompt, 'language_detection');
+      
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const detectedLang = response.text().trim().toLowerCase();
       
       const supportedLangs = ['es', 'en', 'de', 'it', 'fr', 'pt'];
       if (supportedLangs.includes(detectedLang)) {
+        logger.logLanguageDetection(phoneNumber, detectedLang, 0.9, 'gemini');
         console.log(`[GEMINI-ENHANCED] Idioma detectado: ${detectedLang}`);
         return detectedLang;
       }
       
+      logger.logLanguageDetection(phoneNumber, 'es', 0.5, 'fallback_invalid');
       return 'es';
     } catch (error) {
+      logger.logLanguageDetection(phoneNumber, 'es', 0.0, 'error');
       console.error('[GEMINI-ENHANCED] Error detectando idioma:', error);
       return 'es';
     }
@@ -551,6 +577,7 @@ module.exports = async function handler(req, res) {
   const userInput = SpeechResult || '';
   
   const startTime = Date.now();
+  logger.logCallStart(From, userInput);
   console.log(`[LLAMADA] De: ${From}`);
   console.log(`[LLAMADA] Input: "${userInput}"`);
   console.log(`[LLAMADA] Timestamp: ${new Date().toISOString()}`);
@@ -565,9 +592,11 @@ module.exports = async function handler(req, res) {
     maxRetries: 3
   };
   
+  logger.logStateUpdate(From, state);
+  
   // Detectar idioma con contexto
   if (!state.language && userInput) {
-    state.language = await EnhancedComprehensionSystem.detectLanguageWithContext(userInput, state.conversationHistory);
+    state.language = await EnhancedComprehensionSystem.detectLanguageWithContext(userInput, state.conversationHistory, From);
     console.log(`[IDIOMA] Idioma detectado: ${state.language}`);
   }
   
@@ -587,7 +616,8 @@ module.exports = async function handler(req, res) {
           userInput, 
           state.conversationHistory, 
           state.step, 
-          state.language
+          state.language,
+          From
         );
         
         if (intentAnalysis && intentAnalysis.intent) {
@@ -627,6 +657,8 @@ module.exports = async function handler(req, res) {
   // Procesar datos extraídos
   if (intentAnalysis.extracted_data) {
     const { people, date, time, name, phone } = intentAnalysis.extracted_data;
+    
+    logger.logDataExtraction(From, intentAnalysis.extracted_data, state.step);
     
     if (people && !state.data.people) {
       state.data.people = people;
@@ -670,50 +702,62 @@ module.exports = async function handler(req, res) {
         case 'greeting':
           if (intentAnalysis.extracted_data.people) {
             nextStep = 'ask_date';
+            logger.logStepTransition(From, state.step, nextStep, 'Datos de personas extraídos');
           } else {
             nextStep = 'ask_people';
+            logger.logStepTransition(From, state.step, nextStep, 'Solicitando número de personas');
           }
           break;
           
         case 'ask_people':
           if (intentAnalysis.extracted_data.people) {
             nextStep = 'ask_date';
+            logger.logStepTransition(From, state.step, nextStep, 'Datos de personas confirmados');
           } else {
             nextStep = 'ask_people';
+            logger.logStepTransition(From, state.step, nextStep, 'Repitiendo solicitud de personas');
           }
           break;
           
         case 'ask_date':
           if (intentAnalysis.extracted_data.date) {
             nextStep = 'ask_time';
+            logger.logStepTransition(From, state.step, nextStep, 'Fecha extraída');
           } else {
             nextStep = 'ask_date';
+            logger.logStepTransition(From, state.step, nextStep, 'Repitiendo solicitud de fecha');
           }
           break;
           
         case 'ask_time':
           if (intentAnalysis.extracted_data.time) {
             nextStep = 'ask_name';
+            logger.logStepTransition(From, state.step, nextStep, 'Hora extraída');
           } else {
             nextStep = 'ask_time';
+            logger.logStepTransition(From, state.step, nextStep, 'Repitiendo solicitud de hora');
           }
           break;
           
         case 'ask_name':
           if (intentAnalysis.extracted_data.name) {
             nextStep = 'ask_phone';
+            logger.logStepTransition(From, state.step, nextStep, 'Nombre extraído');
           } else {
             nextStep = 'ask_name';
+            logger.logStepTransition(From, state.step, nextStep, 'Repitiendo solicitud de nombre');
           }
           break;
           
         case 'ask_phone':
           state.data.phone = From;
           nextStep = 'complete';
+          logger.logStepTransition(From, state.step, nextStep, 'Teléfono del llamador asignado');
           break;
           
         case 'complete':
           nextStep = 'finished';
+          logger.logStepTransition(From, state.step, nextStep, 'Reserva completada');
           break;
       }
       
@@ -724,9 +768,11 @@ module.exports = async function handler(req, res) {
           state.language, 
           state.conversationHistory
         );
+        logger.logResponseGeneration(From, response, 'intelligent', state.language);
       } catch (error) {
         console.log('[RESPUESTA] Error generando respuesta inteligente, usando fallback');
         response = EnhancedComprehensionSystem.getFallbackResponse(nextStep, state.language);
+        logger.logResponseGeneration(From, response, 'fallback', state.language);
       }
     }
     
@@ -771,15 +817,34 @@ module.exports = async function handler(req, res) {
     timestamp: new Date().toISOString()
   });
   
+  logger.logConversationHistory(From, state.conversationHistory);
+  
   // Actualizar estado
   state.step = nextStep;
   conversationStates.set(From, state);
+  logger.logStateUpdate(From, state);
   
   // Generar TwiML
   const twiml = generateTwiML(response, state.language);
   
   // Logging de métricas
   const processingTime = Date.now() - startTime;
+  const metrics = {
+    totalTime: processingTime,
+    geminiTime: 0, // Se calculará en el análisis
+    processingTime: processingTime,
+    intent: intentAnalysis.intent,
+    confidence: intentAnalysis.confidence,
+    sentiment: intentAnalysis.sentiment,
+    urgency: intentAnalysis.urgency,
+    step: state.step,
+    nextStep: nextStep,
+    language: state.language,
+    fallbackUsed: response.includes('¿En qué puedo ayudarle?') || response.includes('Por favor, responda')
+  };
+  
+  logger.logMetrics(From, metrics);
+  
   console.log(`[MÉTRICAS] Tiempo de procesamiento: ${processingTime}ms`);
   console.log(`[MÉTRICAS] Intención: ${intentAnalysis.intent}, Confianza: ${intentAnalysis.confidence}`);
   console.log(`[MÉTRICAS] Sentimiento: ${intentAnalysis.sentiment}, Urgencia: ${intentAnalysis.urgency}`);
