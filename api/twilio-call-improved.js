@@ -242,7 +242,12 @@ async function processConversationStep(state, userInput) {
         // Alemán
         'dieser', 'gleiche', 'ja', 'gut', 'perfekt', 'diese nummer',
         // Italiano
-        'questo', 'stesso', 'sì', 'va bene', 'perfetto', 'questo numero',
+        'questo', 'stesso', 'sì', 'si', 'va bene', 'perfetto', 'questo numero',
+        'questo telefono', 'stesso numero', 'stesso telefono', 'va bene questo',
+        'perfetto', 'ottimo', 'bene', 'giusto', 'esatto', 'corretto',
+        'confermo', 'accetto', 'procedo', 'continua', 'avanti',
+        'tutto bene', 'tutto ok', 'tutto perfetto', 'va tutto bene',
+        'conferma', 'confermare', 'accettare', 'procedere'
         // Francés
         'ce', 'même', 'oui', 'bon', 'parfait', 'ce numéro',
         // Portugués
@@ -259,6 +264,10 @@ async function processConversationStep(state, userInput) {
         'anderer', 'verschieden', 'nein', 'ändern', 'neue',
         // Italiano
         'altro', 'diverso', 'no', 'cambiare', 'nuovo',
+        'altro numero', 'numero diverso', 'numero nuovo', 'telefono diverso',
+        'telefono nuovo', 'cambiare numero', 'modificare numero',
+        'non questo', 'non va bene', 'non mi piace', 'non accetto',
+        'sbagliato', 'errato', 'non corretto', 'non è giusto'
         // Francés
         'autre', 'différent', 'non', 'changer', 'nouveau',
         // Portugués
@@ -1225,8 +1234,13 @@ function handleConfirmationResponse(text) {
     'ja', 'richtig', 'bestätigen', 'perfekt', 'gut', 'okay', 'genau',
     'das stimmt', 'einverstanden', 'bestätigt', 'akzeptieren',
     // Italiano
-    'sì', 'corretto', 'confermo', 'perfetto', 'bene', 'okay', 'esatto',
-    'va bene', 'd\'accordo', 'confermato', 'accetto',
+    'sì', 'si', 'corretto', 'confermo', 'perfetto', 'bene', 'okay', 'ok', 'esatto',
+    'va bene', 'd\'accordo', 'confermato', 'accetto', 'giusto', 'esatto',
+    'perfetto', 'ottimo', 'eccellente', 'fantastico', 'grande', 'bravo',
+    'confermo', 'accetto', 'procedo', 'continua', 'avanti', 'procedi',
+    'tutto bene', 'tutto ok', 'tutto perfetto', 'va tutto bene',
+    'questo numero', 'questo telefono', 'stesso numero', 'stesso telefono',
+    'conferma', 'confermare', 'accettare', 'procedere'
     // Francés
     'oui', 'correct', 'confirmer', 'parfait', 'bien', 'd\'accord',
     'exactement', 'c\'est correct', 'confirmé', 'accepter',
@@ -1247,6 +1261,10 @@ function handleConfirmationResponse(text) {
     'nein', 'falsch', 'fehler', 'ändern', 'korrigieren', 'nicht richtig',
     // Italiano
     'no', 'sbagliato', 'errore', 'cambiare', 'correggere', 'non è giusto',
+    'sbagliato', 'errato', 'non corretto', 'non va bene', 'non mi piace',
+    'cambiare', 'modificare', 'correggere', 'altro', 'diverso', 'nuovo',
+    'non accetto', 'non confermo', 'non va', 'non è corretto',
+    'altro numero', 'numero diverso', 'numero nuovo', 'telefono diverso'
     // Francés
     'non', 'incorrect', 'faux', 'erreur', 'changer', 'corriger', 'pas correct',
     // Portugués
