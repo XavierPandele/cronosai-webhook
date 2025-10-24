@@ -1556,28 +1556,141 @@ function handleUnclearResponse(text, field, language = 'es') {
 
 function isReservationRequest(text) {
   const reservationWords = [
-    // Español
-    'reservar', 'reserva', 'mesa', 'quiero', 'necesito', 
-    'me gustaría', 'quisiera', 'deseo', 'quería',
-    'hacer una reserva', 'reservar mesa', 'si', 'sí', 'vale',
-    // Inglés
-    'book', 'booking', 'table', 'want', 'need', 'would like',
-    'book a table', 'make a reservation', 'table reservation',
-    'yes', 'okay', 'ok', 'sure',
-    // Alemán
-    'reservieren', 'reservierung', 'tisch', 'möchte', 'brauche',
-    'tisch reservieren', 'tisch buchen', 'ja', 'gut',
-    // Italiano
-    'prenotazione', 'prenotare', 'tavolo', 'vorrei', 'ho bisogno',
-    'prenotare tavolo', 'sì', 'va bene',
-    // Francés
-    'réservation', 'réserver', 'table', 'je voudrais', 'j\'ai besoin',
-    'réserver table', 'oui', 'd\'accord',
-    // Portugués
-    'reserva', 'reservar', 'mesa', 'quero', 'preciso',
-    'fazer reserva', 'sim', 'bom'
+    // ESPAÑOL - Expresiones completas y naturales
+    'reservar', 'reserva', 'mesa', 'mesas', 'comer', 'cenar', 'almorzar',
+    'quiero', 'necesito', 'me gustaría', 'quisiera', 'deseo', 'quería',
+    'hacer una reserva', 'reservar mesa', 'reservar una mesa', 'reservar mesa para',
+    'hacer reserva', 'necesito mesa', 'quiero mesa', 'busco mesa',
+    'tengo reserva', 'tengo una reserva', 'mi reserva', 'la reserva',
+    'para comer', 'para cenar', 'para almorzar', 'para desayunar',
+    'restaurante', 'cenar en', 'comer en', 'vamos a comer',
+    'si', 'sí', 'vale', 'bueno', 'perfecto', 'claro', 'por supuesto',
+    'adelante', 'continúo', 'procedo', 'acepto', 'confirmo',
+    
+    // INGLÉS - Expresiones completas y naturales
+    'book', 'booking', 'table', 'tables', 'eat', 'dine', 'lunch', 'dinner',
+    'want', 'need', 'would like', 'looking for', 'seeking', 'require',
+    'book a table', 'make a reservation', 'table reservation', 'reserve a table',
+    'book table', 'reserve table', 'get a table', 'find a table',
+    'have a reservation', 'my reservation', 'the reservation',
+    'for dinner', 'for lunch', 'for breakfast', 'to eat', 'to dine',
+    'restaurant', 'dining', 'eating out', 'going out to eat',
+    'yes', 'okay', 'ok', 'sure', 'good', 'perfect', 'great', 'fine',
+    'continue', 'proceed', 'accept', 'confirm', 'agreed',
+    
+    // ALEMÁN - Expresiones completas y naturales
+    'reservieren', 'reservierung', 'tisch', 'tische', 'essen', 'dinner', 'mittagessen',
+    'möchte', 'brauche', 'würde gerne', 'suche', 'benötige', 'verlange',
+    'tisch reservieren', 'reservierung machen', 'tisch buchen', 'tisch reservieren für',
+    'tisch buchen', 'tisch bekommen', 'tisch finden', 'tisch suchen',
+    'habe reservierung', 'meine reservierung', 'die reservierung',
+    'zum essen', 'zum abendessen', 'zum mittagessen', 'zum frühstück',
+    'restaurant', 'essen gehen', 'ausgehen zum essen',
+    'ja', 'gut', 'perfekt', 'okay', 'klar', 'natürlich', 'gerne',
+    'fortfahren', 'fortsetzen', 'akzeptieren', 'bestätigen', 'einverstanden',
+    
+    // ITALIANO - Expresiones completas y naturales
+    'prenotazione', 'prenotare', 'tavolo', 'tavoli', 'mangiare', 'cenare', 'pranzo',
+    'vorrei', 'ho bisogno', 'cerco', 'necessito', 'desidero', 'voglio',
+    'prenotare tavolo', 'fare prenotazione', 'prenotazione tavolo', 'prenotare un tavolo',
+    'prenotare tavolo', 'ottenere tavolo', 'trovare tavolo', 'cercare tavolo',
+    'ho prenotazione', 'la mia prenotazione', 'la prenotazione',
+    'per mangiare', 'per cenare', 'per pranzo', 'per colazione',
+    'ristorante', 'andare a mangiare', 'uscire a mangiare',
+    'sì', 'va bene', 'perfetto', 'okay', 'chiaro', 'naturalmente', 'volentieri',
+    'continuare', 'procedere', 'accettare', 'confermare', 'd\'accordo',
+    
+    // FRANCÉS - Expresiones completas y naturales
+    'réservation', 'réserver', 'table', 'tables', 'manger', 'dîner', 'déjeuner',
+    'je voudrais', 'j\'ai besoin', 'je cherche', 'je nécessite', 'je désire', 'je veux',
+    'réserver table', 'faire réservation', 'réservation table', 'réserver une table',
+    'réserver table', 'obtenir table', 'trouver table', 'chercher table',
+    'j\'ai réservation', 'ma réservation', 'la réservation',
+    'pour manger', 'pour dîner', 'pour déjeuner', 'pour petit-déjeuner',
+    'restaurant', 'sortir manger', 'aller manger',
+    'oui', 'd\'accord', 'parfait', 'okay', 'clair', 'naturellement', 'volontiers',
+    'continuer', 'procéder', 'accepter', 'confirmer', 'd\'accord',
+    
+    // PORTUGUÉS - Expresiones completas y naturales
+    'reserva', 'reservar', 'mesa', 'mesas', 'comer', 'jantar', 'almoçar',
+    'quero', 'preciso', 'gostaria', 'busco', 'necessito', 'desejo', 'quero',
+    'fazer reserva', 'reservar mesa', 'reserva mesa', 'reservar uma mesa',
+    'reservar mesa', 'conseguir mesa', 'encontrar mesa', 'procurar mesa',
+    'tenho reserva', 'minha reserva', 'a reserva',
+    'para comer', 'para jantar', 'para almoçar', 'para café da manhã',
+    'restaurante', 'sair para comer', 'ir comer',
+    'sim', 'bom', 'perfeito', 'okay', 'claro', 'naturalmente', 'com prazer',
+    'continuar', 'proceder', 'aceitar', 'confirmar', 'concordo',
+    
+    // EXPRESIONES COMUNES MULTILINGÜES
+    'this evening', 'tonight', 'this afternoon', 'tomorrow', 'next week',
+    'esta noche', 'esta tarde', 'mañana', 'la próxima semana',
+    'heute abend', 'heute nacht', 'morgen', 'nächste woche',
+    'stasera', 'domani', 'la prossima settimana',
+    'ce soir', 'demain', 'la semaine prochaine',
+    'esta noite', 'amanhã', 'próxima semana',
+    
+    // NÚMEROS Y CANTIDADES
+    'for two', 'for four', 'for six', 'for eight', 'for ten',
+    'para dos', 'para cuatro', 'para seis', 'para ocho', 'para diez',
+    'für zwei', 'für vier', 'für sechs', 'für acht', 'für zehn',
+    'per due', 'per quattro', 'per sei', 'per otto', 'per dieci',
+    'pour deux', 'pour quatre', 'pour six', 'pour huit', 'pour dix',
+    'para dois', 'para quatro', 'para seis', 'para oito', 'para dez'
   ];
-  return reservationWords.some(word => text.toLowerCase().includes(word));
+  
+  const lowerText = text.toLowerCase();
+  
+  // Buscar coincidencias exactas de palabras
+  const hasReservationWords = reservationWords.some(word => lowerText.includes(word));
+  
+  // Buscar patrones de frases comunes
+  const commonPatterns = [
+    // Patrones en español
+    /quiero\s+(?:hacer\s+)?(?:una\s+)?reserva/i,
+    /necesito\s+(?:hacer\s+)?(?:una\s+)?reserva/i,
+    /me\s+gustaría\s+(?:hacer\s+)?(?:una\s+)?reserva/i,
+    /quiero\s+(?:reservar\s+)?(?:una\s+)?mesa/i,
+    /necesito\s+(?:reservar\s+)?(?:una\s+)?mesa/i,
+    /para\s+\d+\s+(?:personas?|gente|comensales?)/i,
+    
+    // Patrones en inglés
+    /i\s+want\s+to\s+(?:book|make\s+a\s+reservation)/i,
+    /i\s+need\s+to\s+(?:book|make\s+a\s+reservation)/i,
+    /i\s+would\s+like\s+to\s+(?:book|make\s+a\s+reservation)/i,
+    /i\s+want\s+(?:to\s+)?book\s+a\s+table/i,
+    /i\s+need\s+(?:to\s+)?book\s+a\s+table/i,
+    /for\s+\d+\s+(?:people|persons?)/i,
+    
+    // Patrones en alemán
+    /ich\s+möchte\s+(?:eine\s+)?reservierung/i,
+    /ich\s+brauche\s+(?:eine\s+)?reservierung/i,
+    /ich\s+würde\s+gerne\s+(?:eine\s+)?reservierung/i,
+    /ich\s+möchte\s+(?:einen\s+)?tisch\s+reservieren/i,
+    /für\s+\d+\s+(?:personen?|leute)/i,
+    
+    // Patrones en italiano
+    /vorrei\s+(?:fare\s+)?(?:una\s+)?prenotazione/i,
+    /ho\s+bisogno\s+di\s+(?:una\s+)?prenotazione/i,
+    /vorrei\s+(?:prenotare\s+)?(?:un\s+)?tavolo/i,
+    /per\s+\d+\s+(?:persone?|gente)/i,
+    
+    // Patrones en francés
+    /je\s+voudrais\s+(?:faire\s+)?(?:une\s+)?réservation/i,
+    /j\'ai\s+besoin\s+d\'(?:une\s+)?réservation/i,
+    /je\s+voudrais\s+(?:réserver\s+)?(?:une\s+)?table/i,
+    /pour\s+\d+\s+(?:personnes?|gens)/i,
+    
+    // Patrones en portugués
+    /quero\s+(?:fazer\s+)?(?:uma\s+)?reserva/i,
+    /preciso\s+de\s+(?:uma\s+)?reserva/i,
+    /quero\s+(?:reservar\s+)?(?:uma\s+)?mesa/i,
+    /para\s+\d+\s+(?:pessoas?|gente)/i
+  ];
+  
+  const hasPatterns = commonPatterns.some(pattern => pattern.test(lowerText));
+  
+  return hasReservationWords || hasPatterns;
 }
 
 function extractPeopleCount(text) {
