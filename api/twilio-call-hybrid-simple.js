@@ -30,46 +30,46 @@ const conversationStates = new Map();
 const RESPONSES = {
   greeting: {
     es: [
-      '¡Hola! Bienvenido a nuestro restaurante. ¿Para cuántas personas necesitan mesa?',
-      '¡Buenos días! ¿Cuántas personas serán para la reserva?',
-      '¡Hola! ¿Para cuántos comensales?',
-      '¡Saludos! ¿Cuántas personas en su grupo?',
-      '¡Hola! ¿Para cuántas personas es la reserva?'
+      '¡Hola! Bienvenido a nuestro restaurante. ¿En qué le puedo ayudar?',
+      '¡Buenos días! ¿Cómo puedo asistirle hoy?',
+      '¡Hola! ¿En qué puedo ayudarle?',
+      '¡Saludos! ¿En qué le puedo servir?',
+      '¡Hola! ¿Qué puedo hacer por usted?'
     ],
     en: [
-      'Hello! Welcome to our restaurant. How many people will be dining?',
-      'Good day! How many guests are we expecting?',
-      'Hi there! How many people in your party?',
-      'Hello! How many diners will we have?',
-      'Good morning! How many people for the reservation?'
+      'Hello! Welcome to our restaurant. How can I help you?',
+      'Good day! How can I assist you today?',
+      'Hi there! How can I help you?',
+      'Hello! What can I do for you?',
+      'Good morning! How can I be of service?'
     ],
     de: [
-      'Hallo! Willkommen in unserem Restaurant. Für wie viele Personen?',
-      'Guten Tag! Wie viele Gäste erwarten wir?',
-      'Hallo! Wie viele Personen in Ihrer Gruppe?',
-      'Guten Morgen! Für wie viele Personen reservieren Sie?',
-      'Hallo! Wie viele Gäste werden es sein?'
+      'Hallo! Willkommen in unserem Restaurant. Womit kann ich Ihnen helfen?',
+      'Guten Tag! Wie kann ich Ihnen heute helfen?',
+      'Hallo! Wie kann ich Ihnen behilflich sein?',
+      'Guten Morgen! Womit kann ich Ihnen dienen?',
+      'Hallo! Was kann ich für Sie tun?'
     ],
     it: [
-      'Ciao! Benvenuto nel nostro ristorante. Per quante persone?',
-      'Buongiorno! Quanti ospiti aspettiamo?',
-      'Ciao! Quante persone nel vostro gruppo?',
-      'Salve! Per quanti ospiti prenotate?',
-      'Buongiorno! Quanti ospiti saranno?'
+      'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarla?',
+      'Buongiorno! Come posso assisterla oggi?',
+      'Ciao! Come posso aiutarla?',
+      'Salve! Cosa posso fare per lei?',
+      'Buongiorno! Come posso esserle utile?'
     ],
     fr: [
-      'Bonjour! Bienvenue dans notre restaurant. Pour combien de personnes?',
-      'Bonjour! Combien d\'invités attendons-nous?',
-      'Salut! Combien de personnes dans votre groupe?',
-      'Bonjour! Pour combien d\'invités réservez-vous?',
-      'Bonjour! Combien d\'invités seront là?'
+      'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider?',
+      'Bonjour! Comment puis-je vous assister aujourd\'hui?',
+      'Salut! Comment puis-je vous aider?',
+      'Bonjour! Que puis-je faire pour vous?',
+      'Bonjour! Comment puis-je vous être utile?'
     ],
     pt: [
-      'Olá! Bem-vindo ao nosso restaurante. Para quantas pessoas?',
-      'Bom dia! Quantos convidados esperamos?',
-      'Oi! Quantas pessoas no seu grupo?',
-      'Olá! Para quantos convidados está reservando?',
-      'Bom dia! Quantos convidados serão?'
+      'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo?',
+      'Bom dia! Como posso ajudá-lo hoje?',
+      'Oi! Como posso ajudá-lo?',
+      'Olá! O que posso fazer por você?',
+      'Bom dia! Como posso ser útil?'
     ]
   },
   ask_people: {
@@ -205,6 +205,23 @@ function normalizeLanguage(raw) {
   return alias[s] || alias[two] || (['es', 'en', 'de', 'it', 'fr', 'pt'].includes(two) ? two : 'es');
 }
 
+// Detectar intención de reserva
+function isReservationRequest(input, language) {
+  const lowerInput = input.toLowerCase();
+  
+  const reservationKeywords = {
+    es: ['reserva', 'reservar', 'mesa', 'comer', 'cenar', 'almorzar', 'quiero', 'necesito', 'hacer una reserva', 'reservar mesa'],
+    en: ['reservation', 'reserve', 'table', 'eat', 'dinner', 'lunch', 'want', 'need', 'make a reservation', 'book a table'],
+    de: ['reservierung', 'reservieren', 'tisch', 'essen', 'abendessen', 'mittagessen', 'möchte', 'brauche', 'reservierung machen'],
+    it: ['prenotazione', 'prenotare', 'tavolo', 'mangiare', 'cena', 'pranzo', 'voglio', 'ho bisogno', 'fare una prenotazione'],
+    fr: ['réservation', 'réserver', 'table', 'manger', 'dîner', 'déjeuner', 'veux', 'besoin', 'faire une réservation'],
+    pt: ['reserva', 'reservar', 'mesa', 'comer', 'jantar', 'almoçar', 'quero', 'preciso', 'fazer uma reserva']
+  };
+  
+  const keywords = reservationKeywords[language] || reservationKeywords.es;
+  return keywords.some(keyword => lowerInput.includes(keyword));
+}
+
 // Extraer datos (del código original)
 function extractData(userInput, currentStep, language) {
   const data = {};
@@ -261,7 +278,7 @@ function extractPeople(input, language) {
   return null;
 }
 
-// Extraer fecha (del código original)
+// Extraer fecha - detectar solo fechas o con contexto
 function extractDate(input, language) {
   const today = new Date();
   const tomorrow = new Date(today);
@@ -279,7 +296,30 @@ function extractDate(input, language) {
   const dates = relativeDates[language] || relativeDates.es;
   for (const [phrase, date] of Object.entries(dates)) {
     if (input.toLowerCase().includes(phrase)) {
+      console.log(`[EXTRACCION] Fecha detectada: ${phrase} = ${date.toISOString().split('T')[0]}`);
       return date.toISOString().split('T')[0];
+    }
+  }
+  
+  // Buscar fechas específicas (DD/MM/YYYY, YYYY-MM-DD)
+  const datePatterns = [
+    /(\d{1,2})\/(\d{1,2})\/(\d{4})/g,
+    /(\d{4})-(\d{1,2})-(\d{1,2})/g
+  ];
+  
+  for (const pattern of datePatterns) {
+    const match = input.match(pattern);
+    if (match) {
+      console.log(`[EXTRACCION] Fecha específica detectada: ${match[0]}`);
+      // Normalizar a YYYY-MM-DD
+      if (pattern.source.includes('\\d{1,2}\\/\\d{1,2}\\/\\d{4}')) {
+        // DD/MM/YYYY -> YYYY-MM-DD
+        const [_, day, month, year] = match;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      } else {
+        // YYYY-MM-DD ya está en formato correcto
+        return match[0];
+      }
     }
   }
   
@@ -317,8 +357,9 @@ function extractTime(input, language) {
   return null;
 }
 
-// Extraer nombre (del código original)
+// Extraer nombre - detectar solo nombres o con frases completas
 function extractName(input, language) {
+  // Primero intentar patrones completos
   const namePatterns = {
     es: [/me llamo (\w+)/i, /mi nombre es (\w+)/i, /soy (\w+)/i],
     en: [/my name is (\w+)/i, /i'm (\w+)/i, /i am (\w+)/i],
@@ -332,6 +373,16 @@ function extractName(input, language) {
   for (const pattern of patterns) {
     const match = input.match(pattern);
     if (match) return match[1];
+  }
+  
+  // Si no encuentra patrones completos, buscar solo nombres (palabras que empiecen con mayúscula)
+  const words = input.split(/\s+/);
+  for (const word of words) {
+    // Verificar si es un nombre (empieza con mayúscula, solo letras, al menos 2 caracteres)
+    if (word.length >= 2 && /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+$/.test(word)) {
+      console.log(`[EXTRACCION] Nombre detectado: ${word}`);
+      return word;
+    }
   }
   
   return null;
@@ -473,10 +524,16 @@ module.exports = async function handler(req, res) {
   
   switch (state.step) {
     case 'greeting':
-      if (state.data.people) {
-        nextStep = 'ask_date';
+      // Detectar si quiere hacer una reserva
+      if (isReservationRequest(userInput, state.language) || state.data.people) {
+        if (state.data.people) {
+          nextStep = 'ask_date';
+        } else {
+          nextStep = 'ask_people';
+        }
       } else {
-        nextStep = 'ask_people';
+        // No ha expresado intención de reserva, mantener en greeting
+        nextStep = 'greeting';
       }
       break;
       
