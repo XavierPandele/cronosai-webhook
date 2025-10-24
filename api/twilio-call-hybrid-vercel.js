@@ -79,6 +79,21 @@ Idioma:`;
         extracted_data: {},
         sentiment: 'positive',
         urgency: 'normal',
+        next_step: 'waiting_for_request',
+        response_type: 'question',
+        needs_clarification: false,
+        clarification_question: null
+      };
+    }
+    
+    // Detectar solicitud de reserva
+    if (this.isReservationRequest(lowerInput, language)) {
+      return {
+        intent: 'reservation_request',
+        confidence: 0.9,
+        extracted_data: {},
+        sentiment: 'positive',
+        urgency: 'normal',
         next_step: 'ask_people',
         response_type: 'question',
         needs_clarification: false,
@@ -174,6 +189,20 @@ Idioma:`;
     };
     
     return greetings[language]?.some(greeting => input.includes(greeting)) || false;
+  }
+  
+  // Detectar solicitudes de reserva por idioma
+  static isReservationRequest(input, language) {
+    const reservationRequests = {
+      es: ['reserva', 'reservar', 'mesa', 'comer', 'cenar', 'almorzar', 'quiero', 'necesito', 'hacer una reserva', 'reservar mesa'],
+      en: ['reservation', 'reserve', 'table', 'eat', 'dinner', 'lunch', 'want', 'need', 'make a reservation', 'book a table'],
+      de: ['reservierung', 'reservieren', 'tisch', 'essen', 'abendessen', 'mittagessen', 'möchte', 'brauche', 'reservierung machen'],
+      it: ['prenotazione', 'prenotare', 'tavolo', 'mangiare', 'cena', 'pranzo', 'voglio', 'ho bisogno', 'fare una prenotazione'],
+      fr: ['réservation', 'réserver', 'table', 'manger', 'dîner', 'déjeuner', 'veux', 'besoin', 'faire une réservation'],
+      pt: ['reserva', 'reservar', 'mesa', 'comer', 'jantar', 'almoçar', 'quero', 'preciso', 'fazer uma reserva']
+    };
+    
+    return reservationRequests[language]?.some(request => input.includes(request)) || false;
   }
   
   // Detectar despedidas por idioma
@@ -395,12 +424,20 @@ Idioma:`;
   static getResponse(step, language, intentAnalysis = null) {
     const responses = {
       greeting: {
-        es: '¡Hola! Bienvenido al restaurante. ¿Para cuántas personas será la reserva?',
-        en: 'Hello! Welcome to the restaurant. How many people will the reservation be for?',
-        de: 'Hallo! Willkommen im Restaurant. Für wie viele Personen soll die Reservierung sein?',
-        it: 'Ciao! Benvenuto al ristorante. Per quante persone sarà la prenotazione?',
-        fr: 'Bonjour! Bienvenue au restaurant. Pour combien de personnes sera la réservation?',
-        pt: 'Olá! Bem-vindo ao restaurante. Para quantas pessoas será a reserva?'
+        es: '¡Hola! Bienvenido a nuestro restaurante. ¿En qué le puedo ayudar?',
+        en: 'Hello! Welcome to our restaurant. How can I help you?',
+        de: 'Hallo! Willkommen in unserem Restaurant. Womit kann ich Ihnen helfen?',
+        it: 'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarla?',
+        fr: 'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider?',
+        pt: 'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo?'
+      },
+      waiting_for_request: {
+        es: '¿En qué le puedo ayudar?',
+        en: 'How can I help you?',
+        de: 'Womit kann ich Ihnen helfen?',
+        it: 'Come posso aiutarla?',
+        fr: 'Comment puis-je vous aider?',
+        pt: 'Como posso ajudá-lo?'
       },
       ask_people: {
         es: '¿Para cuántas personas será la reserva?',
@@ -492,12 +529,20 @@ Idioma:`;
   static getClarificationResponse(step, language) {
     const responses = {
       greeting: {
-        es: '¿Para cuántas personas será la reserva?',
-        en: 'How many people will the reservation be for?',
-        de: 'Für wie viele Personen soll die Reservierung sein?',
-        it: 'Per quante persone sarà la prenotazione?',
-        fr: 'Pour combien de personnes sera la réservation?',
-        pt: 'Para quantas pessoas será a reserva?'
+        es: '¿En qué le puedo ayudar?',
+        en: 'How can I help you?',
+        de: 'Womit kann ich Ihnen helfen?',
+        it: 'Come posso aiutarla?',
+        fr: 'Comment puis-je vous aider?',
+        pt: 'Como posso ajudá-lo?'
+      },
+      waiting_for_request: {
+        es: '¿En qué le puedo ayudar?',
+        en: 'How can I help you?',
+        de: 'Womit kann ich Ihnen helfen?',
+        it: 'Come posso aiutarla?',
+        fr: 'Comment puis-je vous aider?',
+        pt: 'Como posso ajudá-lo?'
       },
       ask_people: {
         es: 'Por favor, dígame cuántas personas serán.',
@@ -755,12 +800,22 @@ module.exports = async function handler(req, res) {
       // Avanzar según el flujo
       switch (state.step) {
         case 'greeting':
-          if (intentAnalysis.extracted_data.people) {
-            nextStep = 'ask_date';
-            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Datos de personas extraídos)`);
-          } else {
+          if (intentAnalysis.intent === 'reservation_request' || intentAnalysis.extracted_data.people) {
             nextStep = 'ask_people';
-            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Solicitando número de personas)`);
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Solicitud de reserva detectada)`);
+          } else {
+            nextStep = 'waiting_for_request';
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Esperando solicitud)`);
+          }
+          break;
+          
+        case 'waiting_for_request':
+          if (intentAnalysis.intent === 'reservation_request' || intentAnalysis.extracted_data.people) {
+            nextStep = 'ask_people';
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Solicitud de reserva detectada)`);
+          } else {
+            nextStep = 'waiting_for_request';
+            console.log(`[STEP] ${From}: ${state.step} → ${nextStep} (Esperando solicitud)`);
           }
           break;
           

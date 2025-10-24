@@ -396,12 +396,12 @@ Idioma:`;
   static getResponse(step, language, intentAnalysis = null) {
     const responses = {
       greeting: {
-        es: '¡Hola! Bienvenido al restaurante. ¿Para cuántas personas será la reserva?',
-        en: 'Hello! Welcome to the restaurant. How many people will the reservation be for?',
-        de: 'Hallo! Willkommen im Restaurant. Für wie viele Personen soll die Reservierung sein?',
-        it: 'Ciao! Benvenuto al ristorante. Per quante persone sarà la prenotazione?',
-        fr: 'Bonjour! Bienvenue au restaurant. Pour combien de personnes sera la réservation?',
-        pt: 'Olá! Bem-vindo ao restaurante. Para quantas pessoas será a reserva?'
+        es: '¡Hola! Bienvenido a nuestro restaurante. ¿En qué le puedo ayudar?',
+        en: 'Hello! Welcome to our restaurant. How can I help you?',
+        de: 'Hallo! Willkommen in unserem Restaurant. Womit kann ich Ihnen helfen?',
+        it: 'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarla?',
+        fr: 'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider?',
+        pt: 'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo?'
       },
       ask_people: {
         es: '¿Para cuántas personas será la reserva?',
