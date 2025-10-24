@@ -106,7 +106,7 @@ async function processConversationStep(state, userInput) {
          };
        }
        
-       // Saludo normal
+       // Si es español o no hay intención clara de reserva, hacer saludo normal
        state.step = 'ask_intention';
        const greetingMessages = getMultilingualMessages('greeting', state.language);
        return {
@@ -525,35 +525,50 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Excellent! I\'m happy to help you with the reservation. How many people will it be?',
         'Great! I\'m happy to help. For how many diners?',
         'Perfect! For how many people do you need the table?',
-        'Great! How many people are coming?'
+        'Great! How many people are coming?',
+        'Hello! I\'d be happy to help you make a reservation. For how many people?',
+        'Welcome! I can help you with your table reservation. How many people?',
+        'Of course! I\'ll help you book a table. For how many people?'
       ],
       de: [
         'Perfekt! Ich helfe Ihnen gerne bei Ihrer Reservierung. Für wie viele Personen?',
         'Ausgezeichnet! Ich helfe Ihnen gerne bei der Reservierung. Wie viele Personen werden es sein?',
         'Sehr gut! Ich helfe Ihnen gerne. Für wie viele Gäste?',
         'Perfekt! Für wie viele Personen benötigen Sie den Tisch?',
-        'Großartig! Wie viele Personen kommen?'
+        'Großartig! Wie viele Personen kommen?',
+        'Hallo! Gerne helfe ich Ihnen bei der Tischreservierung. Für wie viele Personen?',
+        'Willkommen! Ich kann Ihnen bei der Tischreservierung helfen. Für wie viele Personen?',
+        'Natürlich! Ich helfe Ihnen gerne beim Tischreservieren. Für wie viele Personen?'
       ],
       it: [
         'Perfetto! Sono felice di aiutarti con la tua prenotazione. Per quante persone?',
         'Eccellente! Sono felice di aiutarti con la prenotazione. Quante persone saranno?',
         'Molto bene! Sono felice di aiutarti. Per quanti commensali?',
         'Perfetto! Per quante persone hai bisogno del tavolo?',
-        'Fantastico! Quante persone vengono?'
+        'Fantastico! Quante persone vengono?',
+        'Ciao! Sono felice di aiutarti con la prenotazione del tavolo. Per quante persone?',
+        'Benvenuto! Posso aiutarti con la prenotazione del tavolo. Per quante persone?',
+        'Naturalmente! Ti aiuto volentieri a prenotare un tavolo. Per quante persone?'
       ],
       fr: [
         'Parfait! Je suis ravi de vous aider avec votre réservation. Pour combien de personnes?',
         'Excellent! Je suis heureux de vous aider avec la réservation. Combien de personnes seront-elles?',
         'Très bien! Je suis heureux de vous aider. Pour combien de convives?',
         'Parfait! Pour combien de personnes avez-vous besoin de la table?',
-        'Génial! Combien de personnes viennent?'
+        'Génial! Combien de personnes viennent?',
+        'Bonjour! Je serais ravi de vous aider avec votre réservation de table. Pour combien de personnes?',
+        'Bienvenue! Je peux vous aider avec votre réservation de table. Pour combien de personnes?',
+        'Bien sûr! Je vous aide volontiers à réserver une table. Pour combien de personnes?'
       ],
       pt: [
         'Perfeito! Estou encantado em ajudá-lo com sua reserva. Para quantas pessoas?',
         'Excelente! Estou feliz em ajudá-lo com a reserva. Quantas pessoas serão?',
         'Muito bem! Estou feliz em ajudá-lo. Para quantos comensais?',
         'Perfeito! Para quantas pessoas você precisa da mesa?',
-        'Ótimo! Quantas pessoas estão vindo?'
+        'Ótimo! Quantas pessoas estão vindo?',
+        'Olá! Fico feliz em ajudá-lo com sua reserva de mesa. Para quantas pessoas?',
+        'Bem-vindo! Posso ajudá-lo com sua reserva de mesa. Para quantas pessoas?',
+        'Claro! Ajudarei você a reservar uma mesa. Para quantas pessoas?'
       ]
     },
     clarify: {
@@ -1541,11 +1556,28 @@ function handleUnclearResponse(text, field, language = 'es') {
 
 function isReservationRequest(text) {
   const reservationWords = [
+    // Español
     'reservar', 'reserva', 'mesa', 'quiero', 'necesito', 
     'me gustaría', 'quisiera', 'deseo', 'quería',
-    'hacer una reserva', 'reservar mesa', 'si', 'sí', 'vale'
+    'hacer una reserva', 'reservar mesa', 'si', 'sí', 'vale',
+    // Inglés
+    'book', 'booking', 'table', 'want', 'need', 'would like',
+    'book a table', 'make a reservation', 'table reservation',
+    'yes', 'okay', 'ok', 'sure',
+    // Alemán
+    'reservieren', 'reservierung', 'tisch', 'möchte', 'brauche',
+    'tisch reservieren', 'tisch buchen', 'ja', 'gut',
+    // Italiano
+    'prenotazione', 'prenotare', 'tavolo', 'vorrei', 'ho bisogno',
+    'prenotare tavolo', 'sì', 'va bene',
+    // Francés
+    'réservation', 'réserver', 'table', 'je voudrais', 'j\'ai besoin',
+    'réserver table', 'oui', 'd\'accord',
+    // Portugués
+    'reserva', 'reservar', 'mesa', 'quero', 'preciso',
+    'fazer reserva', 'sim', 'bom'
   ];
-  return reservationWords.some(word => text.includes(word));
+  return reservationWords.some(word => text.toLowerCase().includes(word));
 }
 
 function extractPeopleCount(text) {
