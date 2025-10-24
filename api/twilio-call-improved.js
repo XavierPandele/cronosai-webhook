@@ -211,8 +211,40 @@ async function processConversationStep(state, userInput) {
        }
 
     case 'ask_phone':
-      // Verificar si quiere usar el número actual o dar otro
-      if (text.includes('este') || text.includes('mismo') || text.includes('si') || text.includes('sí') || text.includes('vale') || text.includes('ok')) {
+      // Verificar si quiere usar el número actual o dar otro - MULTILINGÜE
+      const affirmativeWords = [
+        // Español
+        'este', 'mismo', 'si', 'sí', 'vale', 'ok', 'bueno', 'perfecto',
+        // Inglés
+        'this', 'same', 'yes', 'okay', 'ok', 'good', 'perfect', 'sure',
+        'this number', 'same number', 'use this', 'keep this',
+        // Alemán
+        'dieser', 'gleiche', 'ja', 'gut', 'perfekt', 'diese nummer',
+        // Italiano
+        'questo', 'stesso', 'sì', 'va bene', 'perfetto', 'questo numero',
+        // Francés
+        'ce', 'même', 'oui', 'bon', 'parfait', 'ce numéro',
+        // Portugués
+        'este', 'mesmo', 'sim', 'bom', 'perfeito', 'este número'
+      ];
+      
+      const negativeWords = [
+        // Español
+        'otro', 'diferente', 'no', 'cambiar', 'nuevo',
+        // Inglés
+        'other', 'different', 'no', 'change', 'new', 'another',
+        'different number', 'other number', 'new number',
+        // Alemán
+        'anderer', 'verschieden', 'nein', 'ändern', 'neue',
+        // Italiano
+        'altro', 'diverso', 'no', 'cambiare', 'nuovo',
+        // Francés
+        'autre', 'différent', 'non', 'changer', 'nouveau',
+        // Portugués
+        'outro', 'diferente', 'não', 'mudar', 'novo'
+      ];
+      
+      if (affirmativeWords.some(word => text.toLowerCase().includes(word))) {
         // Usa el número de la llamada
         state.data.TelefonReserva = state.phone;
         state.step = 'confirm';
@@ -220,7 +252,7 @@ async function processConversationStep(state, userInput) {
           message: getConfirmationMessage(state.data, state.language),
           gather: true
         };
-      } else if (text.includes('otro') || text.includes('diferente') || text.includes('no')) {
+      } else if (negativeWords.some(word => text.toLowerCase().includes(word))) {
         // Preguntar por otro número
         state.step = 'ask_phone_number';
         const phoneMessages = getMultilingualMessages('ask_phone', state.language);
@@ -1040,23 +1072,64 @@ function detectLanguage(text) {
 }
 
 function handleConfirmationResponse(text) {
-  // Palabras de confirmación positiva
+  // Palabras de confirmación positiva - MULTILINGÜE
   const positiveWords = [
+    // Español
     'si', 'sí', 'correcto', 'confirmo', 'perfecto', 'bien', 'vale', 'ok', 'okay',
     'exacto', 'eso es', 'así es', 'está bien', 'me parece bien', 'de acuerdo',
-    'confirmado', 'acepto', 'procedo', 'adelante', 'continúo'
+    'confirmado', 'acepto', 'procedo', 'adelante', 'continúo',
+    // Inglés
+    'yes', 'correct', 'confirm', 'perfect', 'good', 'okay', 'ok', 'sure',
+    'exactly', 'that\'s right', 'that\'s correct', 'sounds good', 'agree',
+    'confirmed', 'accept', 'proceed', 'continue', 'go ahead',
+    // Alemán
+    'ja', 'richtig', 'bestätigen', 'perfekt', 'gut', 'okay', 'genau',
+    'das stimmt', 'einverstanden', 'bestätigt', 'akzeptieren',
+    // Italiano
+    'sì', 'corretto', 'confermo', 'perfetto', 'bene', 'okay', 'esatto',
+    'va bene', 'd\'accordo', 'confermato', 'accetto',
+    // Francés
+    'oui', 'correct', 'confirmer', 'parfait', 'bien', 'd\'accord',
+    'exactement', 'c\'est correct', 'confirmé', 'accepter',
+    // Portugués
+    'sim', 'correto', 'confirmo', 'perfeito', 'bem', 'okay', 'exato',
+    'está bem', 'concordo', 'confirmado', 'aceito'
   ];
   
-  // Palabras de negación
+  // Palabras de negación - MULTILINGÜE
   const negativeWords = [
+    // Español
     'no', 'incorrecto', 'mal', 'error', 'cambiar', 'modificar', 'corregir',
-    'no es', 'no está bien', 'no me parece', 'discrepo', 'no acepto'
+    'no es', 'no está bien', 'no me parece', 'discrepo', 'no acepto',
+    // Inglés
+    'no', 'incorrect', 'wrong', 'error', 'change', 'modify', 'correct',
+    'not right', 'not correct', 'disagree', 'don\'t accept',
+    // Alemán
+    'nein', 'falsch', 'fehler', 'ändern', 'korrigieren', 'nicht richtig',
+    // Italiano
+    'no', 'sbagliato', 'errore', 'cambiare', 'correggere', 'non è giusto',
+    // Francés
+    'non', 'incorrect', 'faux', 'erreur', 'changer', 'corriger', 'pas correct',
+    // Portugués
+    'não', 'incorreto', 'errado', 'erro', 'mudar', 'corrigir', 'não está certo'
   ];
   
-  // Palabras para reiniciar
+  // Palabras para reiniciar - MULTILINGÜE
   const restartWords = [
+    // Español
     'empezar de nuevo', 'volver a empezar', 'reiniciar', 'otra vez', 'de nuevo',
-    'cambiar todo', 'empezamos otra vez', 'resetear'
+    'cambiar todo', 'empezamos otra vez', 'resetear',
+    // Inglés
+    'start over', 'start again', 'restart', 'again', 'new', 'change everything',
+    'begin again', 'reset',
+    // Alemán
+    'von vorne anfangen', 'neu beginnen', 'nochmal', 'alles ändern',
+    // Italiano
+    'ricominciare', 'iniziare di nuovo', 'ancora', 'cambiare tutto',
+    // Francés
+    'recommencer', 'nouveau', 'changer tout', 'encore',
+    // Portugués
+    'começar de novo', 'novamente', 'mudar tudo', 'reiniciar'
   ];
   
   const lowerText = text.toLowerCase();
@@ -1155,25 +1228,59 @@ function handleModificationRequest(state, modification) {
 }
 
 function handleIntentionResponse(text) {
-  // Palabras de reserva directa - EXPANDIDAS
+  // Palabras de reserva directa - EXPANDIDAS MULTILINGÜE
   const directReservationWords = [
+    // Español
     'reservar', 'reserva', 'mesa', 'quiero reservar', 'necesito reservar', 
     'me gustaría reservar', 'quisiera reservar', 'deseo reservar', 
-    'hacer una reserva', 'reservar mesa', 'quiero mesa', 'book', 'booking',
-    'table reservation', 'reservieren', 'prenotazione', 'réservation'
+    'hacer una reserva', 'reservar mesa', 'quiero mesa',
+    // Inglés
+    'book', 'booking', 'table reservation', 'reserve', 'reservation',
+    'book a table', 'make a reservation', 'table booking',
+    // Alemán
+    'reservieren', 'reservierung', 'tisch reservieren', 'tisch buchen',
+    // Italiano
+    'prenotazione', 'prenotare', 'tavolo', 'prenotare tavolo',
+    // Francés
+    'réservation', 'réserver', 'table', 'réserver table',
+    // Portugués
+    'reserva', 'reservar', 'mesa', 'fazer reserva'
   ];
   
-  // Palabras de intención general - EXPANDIDAS
+  // Palabras de intención general - EXPANDIDAS MULTILINGÜE
   const generalIntentionWords = [
+    // Español
     'quiero', 'necesito', 'me gustaría', 'quisiera', 'deseo', 'quería',
-    'si', 'sí', 'vale', 'bueno', 'perfecto', 'adelante', 'want', 'need',
-    'would like', 'möchte', 'brauche', 'vorrei', 'j\'ai besoin'
+    'si', 'sí', 'vale', 'bueno', 'perfecto', 'adelante',
+    // Inglés
+    'want', 'need', 'would like', 'yes', 'okay', 'ok', 'sure', 'good',
+    'please', 'i want', 'i need', 'i would like',
+    // Alemán
+    'möchte', 'brauche', 'ja', 'gut', 'okay', 'bitte',
+    // Italiano
+    'vorrei', 'ho bisogno', 'sì', 'va bene', 'perfetto',
+    // Francés
+    'j\'ai besoin', 'je voudrais', 'oui', 'd\'accord', 'parfait',
+    // Portugués
+    'quero', 'preciso', 'sim', 'bom', 'perfeito'
   ];
   
-  // Palabras de negación o no reserva
+  // Palabras de negación o no reserva - EXPANDIDAS MULTILINGÜE
   const negativeWords = [
+    // Español
     'no', 'nada', 'solo llamaba', 'información', 'pregunta', 'duda',
-    'cancelar', 'cancelación', 'no reserva'
+    'cancelar', 'cancelación', 'no reserva',
+    // Inglés
+    'no', 'nothing', 'just calling', 'information', 'question', 'doubt',
+    'cancel', 'cancellation', 'no reservation',
+    // Alemán
+    'nein', 'nichts', 'nur anrufen', 'information', 'frage',
+    // Italiano
+    'no', 'niente', 'solo chiamare', 'informazione', 'domanda',
+    // Francés
+    'non', 'rien', 'juste appeler', 'information', 'question',
+    // Portugués
+    'não', 'nada', 'só ligando', 'informação', 'pergunta'
   ];
   
   const lowerText = text.toLowerCase();
