@@ -15,9 +15,9 @@ if (process.env.GOOGLE_API_KEY) {
     model: "gemini-2.0-flash-exp",
     generationConfig: {
       temperature: 0.1, // Muy baja creatividad para detección precisa
-      topP: 0.5,
-      topK: 20,
-      maxOutputTokens: 10, // Solo necesitamos el código del idioma
+      topP: 0.3, // Más determinístico
+      topK: 10, // Menos opciones = más rápido
+      maxOutputTokens: 5, // Solo necesitamos el código del idioma
     }
   });
   console.log('✅ Gemini 2.0 Flash inicializado SOLO para detección de idioma');
@@ -39,13 +39,9 @@ class HybridSystem {
     }
     
     try {
-      const prompt = `Analiza el idioma del siguiente texto y responde SOLO con el código del idioma.
+      const prompt = `Idioma de: "${userInput}"
 
-TEXTO: "${userInput}"
-
-Responde únicamente con uno de estos códigos: es, en, de, it, fr, pt
-
-Idioma:`;
+Responde solo: es, en, de, it, fr, pt`;
 
       logger.logGeminiRequest(phoneNumber, prompt, 'language_detection_only');
       
@@ -745,10 +741,7 @@ function generateTwiML(message, language = 'es') {
   <Say voice="${config.voice}" language="${config.language}">
     ${message}
   </Say>
-  <Gather input="speech" language="${config.language}" timeout="10" speechTimeout="4" action="/api/twilio-call-hybrid" method="POST" numDigits="0" enhanced="true">
-    <Say voice="${config.voice}" language="${config.language}">
-      ${getWaitMessage(language)}
-    </Say>
+  <Gather input="speech" language="${config.language}" timeout="6" speechTimeout="2" action="/api/twilio-call-hybrid" method="POST" numDigits="0" enhanced="true">
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">
     ${getTimeoutMessage(language)}
