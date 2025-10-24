@@ -155,6 +155,50 @@ const RESPONSES = {
     it: 'Perfetto! La sua prenotazione è confermata. Buon appetito!',
     fr: 'Parfait! Votre réservation est confirmée. Bon appétit!',
     pt: 'Perfeito! Sua reserva está confirmada. Bom apetite!'
+  },
+  greeting_error: {
+    es: [
+      'Disculpe, no entendí bien. ¿Le gustaría hacer una reserva?',
+      'No capté bien su respuesta. ¿Quiere reservar una mesa?',
+      'Disculpe, ¿podría repetir? ¿Necesita hacer una reserva?',
+      'No entendí. ¿Le gustaría reservar una mesa?',
+      'Disculpe, ¿podría ser más específico? ¿Quiere hacer una reserva?'
+    ],
+    en: [
+      'Sorry, I didn\'t understand. Would you like to make a reservation?',
+      'I didn\'t catch that. Do you want to book a table?',
+      'Sorry, could you repeat? Do you need to make a reservation?',
+      'I didn\'t understand. Would you like to book a table?',
+      'Sorry, could you be more specific? Do you want to make a reservation?'
+    ],
+    de: [
+      'Entschuldigung, ich habe nicht verstanden. Möchten Sie eine Reservierung vornehmen?',
+      'Das habe ich nicht verstanden. Möchten Sie einen Tisch reservieren?',
+      'Entschuldigung, könnten Sie das wiederholen? Möchten Sie eine Reservierung?',
+      'Ich habe nicht verstanden. Möchten Sie einen Tisch reservieren?',
+      'Entschuldigung, könnten Sie spezifischer sein? Möchten Sie eine Reservierung?'
+    ],
+    it: [
+      'Scusi, non ho capito. Vorrebbe fare una prenotazione?',
+      'Non ho capito bene. Vuole prenotare un tavolo?',
+      'Scusi, potrebbe ripetere? Ha bisogno di fare una prenotazione?',
+      'Non ho capito. Vorrebbe prenotare un tavolo?',
+      'Scusi, potrebbe essere più specifico? Vuole fare una prenotazione?'
+    ],
+    fr: [
+      'Désolé, je n\'ai pas compris. Souhaitez-vous faire une réservation?',
+      'Je n\'ai pas saisi. Voulez-vous réserver une table?',
+      'Désolé, pourriez-vous répéter? Avez-vous besoin de faire une réservation?',
+      'Je n\'ai pas compris. Souhaitez-vous réserver une table?',
+      'Désolé, pourriez-vous être plus précis? Voulez-vous faire une réservation?'
+    ],
+    pt: [
+      'Desculpe, não entendi. Gostaria de fazer uma reserva?',
+      'Não entendi bem. Quer reservar uma mesa?',
+      'Desculpe, poderia repetir? Precisa fazer uma reserva?',
+      'Não entendi. Gostaria de reservar uma mesa?',
+      'Desculpe, poderia ser mais específico? Quer fazer uma reserva?'
+    ]
   }
 };
 
@@ -397,6 +441,19 @@ function getResponse(step, language) {
   return responseArray || '¿En qué puedo ayudarle?';
 }
 
+// Mensajes de timeout por idioma
+function getTimeoutMessage(language) {
+  const timeoutMessages = {
+    es: 'No pude entender su respuesta. Por favor, llame de nuevo. Gracias.',
+    en: 'I couldn\'t understand your response. Please call again. Thank you.',
+    de: 'Ich konnte Ihre Antwort nicht verstehen. Bitte rufen Sie erneut an. Vielen Dank.',
+    it: 'Non sono riuscito a capire la sua risposta. Per favore, richiami. Grazie.',
+    fr: 'Je n\'ai pas pu comprendre votre réponse. Veuillez rappeler. Merci.',
+    pt: 'Não consegui entender sua resposta. Por favor, ligue novamente. Obrigado.'
+  };
+  return timeoutMessages[language] || timeoutMessages.es;
+}
+
 // Generar TwiML (del código original)
 function generateTwiML(message, language = 'es') {
   const voiceConfig = {
@@ -418,7 +475,7 @@ function generateTwiML(message, language = 'es') {
   <Gather input="speech" language="${config.language}" timeout="6" speechTimeout="2" action="/api/twilio-call-hybrid-simple" method="POST" numDigits="0" enhanced="true">
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">
-    No pude entender su respuesta. Por favor, llame de nuevo. Gracias.
+    ${getTimeoutMessage(language)}
   </Say>
   <Hangup/>
 </Response>`;
@@ -532,7 +589,21 @@ module.exports = async function handler(req, res) {
           nextStep = 'ask_people';
         }
       } else {
-        // No ha expresado intención de reserva, mantener en greeting
+        // No ha expresado intención de reserva, usar greeting_error
+        nextStep = 'greeting_error';
+      }
+      break;
+      
+    case 'greeting_error':
+      // En el segundo intento, ser más directo
+      if (isReservationRequest(userInput, state.language) || state.data.people) {
+        if (state.data.people) {
+          nextStep = 'ask_date';
+        } else {
+          nextStep = 'ask_people';
+        }
+      } else {
+        // Si sigue sin entender, volver a greeting normal
         nextStep = 'greeting';
       }
       break;
