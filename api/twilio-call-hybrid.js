@@ -277,49 +277,114 @@ Idioma:`;
     return null;
   }
   
-  // Extraer fecha
+  // Extraer fecha - SISTEMA SÚPER ROBUSTO
   static extractDate(input, language) {
+    console.log(`[EXTRACCION] Extrayendo fecha de: "${input}"`);
+    
     const today = new Date();
     const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfterTomorrow = new Date(today.getTime() + 2 * 24 * 60 * 60 * 1000);
     
-    // Detectar "mañana" / "tomorrow" / etc.
-    const tomorrowWords = {
-      es: ['mañana', 'tomorrow'],
-      en: ['tomorrow'],
-      de: ['morgen'],
-      it: ['domani'],
-      fr: ['demain'],
-      pt: ['amanhã']
+    // Fechas relativas exhaustivas en todos los idiomas
+    const relativeDates = {
+      // ESPAÑOL
+      'hoy': today, 'mañana': tomorrow, 'pasado mañana': dayAfterTomorrow,
+      'esta noche': today, 'mañana por la noche': tomorrow,
+      'el lunes': this.getNextWeekday(1), 'el martes': this.getNextWeekday(2),
+      'el miércoles': this.getNextWeekday(3), 'el jueves': this.getNextWeekday(4),
+      'el viernes': this.getNextWeekday(5), 'el sábado': this.getNextWeekday(6), 'el domingo': this.getNextWeekday(0),
+      'el próximo lunes': this.getNextWeekday(1), 'el próximo martes': this.getNextWeekday(2),
+      'el próximo miércoles': this.getNextWeekday(3), 'el próximo jueves': this.getNextWeekday(4),
+      'el próximo viernes': this.getNextWeekday(5), 'el próximo sábado': this.getNextWeekday(6), 'el próximo domingo': this.getNextWeekday(0),
+      
+      // INGLÉS
+      'today': today, 'tomorrow': tomorrow, 'day after tomorrow': dayAfterTomorrow,
+      'tonight': today, 'tomorrow night': tomorrow,
+      'monday': this.getNextWeekday(1), 'tuesday': this.getNextWeekday(2),
+      'wednesday': this.getNextWeekday(3), 'thursday': this.getNextWeekday(4),
+      'friday': this.getNextWeekday(5), 'saturday': this.getNextWeekday(6), 'sunday': this.getNextWeekday(0),
+      'next monday': this.getNextWeekday(1), 'next tuesday': this.getNextWeekday(2),
+      'next wednesday': this.getNextWeekday(3), 'next thursday': this.getNextWeekday(4),
+      'next friday': this.getNextWeekday(5), 'next saturday': this.getNextWeekday(6), 'next sunday': this.getNextWeekday(0),
+      
+      // ALEMÁN
+      'heute': today, 'morgen': tomorrow, 'übermorgen': dayAfterTomorrow,
+      'heute abend': today, 'morgen abend': tomorrow,
+      'montag': this.getNextWeekday(1), 'dienstag': this.getNextWeekday(2),
+      'mittwoch': this.getNextWeekday(3), 'donnerstag': this.getNextWeekday(4),
+      'freitag': this.getNextWeekday(5), 'samstag': this.getNextWeekday(6), 'sonntag': this.getNextWeekday(0),
+      'nächster montag': this.getNextWeekday(1), 'nächster dienstag': this.getNextWeekday(2),
+      'nächster mittwoch': this.getNextWeekday(3), 'nächster donnerstag': this.getNextWeekday(4),
+      'nächster freitag': this.getNextWeekday(5), 'nächster samstag': this.getNextWeekday(6), 'nächster sonntag': this.getNextWeekday(0),
+      
+      // ITALIANO
+      'oggi': today, 'domani': tomorrow, 'dopodomani': dayAfterTomorrow,
+      'stasera': today, 'domani sera': tomorrow,
+      'lunedì': this.getNextWeekday(1), 'martedì': this.getNextWeekday(2),
+      'mercoledì': this.getNextWeekday(3), 'giovedì': this.getNextWeekday(4),
+      'venerdì': this.getNextWeekday(5), 'sabato': this.getNextWeekday(6), 'domenica': this.getNextWeekday(0),
+      'prossimo lunedì': this.getNextWeekday(1), 'prossimo martedì': this.getNextWeekday(2),
+      'prossimo mercoledì': this.getNextWeekday(3), 'prossimo giovedì': this.getNextWeekday(4),
+      'prossimo venerdì': this.getNextWeekday(5), 'prossimo sabato': this.getNextWeekday(6), 'prossimo domenica': this.getNextWeekday(0),
+      
+      // FRANCÉS
+      'aujourd\'hui': today, 'demain': tomorrow, 'après-demain': dayAfterTomorrow,
+      'ce soir': today, 'demain soir': tomorrow,
+      'lundi': this.getNextWeekday(1), 'mardi': this.getNextWeekday(2),
+      'mercredi': this.getNextWeekday(3), 'jeudi': this.getNextWeekday(4),
+      'vendredi': this.getNextWeekday(5), 'samedi': this.getNextWeekday(6), 'dimanche': this.getNextWeekday(0),
+      'prochain lundi': this.getNextWeekday(1), 'prochain mardi': this.getNextWeekday(2),
+      'prochain mercredi': this.getNextWeekday(3), 'prochain jeudi': this.getNextWeekday(4),
+      'prochain vendredi': this.getNextWeekday(5), 'prochain samedi': this.getNextWeekday(6), 'prochain dimanche': this.getNextWeekday(0),
+      
+      // PORTUGUÉS
+      'hoje': today, 'amanhã': tomorrow, 'depois de amanhã': dayAfterTomorrow,
+      'hoje à noite': today, 'amanhã à noite': tomorrow,
+      'segunda': this.getNextWeekday(1), 'terça': this.getNextWeekday(2),
+      'quarta': this.getNextWeekday(3), 'quinta': this.getNextWeekday(4),
+      'sexta': this.getNextWeekday(5), 'sábado': this.getNextWeekday(6), 'domingo': this.getNextWeekday(0),
+      'próxima segunda': this.getNextWeekday(1), 'próxima terça': this.getNextWeekday(2),
+      'próxima quarta': this.getNextWeekday(3), 'próxima quinta': this.getNextWeekday(4),
+      'próxima sexta': this.getNextWeekday(5), 'próximo sábado': this.getNextWeekday(6), 'próximo domingo': this.getNextWeekday(0)
     };
     
-    const words = tomorrowWords[language] || [];
-    if (words.some(word => input.includes(word))) {
-      return tomorrow.toISOString().split('T')[0];
-    }
-    
-    // Detectar días de la semana
-    const weekdays = {
-      es: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'],
-      en: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
-      de: ['montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag', 'sonntag'],
-      it: ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'],
-      fr: ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'],
-      pt: ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo']
-    };
-    
-    const days = weekdays[language] || [];
-    for (let i = 0; i < days.length; i++) {
-      if (input.includes(days[i])) {
-        const targetDate = new Date(today);
-        const daysUntilTarget = (i + 1) - today.getDay();
-        if (daysUntilTarget <= 0) targetDate.setDate(today.getDate() + 7 + daysUntilTarget);
-        else targetDate.setDate(today.getDate() + daysUntilTarget);
-        return targetDate.toISOString().split('T')[0];
+    // Buscar fechas relativas
+    for (const [phrase, date] of Object.entries(relativeDates)) {
+      if (input.toLowerCase().includes(phrase)) {
+        const result = date.toISOString().split('T')[0];
+        console.log(`[EXTRACCION] Fecha detectada: ${phrase} = ${result}`);
+        return result;
       }
     }
     
+    // Buscar fechas específicas (DD/MM/YYYY, MM/DD/YYYY, etc.)
+    const datePatterns = [
+      /(\d{1,2})\/(\d{1,2})\/(\d{4})/g,
+      /(\d{4})-(\d{1,2})-(\d{1,2})/g,
+      /(\d{1,2}) de (\w+) de (\d{4})/gi
+    ];
+    
+    for (const pattern of datePatterns) {
+      const match = input.match(pattern);
+      if (match) {
+        console.log(`[EXTRACCION] Fecha específica encontrada: ${match[0]}`);
+        // Aquí podrías parsear la fecha específica
+        return match[0]; // Por ahora devolvemos el texto encontrado
+      }
+    }
+    
+    console.log(`[EXTRACCION] No se encontró fecha`);
     return null;
+  }
+  
+  // Función auxiliar para obtener el próximo día de la semana
+  static getNextWeekday(weekday) {
+    const today = new Date();
+    const daysUntilTarget = (weekday - today.getDay() + 7) % 7;
+    const targetDate = new Date(today);
+    targetDate.setDate(today.getDate() + (daysUntilTarget === 0 ? 7 : daysUntilTarget));
+    return targetDate;
   }
   
   // Extraer hora - SISTEMA SÚPER ROBUSTO
