@@ -1522,16 +1522,35 @@ function extractDate(text) {
     return formatDateISO(date);
   }
   
+  // Manejar "tomorrow" en inglés
+  if (textToAnalyze.includes('tomorrow')) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + 1);
+    console.log('✅ Detectado: tomorrow');
+    return formatDateISO(date);
+  }
+  
+  // Manejar "today" en inglés
+  if (textToAnalyze.includes('today')) {
+    console.log('✅ Detectado: today');
+    return formatDateISO(today);
+  }
+  
   if (textToAnalyze.includes('hoy')) {
     console.log('✅ Detectado: hoy');
     return formatDateISO(today);
   }
 
-  // Mapeo de nombres de meses en español (ANTES de días de la semana para priorizar)
+  // Mapeo de nombres de meses en español e inglés (ANTES de días de la semana para priorizar)
   const monthNames = {
+    // Español
     'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
     'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
-    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
+    'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12,
+    // Inglés
+    'january': 1, 'february': 2, 'march': 3, 'april': 4,
+    'may': 5, 'june': 6, 'july': 7, 'august': 8,
+    'september': 9, 'october': 10, 'november': 11, 'december': 12
   };
 
   // Intentar extraer fecha con nombre de mes: "10 de octubre", "15 de enero"
@@ -1542,8 +1561,10 @@ function extractDate(text) {
       // Buscar el número antes del mes (más preciso)
       const patterns = [
         new RegExp(`(\\d{1,2})\\s*de\\s*${monthName}`, 'i'),  // "10 de octubre"
-        new RegExp(`(\\d{1,2})\\s*${monthName}`, 'i'),         // "10 octubre"
-        new RegExp(`${monthName}\\s*(\\d{1,2})`, 'i'),         // "octubre 10"
+        new RegExp(`(\\d{1,2})\\s*${monthName}`, 'i'),         // "10 octubre" o "25 october"
+        new RegExp(`${monthName}\\s*(\\d{1,2})`, 'i'),         // "octubre 10" o "october 25"
+        new RegExp(`(\\d{1,2})\\s*(?:st|nd|rd|th)?\\s*${monthName}`, 'i'), // "25th october"
+        new RegExp(`${monthName}\\s*(\\d{1,2})\\s*(?:st|nd|rd|th)?`, 'i'), // "october 25th"
       ];
       
       for (const pattern of patterns) {
@@ -1593,8 +1614,12 @@ function extractDate(text) {
 
   // Detectar días de la semana (DESPUÉS de los meses)
   const daysOfWeek = {
+    // Español
     'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
-    'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0
+    'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6, 'domingo': 0,
+    // Inglés
+    'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
+    'friday': 5, 'saturday': 6, 'sunday': 0
   };
 
   for (const [dayName, dayNumber] of Object.entries(daysOfWeek)) {
@@ -1621,19 +1646,37 @@ function extractDate(text) {
     }
   }
 
-  // Intentar extraer fecha numérica: "10/10", "10-10"
+  // Intentar extraer fecha numérica: "10/10", "10-10", "10/25", "25/10"
   const dateMatch = textToAnalyze.match(/(\d{1,2})[\/\-\s](?:de\s)?(\d{1,2})/);
   if (dateMatch) {
-    const day = parseInt(dateMatch[1]);
-    const month = parseInt(dateMatch[2]);
+    const first = parseInt(dateMatch[1]);
+    const second = parseInt(dateMatch[2]);
     const year = today.getFullYear();
     
     try {
-      const date = new Date(year, month - 1, day);
-      if (date < today) {
-        date.setFullYear(year + 1);
+      // Intentar ambos formatos: DD/MM y MM/DD
+      let date1 = new Date(year, first - 1, second);
+      let date2 = new Date(year, second - 1, first);
+      
+      // Si la primera fecha es válida y no es pasada, usarla
+      if (date1 >= today && date1.getMonth() === first - 1) {
+        console.log(`✅ Fecha numérica detectada: ${first}/${second}`);
+        return formatDateISO(date1);
       }
-      return formatDateISO(date);
+      
+      // Si la segunda fecha es válida y no es pasada, usarla
+      if (date2 >= today && date2.getMonth() === second - 1) {
+        console.log(`✅ Fecha numérica detectada: ${second}/${first}`);
+        return formatDateISO(date2);
+      }
+      
+      // Si ambas son pasadas, usar la del año siguiente
+      if (date1 < today) {
+        date1.setFullYear(year + 1);
+        console.log(`✅ Fecha numérica detectada (año siguiente): ${first}/${second}`);
+        return formatDateISO(date1);
+      }
+      
     } catch (e) {
       return null;
     }
