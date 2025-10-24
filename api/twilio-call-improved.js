@@ -1854,6 +1854,7 @@ function formatDateISO(date) {
 }
 
 function formatDateSpanish(dateStr) {
+  if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
   const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
                   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -1861,6 +1862,7 @@ function formatDateSpanish(dateStr) {
 }
 
 function formatDateEnglish(dateStr) {
+  if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
   const months = ['January', 'February', 'March', 'April', 'May', 'June',
                   'July', 'August', 'September', 'October', 'November', 'December'];
@@ -1868,6 +1870,7 @@ function formatDateEnglish(dateStr) {
 }
 
 function formatDateGerman(dateStr) {
+  if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
   const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
                   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -1875,6 +1878,7 @@ function formatDateGerman(dateStr) {
 }
 
 function formatDateItalian(dateStr) {
+  if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
   const months = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
                   'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
@@ -1882,6 +1886,7 @@ function formatDateItalian(dateStr) {
 }
 
 function formatDateFrench(dateStr) {
+  if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
   const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
                   'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -1889,6 +1894,7 @@ function formatDateFrench(dateStr) {
 }
 
 function formatDatePortuguese(dateStr) {
+  if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
   const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
                   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
