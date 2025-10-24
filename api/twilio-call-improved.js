@@ -1100,6 +1100,14 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
 
 // Detección mejorada de idioma
 function detectLanguage(text) {
+  // Normalizar texto para mejor detección
+  const normalizedText = text.toLowerCase()
+    .replace(/[^\w\s]/g, ' ') // Remover puntuación
+    .replace(/\s+/g, ' ') // Normalizar espacios
+    .trim();
+  
+  console.log(`🔍 [DEBUG] Texto normalizado: "${normalizedText}"`);
+  
   const languagePatterns = {
     en: [
       'hello', 'hi', 'good morning', 'good afternoon', 'good evening', 'good night',
@@ -1136,7 +1144,10 @@ function detectLanguage(text) {
       // Palabras muy específicas del italiano
       'per favore', 'grazie', 'scusi', 'scusa', 'come', 'cosa', 'dove',
       'oggi', 'domani', 'sera', 'notte', 'tempo', 'ora', 'ore',
-      'persone', 'gente', 'ospiti', 'famiglia', 'amici'
+      'persone', 'gente', 'ospiti', 'famiglia', 'amici',
+      // Patrones de transcripción incorrecta comunes
+      'chau', 'ciao', 'borrey', 'vorrei', 'pre', 'notar', 'prenotare',
+      'tavolo', 'tavoli', 'ristorante', 'mangiare', 'cenare'
     ],
     fr: [
       'bonjour', 'bonsoir', 'bonne nuit', 'salut', 'bonne journée',
@@ -1170,19 +1181,28 @@ function detectLanguage(text) {
     ]
   };
 
-  const lowerText = text.toLowerCase();
   let maxMatches = 0;
   let detectedLanguage = 'es'; // Por defecto español
 
   console.log(`🔍 Detectando idioma para: "${text}"`);
 
   for (const [lang, patterns] of Object.entries(languagePatterns)) {
-    const matches = patterns.filter(pattern => lowerText.includes(pattern)).length;
+    const matches = patterns.filter(pattern => normalizedText.includes(pattern)).length;
     console.log(`  ${lang}: ${matches} coincidencias`);
     
     if (matches > maxMatches) {
       maxMatches = matches;
       detectedLanguage = lang;
+    }
+  }
+
+  // Detección especial para transcripciones malas de italiano
+  if (normalizedText.includes('chau') || normalizedText.includes('borrey') || 
+      normalizedText.includes('pre') || normalizedText.includes('notar')) {
+    console.log(`🇮🇹 [DEBUG] Detectado patrón de transcripción italiana incorrecta`);
+    if (detectedLanguage === 'es' && maxMatches === 0) {
+      detectedLanguage = 'it';
+      maxMatches = 1;
     }
   }
 
