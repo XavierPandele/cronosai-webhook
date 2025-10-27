@@ -54,7 +54,10 @@ module.exports = async function handler(req, res) {
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
-      await saveReservation(state);
+      // Solo guardar la reserva si no es una cancelación
+      if (!state.cancelled) {
+        await saveReservation(state);
+      }
       // Limpiar el estado después de guardar
       setTimeout(() => conversationStates.delete(CallSid), 60000); // Limpiar después de 1 minuto
     }
@@ -459,6 +462,21 @@ async function processConversationStep(state, userInput) {
          };
        }
 
+    case 'complete':
+      // Estado completado - no debería llegar aquí normalmente
+      // Si llegamos aquí, significa que la reserva se completó exitosamente
+      console.log(`✅ [COMPLETE] Reserva completada exitosamente`);
+      
+      // Limpiar el estado después de un tiempo
+      setTimeout(() => conversationStates.delete(state.callSid), 60000);
+      
+      // Devolver mensaje de confirmación final
+      const completeMessages = getMultilingualMessages('complete', state.language);
+      return {
+        message: getRandomMessage(completeMessages),
+        gather: false // No más interacción
+      };
+
     default:
       state.step = 'greeting';
       const defaultMessages = getMultilingualMessages('default', state.language);
@@ -495,7 +513,8 @@ async function handleCancellationConfirmation(state, userInput) {
     // Cancelación confirmada
     console.log(`✅ [CANCELACIÓN] Cancelación confirmada por el usuario`);
     
-    // Cambiar estado a completado
+    // Marcar como cancelado y cambiar estado a completado
+    state.cancelled = true;
     state.step = 'complete';
     
     // Obtener mensaje de despedida tras cancelación
@@ -1308,7 +1327,50 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Entendido, a reserva foi cancelada. Obrigado por ligar e espero ter conseguido ajudá-lo. Esperamos vê-lo outra vez. Até logo!',
         'Tudo bem, cancelei a reserva. Espero ter conseguido ajudá-lo. Esperamos vê-lo outro dia em nosso restaurante. Tenha um ótimo dia!',
         'Perfeito, a reserva está cancelada. Obrigado pelo seu tempo e espero ter conseguido ajudá-lo. Esperamos vê-lo outra vez. Até logo!',
-        'Entendido, cancelei a reserva. Espero ter conseguido ajudá-lo. Esperamos vê-lo outro dia em nosso restaurante. Tenha um ótimo dia!'
+      ]
+    },
+    complete: {
+      es: [
+        '¡Perfecto! Su reserva ha sido confirmada exitosamente. Gracias por elegir nuestro restaurante. ¡Esperamos darle la bienvenida pronto!',
+        '¡Excelente! Su reserva está lista. Gracias por confiar en nosotros. ¡Esperamos verle pronto!',
+        '¡Fantástico! Su reserva ha sido procesada correctamente. Gracias por elegir nuestro restaurante. ¡Hasta pronto!',
+        '¡Perfecto! Su reserva está confirmada. Gracias por llamar y esperamos darle la bienvenida. ¡Que tenga un buen día!',
+        '¡Excelente! Su reserva ha sido completada exitosamente. Gracias por elegir nuestro restaurante. ¡Esperamos verle pronto!'
+      ],
+      en: [
+        'Perfect! Your reservation has been successfully confirmed. Thank you for choosing our restaurant. We look forward to welcoming you soon!',
+        'Excellent! Your reservation is ready. Thank you for trusting us. We look forward to seeing you soon!',
+        'Fantastic! Your reservation has been processed correctly. Thank you for choosing our restaurant. See you soon!',
+        'Perfect! Your reservation is confirmed. Thank you for calling and we look forward to welcoming you. Have a great day!',
+        'Excellent! Your reservation has been completed successfully. Thank you for choosing our restaurant. We look forward to seeing you soon!'
+      ],
+      de: [
+        'Perfekt! Ihre Reservierung wurde erfolgreich bestätigt. Vielen Dank, dass Sie unser Restaurant gewählt haben. Wir freuen uns darauf, Sie bald willkommen zu heißen!',
+        'Ausgezeichnet! Ihre Reservierung ist bereit. Vielen Dank für Ihr Vertrauen. Wir freuen uns darauf, Sie bald zu sehen!',
+        'Fantastisch! Ihre Reservierung wurde korrekt bearbeitet. Vielen Dank, dass Sie unser Restaurant gewählt haben. Bis bald!',
+        'Perfekt! Ihre Reservierung ist bestätigt. Vielen Dank für Ihren Anruf und wir freuen uns darauf, Sie willkommen zu heißen. Haben Sie einen schönen Tag!',
+        'Ausgezeichnet! Ihre Reservierung wurde erfolgreich abgeschlossen. Vielen Dank, dass Sie unser Restaurant gewählt haben. Wir freuen uns darauf, Sie bald zu sehen!'
+      ],
+      it: [
+        'Perfetto! La tua prenotazione è stata confermata con successo. Grazie per aver scelto il nostro ristorante. Non vediamo l\'ora di darti il benvenuto presto!',
+        'Eccellente! La tua prenotazione è pronta. Grazie per averci fidato. Non vediamo l\'ora di vederti presto!',
+        'Fantastico! La tua prenotazione è stata elaborata correttamente. Grazie per aver scelto il nostro ristorante. A presto!',
+        'Perfetto! La tua prenotazione è confermata. Grazie per aver chiamato e non vediamo l\'ora di darti il benvenuto. Buona giornata!',
+        'Eccellente! La tua prenotazione è stata completata con successo. Grazie per aver scelto il nostro ristorante. Non vediamo l\'ora di vederti presto!'
+      ],
+      fr: [
+        'Parfait! Votre réservation a été confirmée avec succès. Merci d\'avoir choisi notre restaurant. Nous avons hâte de vous accueillir bientôt!',
+        'Excellent! Votre réservation est prête. Merci de nous faire confiance. Nous avons hâte de vous voir bientôt!',
+        'Fantastique! Votre réservation a été traitée correctement. Merci d\'avoir choisi notre restaurant. À bientôt!',
+        'Parfait! Votre réservation est confirmée. Merci d\'avoir appelé et nous avons hâte de vous accueillir. Passez une bonne journée!',
+        'Excellent! Votre réservation a été complétée avec succès. Merci d\'avoir choisi notre restaurant. Nous avons hâte de vous voir bientôt!'
+      ],
+      pt: [
+        'Perfeito! Sua reserva foi confirmada com sucesso. Obrigado por escolher nosso restaurante. Esperamos recebê-lo em breve!',
+        'Excelente! Sua reserva está pronta. Obrigado por confiar em nós. Esperamos vê-lo em breve!',
+        'Fantástico! Sua reserva foi processada corretamente. Obrigado por escolher nosso restaurante. Até logo!',
+        'Perfeito! Sua reserva está confirmada. Obrigado por ligar e esperamos recebê-lo. Tenha um ótimo dia!',
+        'Excelente! Sua reserva foi concluída com sucesso. Obrigado por escolher nosso restaurante. Esperamos vê-lo em breve!'
       ]
     },
     cancellation_continue: {
