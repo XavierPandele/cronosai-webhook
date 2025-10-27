@@ -508,7 +508,7 @@ async function handleCancellationConfirmation(state, userInput) {
   console.log(`🚫 [CANCELACIÓN] Procesando confirmación de cancelación`);
   
   // Detectar si confirma la cancelación
-  const confirmation = handleConfirmationResponse(userInput);
+  const confirmation = detectCancellationConfirmation(userInput);
   
   if (confirmation === 'yes') {
     // Cancelación confirmada - COLGAR DIRECTAMENTE
@@ -2818,7 +2818,113 @@ function isReservationRequest(text) {
   return result;
 }
 
-// Función para detectar intenciones de cancelación
+// Función simple para detectar confirmación de cancelación
+function detectCancellationConfirmation(text) {
+  const lowerText = text.toLowerCase();
+  
+  // Palabras de confirmación positiva (SÍ quiero cancelar)
+  const yesWords = [
+    // Español
+    'si', 'sí', 'correcto', 'confirmo', 'perfecto', 'bien', 'vale', 'ok', 'okay',
+    'exacto', 'eso es', 'así es', 'está bien', 'me parece bien', 'de acuerdo',
+    'confirmado', 'acepto', 'procedo', 'adelante', 'continúo',
+    'quiero cancelar', 'necesito cancelar', 'deseo cancelar', 'mejor cancelo',
+    'al final no', 'mejor no', 'ya no quiero', 'ya no necesito', 'ya no voy',
+    'cambié de opinión', 'cambie de opinion', 'cambié de idea', 'cambie de idea',
+    'no me interesa', 'no me convence', 'no me gusta', 'no me conviene',
+    'no me sirve', 'no me funciona', 'no me parece bien',
+    'mejor paro', 'mejor termino', 'mejor cuelgo', 'mejor me voy',
+    'mejor me despido', 'mejor me retiro', 'mejor no hago', 'mejor no reservo',
+    
+    // Inglés
+    'yes', 'yeah', 'yep', 'correct', 'confirm', 'perfect', 'good', 'okay', 'ok', 'sure',
+    'exactly', 'that\'s right', 'that\'s correct', 'sounds good', 'agree',
+    'confirmed', 'accept', 'proceed', 'go ahead', 'absolutely', 'definitely',
+    'want to cancel', 'need to cancel', 'wish to cancel', 'better cancel',
+    'actually no', 'better not', 'changed my mind', 'change my mind',
+    'not interested', 'not convinced', 'don\'t want to continue',
+    'better stop', 'better end', 'better hang up', 'better leave',
+    
+    // Alemán
+    'ja', 'richtig', 'bestätigen', 'perfekt', 'gut', 'okay', 'genau',
+    'das stimmt', 'einverstanden', 'bestätigt', 'akzeptieren',
+    'will stornieren', 'möchte stornieren', 'besser stornieren',
+    'eigentlich nicht', 'besser nicht', 'meinung geändert',
+    'nicht interessiert', 'nicht überzeugt', 'besser aufhören',
+    
+    // Italiano
+    'sì', 'si', 'corretto', 'confermo', 'perfetto', 'bene', 'okay', 'ok',
+    'va bene', 'd\'accordo', 'confermato', 'accetto',
+    'vuole cancellare', 'meglio cancellare', 'cambiato idea',
+    'non interessato', 'meglio fermare',
+    
+    // Francés
+    'oui', 'correct', 'confirmer', 'parfait', 'bien', 'd\'accord',
+    'veut annuler', 'mieux annuler', 'changé d\'avis',
+    'pas intéressé', 'mieux arrêter',
+    
+    // Portugués
+    'sim', 'correto', 'confirmo', 'perfeito', 'bem', 'okay',
+    'quer cancelar', 'melhor cancelar', 'mudou de ideia',
+    'não interessado', 'melhor parar'
+  ];
+  
+  // Palabras de negación (NO quiero cancelar)
+  const noWords = [
+    // Español
+    'no', 'incorrecto', 'mal', 'error', 'no es', 'no está bien', 'no me parece',
+    'discrepo', 'no acepto', 'no quiero cancelar', 'no necesito cancelar',
+    'mejor continúo', 'mejor sigo', 'mejor procedo', 'mejor adelante',
+    'quiero continuar', 'necesito continuar', 'deseo continuar',
+    'mejor sigo adelante', 'mejor continúo adelante', 'mejor procedo adelante',
+    'no cancelo', 'no cancelar', 'no quiero cancelar', 'no necesito cancelar',
+    'mejor no cancelo', 'mejor no cancelar', 'mejor no quiero cancelar',
+    
+    // Inglés
+    'no', 'incorrect', 'wrong', 'error', 'not right', 'not correct',
+    'disagree', 'don\'t accept', 'don\'t want to cancel', 'don\'t need to cancel',
+    'better continue', 'better proceed', 'better go ahead',
+    'want to continue', 'need to continue', 'wish to continue',
+    'don\'t cancel', 'don\'t want to cancel', 'don\'t need to cancel',
+    
+    // Alemán
+    'nein', 'falsch', 'fehler', 'nicht richtig', 'nicht korrekt',
+    'nicht einverstanden', 'nicht akzeptieren', 'nicht stornieren',
+    'besser fortfahren', 'besser fortgesetzt', 'besser weiter',
+    'will fortfahren', 'möchte fortfahren', 'nicht stornieren',
+    
+    // Italiano
+    'no', 'sbagliato', 'errore', 'non è giusto', 'non va bene',
+    'non accetto', 'non vuole cancellare', 'meglio continuare',
+    'vuole continuare', 'non cancellare',
+    
+    // Francés
+    'non', 'incorrect', 'faux', 'erreur', 'pas correct',
+    'pas d\'accord', 'ne veut pas annuler', 'mieux continuer',
+    'veut continuer', 'ne pas annuler',
+    
+    // Portugués
+    'não', 'incorreto', 'errado', 'erro', 'não está certo',
+    'não concordo', 'não quer cancelar', 'melhor continuar',
+    'quer continuar', 'não cancelar'
+  ];
+  
+  // Verificar confirmación positiva
+  const hasYesWords = yesWords.some(word => lowerText.includes(word));
+  const hasNoWords = noWords.some(word => lowerText.includes(word));
+  
+  console.log(`🔍 [DEBUG] detectCancellationConfirmation - Texto: "${text}"`);
+  console.log(`🔍 [DEBUG] - Palabras SÍ encontradas: ${hasYesWords}`);
+  console.log(`🔍 [DEBUG] - Palabras NO encontradas: ${hasNoWords}`);
+  
+  if (hasYesWords && !hasNoWords) {
+    return 'yes';
+  } else if (hasNoWords && !hasYesWords) {
+    return 'no';
+  } else {
+    return 'unclear';
+  }
+}
 function isCancellationRequest(text) {
   const cancellationWords = [
     // ESPAÑOL - Expresiones de cancelación (palabras simples y comunes)
