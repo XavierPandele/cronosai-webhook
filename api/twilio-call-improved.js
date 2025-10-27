@@ -102,17 +102,15 @@ async function processConversationStep(state, userInput) {
 
   // Detectar idioma solo en pasos específicos para evitar cambios inesperados
   if (userInput && userInput.trim()) {
-    // Solo detectar idioma en greeting o si estamos en proceso de cancelación
-    if (step === 'greeting' || step === 'cancelling') {
+    // Solo detectar idioma en greeting - NO durante cancelación para evitar cambios
+    if (step === 'greeting') {
       const detectedLanguage = detectLanguage(userInput);
       console.log(`🔍 [DEBUG] Detectando idioma para: "${userInput}"`);
       console.log(`🌍 [DEBUG] Idioma detectado: ${detectedLanguage}`);
       console.log(`🌍 [DEBUG] Idioma actual del estado: ${state.language}`);
       
       // Actualizar idioma solo si es necesario
-      if (step === 'greeting' || 
-          (detectedLanguage !== 'es' && detectedLanguage !== state.language) ||
-          (state.language === 'es' && detectedLanguage !== 'es')) {
+      if (detectedLanguage !== 'es' && detectedLanguage !== state.language) {
         console.log(`🔄 [DEBUG] Cambiando idioma de ${state.language} a ${detectedLanguage}`);
         state.language = detectedLanguage;
       }
