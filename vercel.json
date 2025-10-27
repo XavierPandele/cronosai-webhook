@@ -1,23 +1,7 @@
 {
   "version": 2,
-  "name": "cronosai-webhook-vercel",
-  "builds": [
-    {
-      "src": "api/twilio-call-vercel.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/twilio-call-vercel",
-      "dest": "/api/twilio-call-vercel.js"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  },
   "functions": {
-    "api/twilio-call-vercel.js": {
+    "api/twilio-call-improved.js": {
       "maxDuration": 30
     }
   }
