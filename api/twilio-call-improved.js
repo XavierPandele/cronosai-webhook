@@ -459,6 +459,11 @@ async function processConversationStep(state, userInput) {
          };
        }
 
+    case 'cancelling':
+      // Estado de cancelación - manejar confirmación
+      console.log(`🚫 [CANCELLING] Procesando confirmación de cancelación`);
+      return await handleCancellationConfirmation(state, userInput);
+
     case 'complete':
       // Estado completado - reserva exitosa
       console.log(`✅ [COMPLETE] Reserva completada exitosamente`);
