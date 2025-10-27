@@ -87,6 +87,19 @@ async function processConversationStep(state, userInput) {
 
   console.log(`📋 Procesando paso: ${step}, Input: "${userInput}"`);
 
+  // Verificar si el usuario quiere cancelar la reserva (en cualquier paso)
+  if (userInput && userInput.trim() && isCancellationRequest(userInput)) {
+    console.log(`🚫 [CANCELACIÓN] Usuario quiere cancelar en paso: ${step}`);
+    
+    // Si ya está en proceso de cancelación, confirmar
+    if (step === 'cancelling') {
+      return await handleCancellationConfirmation(state, userInput);
+    }
+    
+    // Iniciar proceso de cancelación
+    return await handleCancellationRequest(state, userInput);
+  }
+
   // Detectar idioma en TODOS los pasos si hay input del usuario
   if (userInput && userInput.trim()) {
     const detectedLanguage = detectLanguage(userInput);
@@ -453,6 +466,85 @@ async function processConversationStep(state, userInput) {
         message: getRandomMessage(defaultMessages),
         gather: true
       };
+  }
+}
+
+// Funciones para manejar cancelación de reservas
+async function handleCancellationRequest(state, userInput) {
+  console.log(`🚫 [CANCELACIÓN] Iniciando proceso de cancelación`);
+  
+  // Cambiar estado a cancelación
+  state.step = 'cancelling';
+  
+  // Obtener mensaje de confirmación de cancelación
+  const cancellationMessages = getMultilingualMessages('cancellation_confirm', state.language);
+  
+  return {
+    message: getRandomMessage(cancellationMessages),
+    gather: true
+  };
+}
+
+async function handleCancellationConfirmation(state, userInput) {
+  console.log(`🚫 [CANCELACIÓN] Procesando confirmación de cancelación`);
+  
+  // Detectar si confirma la cancelación
+  const confirmation = handleConfirmationResponse(userInput);
+  
+  if (confirmation === 'yes') {
+    // Cancelación confirmada
+    console.log(`✅ [CANCELACIÓN] Cancelación confirmada por el usuario`);
+    
+    // Cambiar estado a completado
+    state.step = 'complete';
+    
+    // Obtener mensaje de despedida tras cancelación
+    const goodbyeMessages = getMultilingualMessages('cancellation_goodbye', state.language);
+    
+    return {
+      message: getRandomMessage(goodbyeMessages),
+      gather: false // No más interacción
+    };
+  } else if (confirmation === 'no') {
+    // Cancelación rechazada - volver al paso anterior
+    console.log(`🔄 [CANCELACIÓN] Cancelación rechazada, volviendo al proceso normal`);
+    
+    // Determinar a qué paso volver basado en los datos que ya tenemos
+    if (state.data.NumPersonas) {
+      if (state.data.FechaReserva) {
+        if (state.data.HoraReserva) {
+          if (state.data.NombreCliente) {
+            state.step = 'ask_phone';
+          } else {
+            state.step = 'ask_name';
+          }
+        } else {
+          state.step = 'ask_time';
+        }
+      } else {
+        state.step = 'ask_date';
+      }
+    } else {
+      state.step = 'ask_people';
+    }
+    
+    // Obtener mensaje de continuación
+    const continueMessages = getMultilingualMessages('cancellation_continue', state.language);
+    
+    return {
+      message: getRandomMessage(continueMessages),
+      gather: true
+    };
+  } else {
+    // Respuesta no clara - pedir aclaración
+    console.log(`❓ [CANCELACIÓN] Respuesta no clara, pidiendo aclaración`);
+    
+    const unclearMessages = getMultilingualMessages('cancellation_unclear', state.language);
+    
+    return {
+      message: getRandomMessage(unclearMessages),
+      gather: true
+    };
   }
 }
 
@@ -1129,6 +1221,182 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Parece bem? Você pode dizer sim, não, ou o que quer mudar.',
         'Está correto? Você pode aceitar, rejeitar, ou indicar o que mudar.',
         'Você concorda? Você pode confirmar, corrigir, ou dizer o que mudar.'
+      ]
+    },
+    cancellation_confirm: {
+      es: [
+        'Entiendo que quiere cancelar la reserva. ¿Está seguro de que desea cancelar?',
+        'He entendido que no quiere continuar con la reserva. ¿Confirma que desea cancelar?',
+        'Perfecto, entiendo que quiere cancelar. ¿Está completamente seguro?',
+        'De acuerdo, cancelaremos la reserva. ¿Está seguro de su decisión?',
+        'Entendido, no quiere hacer la reserva. ¿Confirma que desea cancelar?'
+      ],
+      en: [
+        'I understand you want to cancel the reservation. Are you sure you want to cancel?',
+        'I\'ve understood that you don\'t want to continue with the reservation. Do you confirm you want to cancel?',
+        'Perfect, I understand you want to cancel. Are you completely sure?',
+        'All right, we\'ll cancel the reservation. Are you sure about your decision?',
+        'Understood, you don\'t want to make the reservation. Do you confirm you want to cancel?'
+      ],
+      de: [
+        'Ich verstehe, dass Sie die Reservierung stornieren möchten. Sind Sie sicher, dass Sie stornieren möchten?',
+        'Ich habe verstanden, dass Sie nicht mit der Reservierung fortfahren möchten. Bestätigen Sie, dass Sie stornieren möchten?',
+        'Perfekt, ich verstehe, dass Sie stornieren möchten. Sind Sie völlig sicher?',
+        'In Ordnung, wir werden die Reservierung stornieren. Sind Sie sich Ihrer Entscheidung sicher?',
+        'Verstanden, Sie möchten keine Reservierung vornehmen. Bestätigen Sie, dass Sie stornieren möchten?'
+      ],
+      it: [
+        'Capisco che vuoi cancellare la prenotazione. Sei sicuro di voler cancellare?',
+        'Ho capito che non vuoi continuare con la prenotazione. Confermi di voler cancellare?',
+        'Perfetto, capisco che vuoi cancellare. Sei completamente sicuro?',
+        'D\'accordo, cancelleremo la prenotazione. Sei sicuro della tua decisione?',
+        'Capito, non vuoi fare la prenotazione. Confermi di voler cancellare?'
+      ],
+      fr: [
+        'Je comprends que vous voulez annuler la réservation. Êtes-vous sûr de vouloir annuler?',
+        'J\'ai compris que vous ne voulez pas continuer avec la réservation. Confirmez-vous que vous voulez annuler?',
+        'Parfait, je comprends que vous voulez annuler. Êtes-vous complètement sûr?',
+        'D\'accord, nous annulerons la réservation. Êtes-vous sûr de votre décision?',
+        'Compris, vous ne voulez pas faire de réservation. Confirmez-vous que vous voulez annuler?'
+      ],
+      pt: [
+        'Entendo que você quer cancelar a reserva. Tem certeza de que quer cancelar?',
+        'Entendi que você não quer continuar com a reserva. Confirma que quer cancelar?',
+        'Perfeito, entendo que você quer cancelar. Tem certeza absoluta?',
+        'Tudo bem, cancelaremos a reserva. Tem certeza da sua decisão?',
+        'Entendido, você não quer fazer a reserva. Confirma que quer cancelar?'
+      ]
+    },
+    cancellation_goodbye: {
+      es: [
+        'Perfecto, he cancelado su reserva. Gracias por llamar y esperamos que cambie de opinión. ¡Esperamos verle pronto en nuestro restaurante!',
+        'Entendido, la reserva ha sido cancelada. Gracias por contactarnos y esperamos que vuelva a considerar visitarnos. ¡Hasta pronto!',
+        'De acuerdo, he cancelado la reserva. Gracias por llamar y esperamos que tenga la oportunidad de conocernos en el futuro. ¡Que tenga un buen día!',
+        'Perfecto, la reserva está cancelada. Gracias por su tiempo y esperamos poder servirle en otra ocasión. ¡Esperamos verle pronto!',
+        'Entendido, he cancelado la reserva. Gracias por llamar y esperamos que cambie de opinión. ¡Esperamos darle la bienvenida pronto!'
+      ],
+      en: [
+        'Perfect, I\'ve cancelled your reservation. Thank you for calling and we hope you change your mind. We look forward to seeing you soon at our restaurant!',
+        'Understood, the reservation has been cancelled. Thank you for contacting us and we hope you\'ll reconsider visiting us. See you soon!',
+        'All right, I\'ve cancelled the reservation. Thank you for calling and we hope you\'ll have the opportunity to get to know us in the future. Have a great day!',
+        'Perfect, the reservation is cancelled. Thank you for your time and we hope to serve you on another occasion. We look forward to seeing you soon!',
+        'Understood, I\'ve cancelled the reservation. Thank you for calling and we hope you change your mind. We look forward to welcoming you soon!'
+      ],
+      de: [
+        'Perfekt, ich habe Ihre Reservierung storniert. Vielen Dank für Ihren Anruf und wir hoffen, dass Sie Ihre Meinung ändern. Wir freuen uns darauf, Sie bald in unserem Restaurant zu sehen!',
+        'Verstanden, die Reservierung wurde storniert. Vielen Dank für Ihre Kontaktaufnahme und wir hoffen, dass Sie einen Besuch bei uns in Betracht ziehen. Bis bald!',
+        'In Ordnung, ich habe die Reservierung storniert. Vielen Dank für Ihren Anruf und wir hoffen, dass Sie die Gelegenheit haben, uns in Zukunft kennenzulernen. Haben Sie einen schönen Tag!',
+        'Perfekt, die Reservierung ist storniert. Vielen Dank für Ihre Zeit und wir hoffen, Sie bei einer anderen Gelegenheit bedienen zu können. Wir freuen uns darauf, Sie bald zu sehen!',
+        'Verstanden, ich habe die Reservierung storniert. Vielen Dank für Ihren Anruf und wir hoffen, dass Sie Ihre Meinung ändern. Wir freuen uns darauf, Sie bald willkommen zu heißen!'
+      ],
+      it: [
+        'Perfetto, ho cancellato la tua prenotazione. Grazie per aver chiamato e speriamo che tu cambi idea. Non vediamo l\'ora di vederti presto nel nostro ristorante!',
+        'Capito, la prenotazione è stata cancellata. Grazie per averci contattato e speriamo che riconsideri di visitarci. A presto!',
+        'D\'accordo, ho cancellato la prenotazione. Grazie per aver chiamato e speriamo che tu abbia l\'opportunità di conoscerci in futuro. Buona giornata!',
+        'Perfetto, la prenotazione è cancellata. Grazie per il tuo tempo e speriamo di servirti in un\'altra occasione. Non vediamo l\'ora di vederti presto!',
+        'Capito, ho cancellato la prenotazione. Grazie per aver chiamato e speriamo che tu cambi idea. Non vediamo l\'ora di darti il benvenuto presto!'
+      ],
+      fr: [
+        'Parfait, j\'ai annulé votre réservation. Merci d\'avoir appelé et nous espérons que vous changerez d\'avis. Nous avons hâte de vous voir bientôt dans notre restaurant!',
+        'Compris, la réservation a été annulée. Merci de nous avoir contactés et nous espérons que vous envisagerez de nous rendre visite. À bientôt!',
+        'D\'accord, j\'ai annulé la réservation. Merci d\'avoir appelé et nous espérons que vous aurez l\'opportunité de nous connaître à l\'avenir. Passez une bonne journée!',
+        'Parfait, la réservation est annulée. Merci pour votre temps et nous espérons vous servir à une autre occasion. Nous avons hâte de vous voir bientôt!',
+        'Compris, j\'ai annulé la réservation. Merci d\'avoir appelé et nous espérons que vous changerez d\'avis. Nous avons hâte de vous accueillir bientôt!'
+      ],
+      pt: [
+        'Perfeito, cancelei sua reserva. Obrigado por ligar e esperamos que você mude de ideia. Esperamos vê-lo em breve em nosso restaurante!',
+        'Entendido, a reserva foi cancelada. Obrigado por nos contatar e esperamos que você considere nos visitar. Até logo!',
+        'Tudo bem, cancelei a reserva. Obrigado por ligar e esperamos que você tenha a oportunidade de nos conhecer no futuro. Tenha um ótimo dia!',
+        'Perfeito, a reserva está cancelada. Obrigado pelo seu tempo e esperamos atendê-lo em outra ocasião. Esperamos vê-lo em breve!',
+        'Entendido, cancelei a reserva. Obrigado por ligar e esperamos que você mude de ideia. Esperamos recebê-lo em breve!'
+      ]
+    },
+    cancellation_continue: {
+      es: [
+        'Perfecto, continuemos con su reserva entonces. ¿Para cuántas personas?',
+        'Excelente, sigamos con la reserva. ¿Cuántas personas serán?',
+        'Muy bien, continuemos. ¿Para cuántos comensales?',
+        'Perfecto, sigamos adelante. ¿Cuántas personas necesitan mesa?',
+        'Genial, continuemos con la reserva. ¿Para cuántas personas?'
+      ],
+      en: [
+        'Perfect, let\'s continue with your reservation then. For how many people?',
+        'Excellent, let\'s continue with the reservation. How many people will it be?',
+        'Great, let\'s continue. For how many diners?',
+        'Perfect, let\'s go ahead. How many people need a table?',
+        'Great, let\'s continue with the reservation. For how many people?'
+      ],
+      de: [
+        'Perfekt, lassen Sie uns dann mit Ihrer Reservierung fortfahren. Für wie viele Personen?',
+        'Ausgezeichnet, lassen Sie uns mit der Reservierung fortfahren. Wie viele Personen werden es sein?',
+        'Sehr gut, lassen Sie uns fortfahren. Für wie viele Gäste?',
+        'Perfekt, lassen Sie uns weitermachen. Wie viele Personen benötigen einen Tisch?',
+        'Großartig, lassen Sie uns mit der Reservierung fortfahren. Für wie viele Personen?'
+      ],
+      it: [
+        'Perfetto, continuiamo con la tua prenotazione allora. Per quante persone?',
+        'Eccellente, continuiamo con la prenotazione. Quante persone saranno?',
+        'Molto bene, continuiamo. Per quanti commensali?',
+        'Perfetto, andiamo avanti. Quante persone hanno bisogno di un tavolo?',
+        'Fantastico, continuiamo con la prenotazione. Per quante persone?'
+      ],
+      fr: [
+        'Parfait, continuons avec votre réservation alors. Pour combien de personnes?',
+        'Excellent, continuons avec la réservation. Combien de personnes seront-ce?',
+        'Très bien, continuons. Pour combien de convives?',
+        'Parfait, continuons. Combien de personnes ont besoin d\'une table?',
+        'Génial, continuons avec la réservation. Pour combien de personnes?'
+      ],
+      pt: [
+        'Perfeito, vamos continuar com sua reserva então. Para quantas pessoas?',
+        'Excelente, vamos continuar com a reserva. Quantas pessoas serão?',
+        'Muito bem, vamos continuar. Para quantos comensais?',
+        'Perfeito, vamos em frente. Quantas pessoas precisam de uma mesa?',
+        'Ótimo, vamos continuar com a reserva. Para quantas pessoas?'
+      ]
+    },
+    cancellation_unclear: {
+      es: [
+        'No he entendido bien su respuesta. ¿Quiere cancelar la reserva o continuar?',
+        'Disculpe, no entendí claramente. ¿Desea cancelar o seguir con la reserva?',
+        'No estoy seguro de lo que quiere hacer. ¿Cancela la reserva o continúa?',
+        'Perdón, no entendí. ¿Quiere cancelar o seguir adelante?',
+        'No he captado bien su intención. ¿Cancela o continúa con la reserva?'
+      ],
+      en: [
+        'I didn\'t understand your response well. Do you want to cancel the reservation or continue?',
+        'Sorry, I didn\'t understand clearly. Do you want to cancel or continue with the reservation?',
+        'I\'m not sure what you want to do. Do you cancel the reservation or continue?',
+        'Sorry, I didn\'t understand. Do you want to cancel or go ahead?',
+        'I didn\'t catch your intention well. Do you cancel or continue with the reservation?'
+      ],
+      de: [
+        'Ich habe Ihre Antwort nicht gut verstanden. Möchten Sie die Reservierung stornieren oder fortfahren?',
+        'Entschuldigung, ich habe nicht klar verstanden. Möchten Sie stornieren oder mit der Reservierung fortfahren?',
+        'Ich bin mir nicht sicher, was Sie tun möchten. Stornieren Sie die Reservierung oder fahren Sie fort?',
+        'Entschuldigung, ich habe nicht verstanden. Möchten Sie stornieren oder weitermachen?',
+        'Ich habe Ihre Absicht nicht gut erfasst. Stornieren Sie oder fahren Sie mit der Reservierung fort?'
+      ],
+      it: [
+        'Non ho capito bene la tua risposta. Vuoi cancellare la prenotazione o continuare?',
+        'Scusa, non ho capito chiaramente. Vuoi cancellare o continuare con la prenotazione?',
+        'Non sono sicuro di cosa vuoi fare. Cancelli la prenotazione o continui?',
+        'Scusa, non ho capito. Vuoi cancellare o andare avanti?',
+        'Non ho colto bene la tua intenzione. Cancelli o continui con la prenotazione?'
+      ],
+      fr: [
+        'Je n\'ai pas bien compris votre réponse. Voulez-vous annuler la réservation ou continuer?',
+        'Désolé, je n\'ai pas compris clairement. Voulez-vous annuler ou continuer avec la réservation?',
+        'Je ne suis pas sûr de ce que vous voulez faire. Annulez-vous la réservation ou continuez-vous?',
+        'Désolé, je n\'ai pas compris. Voulez-vous annuler ou continuer?',
+        'Je n\'ai pas bien saisi votre intention. Annulez-vous ou continuez-vous avec la réservation?'
+      ],
+      pt: [
+        'Não entendi bem sua resposta. Quer cancelar a reserva ou continuar?',
+        'Desculpe, não entendi claramente. Quer cancelar ou continuar com a reserva?',
+        'Não tenho certeza do que você quer fazer. Cancela a reserva ou continua?',
+        'Desculpe, não entendi. Quer cancelar ou seguir em frente?',
+        'Não captei bem sua intenção. Cancela ou continua com a reserva?'
       ]
     },
     default: {
@@ -2487,6 +2755,262 @@ function isReservationRequest(text) {
   
   const result = hasReservationWords || hasPatterns;
   console.log(`🔍 [DEBUG] Resultado final isReservationRequest: ${result}`);
+  
+  return result;
+}
+
+// Función para detectar intenciones de cancelación
+function isCancellationRequest(text) {
+  const cancellationWords = [
+    // ESPAÑOL - Expresiones de cancelación
+    'cancelar', 'cancelación', 'no quiero', 'no necesito', 'no voy a', 'no voy',
+    'al final no', 'mejor no', 'no gracias', 'no quiero reservar', 'no necesito reservar',
+    'no voy a reservar', 'no voy a hacer', 'no voy a hacer reserva', 'no voy a reservar mesa',
+    'mejor cancelo', 'quiero cancelar', 'necesito cancelar', 'deseo cancelar',
+    'no me interesa', 'no me convence', 'cambié de opinión', 'cambie de opinion',
+    'ya no quiero', 'ya no necesito', 'ya no voy', 'ya no voy a', 'ya no voy a reservar',
+    'mejor otro día', 'mejor después', 'mejor más tarde', 'mejor en otro momento',
+    'no está bien', 'no esta bien', 'no me parece bien', 'no me gusta',
+    'no me conviene', 'no me sirve', 'no me funciona', 'no me interesa',
+    'mejor no hago', 'mejor no reservo', 'mejor no hago reserva', 'mejor no reservo mesa',
+    'no gracias', 'no thank you', 'no thanks', 'no thank', 'no thank you very much',
+    'no quiero continuar', 'no quiero seguir', 'no quiero proceder', 'no quiero seguir adelante',
+    'mejor paro', 'mejor paro aquí', 'mejor paro acá', 'mejor paro ahora',
+    'mejor termino', 'mejor termino aquí', 'mejor termino acá', 'mejor termino ahora',
+    'mejor cuelgo', 'mejor cuelgo aquí', 'mejor cuelgo acá', 'mejor cuelgo ahora',
+    'mejor me voy', 'mejor me voy ahora', 'mejor me voy aquí', 'mejor me voy acá',
+    'mejor me despido', 'mejor me despido ahora', 'mejor me despido aquí', 'mejor me despido acá',
+    'mejor me retiro', 'mejor me retiro ahora', 'mejor me retiro aquí', 'mejor me retiro acá',
+    'mejor me voy a ir', 'mejor me voy a ir ahora', 'mejor me voy a ir aquí', 'mejor me voy a ir acá',
+    'mejor me voy a despedir', 'mejor me voy a despedir ahora', 'mejor me voy a despedir aquí', 'mejor me voy a despedir acá',
+    'mejor me voy a retirar', 'mejor me voy a retirar ahora', 'mejor me voy a retirar aquí', 'mejor me voy a retirar acá',
+    'mejor me voy a ir', 'mejor me voy a ir ahora', 'mejor me voy a ir aquí', 'mejor me voy a ir acá',
+    'mejor me voy a despedir', 'mejor me voy a despedir ahora', 'mejor me voy a despedir aquí', 'mejor me voy a despedir acá',
+    'mejor me voy a retirar', 'mejor me voy a retirar ahora', 'mejor me voy a retirar aquí', 'mejor me voy a retirar acá',
+    
+    // INGLÉS - Expresiones de cancelación
+    'cancel', 'cancellation', 'don\'t want', 'don\'t need', 'not going to', 'not going',
+    'actually no', 'better not', 'no thanks', 'don\'t want to book', 'don\'t need to book',
+    'not going to book', 'not going to make', 'not going to make reservation', 'not going to book table',
+    'better cancel', 'want to cancel', 'need to cancel', 'wish to cancel',
+    'not interested', 'not convinced', 'changed my mind', 'change my mind',
+    'don\'t want anymore', 'don\'t need anymore', 'not going anymore', 'not going to anymore',
+    'better another day', 'better later', 'better another time', 'better some other time',
+    'not good', 'not right', 'not suitable', 'not convenient', 'not working', 'not interested',
+    'better not do', 'better not book', 'better not make reservation', 'better not book table',
+    'no thank you', 'no thanks', 'no thank', 'no thank you very much',
+    'don\'t want to continue', 'don\'t want to proceed', 'don\'t want to go ahead',
+    'better stop', 'better stop here', 'better stop now',
+    'better end', 'better end here', 'better end now',
+    'better hang up', 'better hang up now',
+    'better go', 'better go now', 'better leave', 'better leave now',
+    'better say goodbye', 'better say goodbye now',
+    'better withdraw', 'better withdraw now',
+    
+    // ALEMÁN - Expresiones de cancelación
+    'stornieren', 'stornierung', 'nicht wollen', 'nicht brauchen', 'nicht gehen', 'nicht gehen zu',
+    'eigentlich nicht', 'besser nicht', 'nein danke', 'nicht reservieren wollen', 'nicht reservieren brauchen',
+    'nicht reservieren gehen', 'nicht machen gehen', 'nicht reservierung machen gehen', 'nicht tisch reservieren gehen',
+    'besser stornieren', 'stornieren wollen', 'stornieren brauchen', 'stornieren wünschen',
+    'nicht interessiert', 'nicht überzeugt', 'meinung geändert', 'meinung ändern',
+    'nicht mehr wollen', 'nicht mehr brauchen', 'nicht mehr gehen', 'nicht mehr gehen zu',
+    'besser anderen tag', 'besser später', 'besser andere zeit', 'besser andere zeit',
+    'nicht gut', 'nicht richtig', 'nicht geeignet', 'nicht bequem', 'nicht funktioniert', 'nicht interessiert',
+    'besser nicht machen', 'besser nicht buchen', 'besser nicht reservierung machen', 'besser nicht tisch buchen',
+    'nein danke', 'nein danke sehr',
+    'nicht weiter machen wollen', 'nicht fortfahren wollen', 'nicht vorwärts gehen wollen',
+    'besser aufhören', 'besser hier aufhören', 'besser jetzt aufhören',
+    'besser beenden', 'besser hier beenden', 'besser jetzt beenden',
+    'besser auflegen', 'besser jetzt auflegen',
+    'besser gehen', 'besser jetzt gehen', 'besser verlassen', 'besser jetzt verlassen',
+    'besser verabschieden', 'besser jetzt verabschieden',
+    'besser zurückziehen', 'besser jetzt zurückziehen',
+    
+    // ITALIANO - Expresiones de cancelación
+    'cancellare', 'cancellazione', 'non voglio', 'non ho bisogno', 'non vado', 'non vado a',
+    'in realtà no', 'meglio no', 'no grazie', 'non voglio prenotare', 'non ho bisogno di prenotare',
+    'non vado a prenotare', 'non vado a fare', 'non vado a fare prenotazione', 'non vado a prenotare tavolo',
+    'meglio cancellare', 'voglio cancellare', 'ho bisogno di cancellare', 'desidero cancellare',
+    'non interessato', 'non convinto', 'cambiato idea', 'cambiare idea',
+    'non voglio più', 'non ho più bisogno', 'non vado più', 'non vado più a',
+    'meglio un altro giorno', 'meglio dopo', 'meglio un\'altra volta', 'meglio un altro momento',
+    'non va bene', 'non è giusto', 'non è adatto', 'non è conveniente', 'non funziona', 'non interessato',
+    'meglio non fare', 'meglio non prenotare', 'meglio non fare prenotazione', 'meglio non prenotare tavolo',
+    'no grazie', 'no grazie molto',
+    'non voglio continuare', 'non voglio procedere', 'non voglio andare avanti',
+    'meglio fermarsi', 'meglio fermarsi qui', 'meglio fermarsi ora',
+    'meglio finire', 'meglio finire qui', 'meglio finire ora',
+    'meglio riattaccare', 'meglio riattaccare ora',
+    'meglio andare', 'meglio andare ora', 'meglio lasciare', 'meglio lasciare ora',
+    'meglio salutare', 'meglio salutare ora',
+    'meglio ritirarsi', 'meglio ritirarsi ora'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  
+  console.log(`🔍 [DEBUG] isCancellationRequest - Analizando: "${text}"`);
+  console.log(`🔍 [DEBUG] Texto en minúsculas: "${lowerText}"`);
+  
+  // Buscar coincidencias exactas de palabras
+  const hasCancellationWords = cancellationWords.some(word => lowerText.includes(word));
+  console.log(`🔍 [DEBUG] Palabras de cancelación encontradas: ${hasCancellationWords}`);
+  
+  // Buscar patrones de frases comunes de cancelación
+  const cancellationPatterns = [
+    // Patrones en español
+    /no\s+quiero\s+(?:hacer\s+)?(?:la\s+)?reserva/i,
+    /no\s+necesito\s+(?:hacer\s+)?(?:la\s+)?reserva/i,
+    /no\s+voy\s+a\s+(?:hacer\s+)?(?:la\s+)?reserva/i,
+    /al\s+final\s+no/i,
+    /mejor\s+no/i,
+    /cambié\s+de\s+opinión/i,
+    /ya\s+no\s+quiero/i,
+    /mejor\s+cancelo/i,
+    /quiero\s+cancelar/i,
+    /necesito\s+cancelar/i,
+    /deseo\s+cancelar/i,
+    /no\s+me\s+interesa/i,
+    /no\s+me\s+convence/i,
+    /no\s+me\s+gusta/i,
+    /no\s+me\s+conviene/i,
+    /no\s+me\s+sirve/i,
+    /no\s+me\s+funciona/i,
+    /mejor\s+no\s+hago/i,
+    /mejor\s+no\s+reservo/i,
+    /mejor\s+no\s+hago\s+reserva/i,
+    /mejor\s+no\s+reservo\s+mesa/i,
+    /no\s+quiero\s+continuar/i,
+    /no\s+quiero\s+seguir/i,
+    /no\s+quiero\s+proceder/i,
+    /no\s+quiero\s+seguir\s+adelante/i,
+    /mejor\s+paro/i,
+    /mejor\s+termino/i,
+    /mejor\s+cuelgo/i,
+    /mejor\s+me\s+voy/i,
+    /mejor\s+me\s+despido/i,
+    /mejor\s+me\s+retiro/i,
+    
+    // Patrones en inglés
+    /don\'t\s+want\s+to\s+(?:book|make\s+reservation)/i,
+    /don\'t\s+need\s+to\s+(?:book|make\s+reservation)/i,
+    /not\s+going\s+to\s+(?:book|make\s+reservation)/i,
+    /actually\s+no/i,
+    /better\s+not/i,
+    /changed\s+my\s+mind/i,
+    /don\'t\s+want\s+anymore/i,
+    /don\'t\s+need\s+anymore/i,
+    /not\s+going\s+anymore/i,
+    /better\s+cancel/i,
+    /want\s+to\s+cancel/i,
+    /need\s+to\s+cancel/i,
+    /wish\s+to\s+cancel/i,
+    /not\s+interested/i,
+    /not\s+convinced/i,
+    /not\s+good/i,
+    /not\s+right/i,
+    /not\s+suitable/i,
+    /not\s+convenient/i,
+    /not\s+working/i,
+    /better\s+not\s+do/i,
+    /better\s+not\s+book/i,
+    /better\s+not\s+make\s+reservation/i,
+    /better\s+not\s+book\s+table/i,
+    /don\'t\s+want\s+to\s+continue/i,
+    /don\'t\s+want\s+to\s+proceed/i,
+    /don\'t\s+want\s+to\s+go\s+ahead/i,
+    /better\s+stop/i,
+    /better\s+end/i,
+    /better\s+hang\s+up/i,
+    /better\s+go/i,
+    /better\s+leave/i,
+    /better\s+say\s+goodbye/i,
+    /better\s+withdraw/i,
+    
+    // Patrones en alemán
+    /nicht\s+reservieren\s+wollen/i,
+    /nicht\s+reservieren\s+brauchen/i,
+    /nicht\s+reservieren\s+gehen/i,
+    /nicht\s+machen\s+gehen/i,
+    /nicht\s+reservierung\s+machen\s+gehen/i,
+    /nicht\s+tisch\s+reservieren\s+gehen/i,
+    /eigentlich\s+nicht/i,
+    /besser\s+nicht/i,
+    /meinung\s+geändert/i,
+    /meinung\s+ändern/i,
+    /nicht\s+mehr\s+wollen/i,
+    /nicht\s+mehr\s+brauchen/i,
+    /nicht\s+mehr\s+gehen/i,
+    /nicht\s+mehr\s+gehen\s+zu/i,
+    /besser\s+stornieren/i,
+    /stornieren\s+wollen/i,
+    /stornieren\s+brauchen/i,
+    /stornieren\s+wünschen/i,
+    /nicht\s+interessiert/i,
+    /nicht\s+überzeugt/i,
+    /nicht\s+gut/i,
+    /nicht\s+richtig/i,
+    /nicht\s+geeignet/i,
+    /nicht\s+bequem/i,
+    /nicht\s+funktioniert/i,
+    /besser\s+nicht\s+machen/i,
+    /besser\s+nicht\s+buchen/i,
+    /besser\s+nicht\s+reservierung\s+machen/i,
+    /besser\s+nicht\s+tisch\s+buchen/i,
+    /nicht\s+weiter\s+machen\s+wollen/i,
+    /nicht\s+fortfahren\s+wollen/i,
+    /nicht\s+vorwärts\s+gehen\s+wollen/i,
+    /besser\s+aufhören/i,
+    /besser\s+beenden/i,
+    /besser\s+auflegen/i,
+    /besser\s+gehen/i,
+    /besser\s+verlassen/i,
+    /besser\s+verabschieden/i,
+    /besser\s+zurückziehen/i,
+    
+    // Patrones en italiano
+    /non\s+vuoi\s+(?:fare\s+)?(?:la\s+)?prenotazione/i,
+    /non\s+ho\s+bisogno\s+di\s+(?:fare\s+)?(?:la\s+)?prenotazione/i,
+    /non\s+vado\s+a\s+(?:fare\s+)?(?:la\s+)?prenotazione/i,
+    /in\s+realtà\s+no/i,
+    /meglio\s+no/i,
+    /cambiato\s+idea/i,
+    /cambiare\s+idea/i,
+    /non\s+vuoi\s+più/i,
+    /non\s+ho\s+più\s+bisogno/i,
+    /non\s+vado\s+più/i,
+    /non\s+vado\s+più\s+a/i,
+    /meglio\s+cancellare/i,
+    /vuoi\s+cancellare/i,
+    /ho\s+bisogno\s+di\s+cancellare/i,
+    /desidero\s+cancellare/i,
+    /non\s+interessato/i,
+    /non\s+convinto/i,
+    /non\s+va\s+bene/i,
+    /non\s+è\s+giusto/i,
+    /non\s+è\s+adatto/i,
+    /non\s+è\s+conveniente/i,
+    /non\s+funziona/i,
+    /meglio\s+non\s+fare/i,
+    /meglio\s+non\s+prenotare/i,
+    /meglio\s+non\s+fare\s+prenotazione/i,
+    /meglio\s+non\s+prenotare\s+tavolo/i,
+    /non\s+vuoi\s+continuare/i,
+    /non\s+vuoi\s+procedere/i,
+    /non\s+vuoi\s+andare\s+avanti/i,
+    /meglio\s+fermarsi/i,
+    /meglio\s+finire/i,
+    /meglio\s+riattaccare/i,
+    /meglio\s+andare/i,
+    /meglio\s+lasciare/i,
+    /meglio\s+salutare/i,
+    /meglio\s+ritirarsi/i
+  ];
+  
+  const hasPatterns = cancellationPatterns.some(pattern => pattern.test(lowerText));
+  console.log(`🔍 [DEBUG] Patrones de cancelación encontrados: ${hasPatterns}`);
+  
+  const result = hasCancellationWords || hasPatterns;
+  console.log(`🔍 [DEBUG] Resultado final isCancellationRequest: ${result}`);
   
   return result;
 }
