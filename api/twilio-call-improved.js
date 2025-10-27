@@ -1269,46 +1269,46 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancellation_goodbye: {
       es: [
-        'Perfecto, he cancelado su reserva. Gracias por llamar y esperamos que cambie de opinión. ¡Esperamos verle pronto en nuestro restaurante!',
-        'Entendido, la reserva ha sido cancelada. Gracias por contactarnos y esperamos que vuelva a considerar visitarnos. ¡Hasta pronto!',
-        'De acuerdo, he cancelado la reserva. Gracias por llamar y esperamos que tenga la oportunidad de conocernos en el futuro. ¡Que tenga un buen día!',
-        'Perfecto, la reserva está cancelada. Gracias por su tiempo y esperamos poder servirle en otra ocasión. ¡Esperamos verle pronto!',
-        'Entendido, he cancelado la reserva. Gracias por llamar y esperamos que cambie de opinión. ¡Esperamos darle la bienvenida pronto!'
+        'Perfecto, he cancelado su reserva. Espero haberle sido de ayuda. Le esperamos otro día en nuestro restaurante. ¡Que tenga un buen día!',
+        'Entendido, la reserva ha sido cancelada. Gracias por llamar y espero haberle sido de ayuda. Le esperamos en otra ocasión. ¡Hasta pronto!',
+        'De acuerdo, he cancelado la reserva. Espero haberle sido de ayuda. Le esperamos otro día en nuestro restaurante. ¡Que tenga un buen día!',
+        'Perfecto, la reserva está cancelada. Gracias por su tiempo y espero haberle sido de ayuda. Le esperamos en otra ocasión. ¡Hasta pronto!',
+        'Entendido, he cancelado la reserva. Espero haberle sido de ayuda. Le esperamos otro día en nuestro restaurante. ¡Que tenga un buen día!'
       ],
       en: [
-        'Perfect, I\'ve cancelled your reservation. Thank you for calling and we hope you change your mind. We look forward to seeing you soon at our restaurant!',
-        'Understood, the reservation has been cancelled. Thank you for contacting us and we hope you\'ll reconsider visiting us. See you soon!',
-        'All right, I\'ve cancelled the reservation. Thank you for calling and we hope you\'ll have the opportunity to get to know us in the future. Have a great day!',
-        'Perfect, the reservation is cancelled. Thank you for your time and we hope to serve you on another occasion. We look forward to seeing you soon!',
-        'Understood, I\'ve cancelled the reservation. Thank you for calling and we hope you change your mind. We look forward to welcoming you soon!'
+        'Perfect, I\'ve cancelled your reservation. I hope I was able to help you. We look forward to seeing you another day at our restaurant. Have a great day!',
+        'Understood, the reservation has been cancelled. Thank you for calling and I hope I was able to help you. We look forward to seeing you another time. See you soon!',
+        'All right, I\'ve cancelled the reservation. I hope I was able to help you. We look forward to seeing you another day at our restaurant. Have a great day!',
+        'Perfect, the reservation is cancelled. Thank you for your time and I hope I was able to help you. We look forward to seeing you another time. See you soon!',
+        'Understood, I\'ve cancelled the reservation. I hope I was able to help you. We look forward to seeing you another day at our restaurant. Have a great day!'
       ],
       de: [
-        'Perfekt, ich habe Ihre Reservierung storniert. Vielen Dank für Ihren Anruf und wir hoffen, dass Sie Ihre Meinung ändern. Wir freuen uns darauf, Sie bald in unserem Restaurant zu sehen!',
-        'Verstanden, die Reservierung wurde storniert. Vielen Dank für Ihre Kontaktaufnahme und wir hoffen, dass Sie einen Besuch bei uns in Betracht ziehen. Bis bald!',
-        'In Ordnung, ich habe die Reservierung storniert. Vielen Dank für Ihren Anruf und wir hoffen, dass Sie die Gelegenheit haben, uns in Zukunft kennenzulernen. Haben Sie einen schönen Tag!',
-        'Perfekt, die Reservierung ist storniert. Vielen Dank für Ihre Zeit und wir hoffen, Sie bei einer anderen Gelegenheit bedienen zu können. Wir freuen uns darauf, Sie bald zu sehen!',
-        'Verstanden, ich habe die Reservierung storniert. Vielen Dank für Ihren Anruf und wir hoffen, dass Sie Ihre Meinung ändern. Wir freuen uns darauf, Sie bald willkommen zu heißen!'
+        'Perfekt, ich habe Ihre Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag in unserem Restaurant zu sehen. Haben Sie einen schönen Tag!',
+        'Verstanden, die Reservierung wurde storniert. Vielen Dank für Ihren Anruf und ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie bei einer anderen Gelegenheit zu sehen. Bis bald!',
+        'In Ordnung, ich habe die Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag in unserem Restaurant zu sehen. Haben Sie einen schönen Tag!',
+        'Perfekt, die Reservierung ist storniert. Vielen Dank für Ihre Zeit und ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie bei einer anderen Gelegenheit zu sehen. Bis bald!',
+        'Verstanden, ich habe die Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag in unserem Restaurant zu sehen. Haben Sie einen schönen Tag!'
       ],
       it: [
-        'Perfetto, ho cancellato la tua prenotazione. Grazie per aver chiamato e speriamo che tu cambi idea. Non vediamo l\'ora di vederti presto nel nostro ristorante!',
-        'Capito, la prenotazione è stata cancellata. Grazie per averci contattato e speriamo che riconsideri di visitarci. A presto!',
-        'D\'accordo, ho cancellato la prenotazione. Grazie per aver chiamato e speriamo che tu abbia l\'opportunità di conoscerci in futuro. Buona giornata!',
-        'Perfetto, la prenotazione è cancellata. Grazie per il tuo tempo e speriamo di servirti in un\'altra occasione. Non vediamo l\'ora di vederti presto!',
-        'Capito, ho cancellato la prenotazione. Grazie per aver chiamato e speriamo che tu cambi idea. Non vediamo l\'ora di darti il benvenuto presto!'
+        'Perfetto, ho cancellato la tua prenotazione. Spero di averti aiutato. Non vediamo l\'ora di vederti un altro giorno nel nostro ristorante. Buona giornata!',
+        'Capito, la prenotazione è stata cancellata. Grazie per aver chiamato e spero di averti aiutato. Non vediamo l\'ora di vederti un\'altra volta. A presto!',
+        'D\'accordo, ho cancellato la prenotazione. Spero di averti aiutato. Non vediamo l\'ora di vederti un altro giorno nel nostro ristorante. Buona giornata!',
+        'Perfetto, la prenotazione è cancellata. Grazie per il tuo tempo e spero di averti aiutato. Non vediamo l\'ora di vederti un\'altra volta. A presto!',
+        'Capito, ho cancellato la prenotazione. Spero di averti aiutato. Non vediamo l\'ora di vederti un altro giorno nel nostro ristorante. Buona giornata!'
       ],
       fr: [
-        'Parfait, j\'ai annulé votre réservation. Merci d\'avoir appelé et nous espérons que vous changerez d\'avis. Nous avons hâte de vous voir bientôt dans notre restaurant!',
-        'Compris, la réservation a été annulée. Merci de nous avoir contactés et nous espérons que vous envisagerez de nous rendre visite. À bientôt!',
-        'D\'accord, j\'ai annulé la réservation. Merci d\'avoir appelé et nous espérons que vous aurez l\'opportunité de nous connaître à l\'avenir. Passez une bonne journée!',
-        'Parfait, la réservation est annulée. Merci pour votre temps et nous espérons vous servir à une autre occasion. Nous avons hâte de vous voir bientôt!',
-        'Compris, j\'ai annulé la réservation. Merci d\'avoir appelé et nous espérons que vous changerez d\'avis. Nous avons hâte de vous accueillir bientôt!'
+        'Parfait, j\'ai annulé votre réservation. J\'espère avoir pu vous aider. Nous avons hâte de vous voir un autre jour dans notre restaurant. Passez une bonne journée!',
+        'Compris, la réservation a été annulée. Merci d\'avoir appelé et j\'espère avoir pu vous aider. Nous avons hâte de vous voir une autre fois. À bientôt!',
+        'D\'accord, j\'ai annulé la réservation. J\'espère avoir pu vous aider. Nous avons hâte de vous voir un autre jour dans notre restaurant. Passez une bonne journée!',
+        'Parfait, la réservation est annulée. Merci pour votre temps et j\'espère avoir pu vous aider. Nous avons hâte de vous voir une autre fois. À bientôt!',
+        'Compris, j\'ai annulé la réservation. J\'espère avoir pu vous aider. Nous avons hâte de vous voir un autre jour dans notre restaurant. Passez une bonne journée!'
       ],
       pt: [
-        'Perfeito, cancelei sua reserva. Obrigado por ligar e esperamos que você mude de ideia. Esperamos vê-lo em breve em nosso restaurante!',
-        'Entendido, a reserva foi cancelada. Obrigado por nos contatar e esperamos que você considere nos visitar. Até logo!',
-        'Tudo bem, cancelei a reserva. Obrigado por ligar e esperamos que você tenha a oportunidade de nos conhecer no futuro. Tenha um ótimo dia!',
-        'Perfeito, a reserva está cancelada. Obrigado pelo seu tempo e esperamos atendê-lo em outra ocasião. Esperamos vê-lo em breve!',
-        'Entendido, cancelei a reserva. Obrigado por ligar e esperamos que você mude de ideia. Esperamos recebê-lo em breve!'
+        'Perfeito, cancelei sua reserva. Espero ter conseguido ajudá-lo. Esperamos vê-lo outro dia em nosso restaurante. Tenha um ótimo dia!',
+        'Entendido, a reserva foi cancelada. Obrigado por ligar e espero ter conseguido ajudá-lo. Esperamos vê-lo outra vez. Até logo!',
+        'Tudo bem, cancelei a reserva. Espero ter conseguido ajudá-lo. Esperamos vê-lo outro dia em nosso restaurante. Tenha um ótimo dia!',
+        'Perfeito, a reserva está cancelada. Obrigado pelo seu tempo e espero ter conseguido ajudá-lo. Esperamos vê-lo outra vez. Até logo!',
+        'Entendido, cancelei a reserva. Espero ter conseguido ajudá-lo. Esperamos vê-lo outro dia em nosso restaurante. Tenha um ótimo dia!'
       ]
     },
     cancellation_continue: {
