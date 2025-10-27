@@ -2821,7 +2821,7 @@ function isReservationRequest(text) {
 // Función para detectar intenciones de cancelación
 function isCancellationRequest(text) {
   const cancellationWords = [
-    // ESPAÑOL - Expresiones de cancelación
+    // ESPAÑOL - Expresiones de cancelación (palabras simples y comunes)
     'cancelar', 'cancelación', 'no quiero', 'no necesito', 'no voy a', 'no voy',
     'al final no', 'mejor no', 'no gracias', 'no quiero reservar', 'no necesito reservar',
     'no voy a reservar', 'no voy a hacer', 'no voy a hacer reserva', 'no voy a reservar mesa',
@@ -2843,9 +2843,27 @@ function isCancellationRequest(text) {
     'mejor me voy a ir', 'mejor me voy a ir ahora', 'mejor me voy a ir aquí', 'mejor me voy a ir acá',
     'mejor me voy a despedir', 'mejor me voy a despedir ahora', 'mejor me voy a despedir aquí', 'mejor me voy a despedir acá',
     'mejor me voy a retirar', 'mejor me voy a retirar ahora', 'mejor me voy a retirar aquí', 'mejor me voy a retirar acá',
-    'mejor me voy a ir', 'mejor me voy a ir ahora', 'mejor me voy a ir aquí', 'mejor me voy a ir acá',
-    'mejor me voy a despedir', 'mejor me voy a despedir ahora', 'mejor me voy a despedir aquí', 'mejor me voy a despedir acá',
-    'mejor me voy a retirar', 'mejor me voy a retirar ahora', 'mejor me voy a retirar aquí', 'mejor me voy a retirar acá',
+    
+    // PALABRAS SIMPLES Y COMUNES QUE LA GENTE USA
+    'no', 'no quiero', 'no necesito', 'no voy', 'no voy a', 'no voy a hacer',
+    'mejor no', 'mejor no hago', 'mejor no reservo', 'mejor no hago reserva',
+    'al final no', 'al final no quiero', 'al final no necesito', 'al final no voy',
+    'ya no', 'ya no quiero', 'ya no necesito', 'ya no voy', 'ya no voy a',
+    'cambié de opinión', 'cambie de opinion', 'cambié de idea', 'cambie de idea',
+    'mejor cancelo', 'quiero cancelar', 'necesito cancelar', 'deseo cancelar',
+    'no me interesa', 'no me convence', 'no me gusta', 'no me conviene',
+    'no me sirve', 'no me funciona', 'no me interesa', 'no me parece bien',
+    'no está bien', 'no esta bien', 'no me parece bien', 'no me gusta',
+    'mejor otro día', 'mejor después', 'mejor más tarde', 'mejor en otro momento',
+    'mejor no hago', 'mejor no reservo', 'mejor no hago reserva', 'mejor no reservo mesa',
+    'no gracias', 'no thank you', 'no thanks', 'no thank', 'no thank you very much',
+    'no quiero continuar', 'no quiero seguir', 'no quiero proceder', 'no quiero seguir adelante',
+    'mejor paro', 'mejor paro aquí', 'mejor paro acá', 'mejor paro ahora',
+    'mejor termino', 'mejor termino aquí', 'mejor termino acá', 'mejor termino ahora',
+    'mejor cuelgo', 'mejor cuelgo aquí', 'mejor cuelgo acá', 'mejor cuelgo ahora',
+    'mejor me voy', 'mejor me voy ahora', 'mejor me voy aquí', 'mejor me voy acá',
+    'mejor me despido', 'mejor me despido ahora', 'mejor me despido aquí', 'mejor me despido acá',
+    'mejor me retiro', 'mejor me retiro ahora', 'mejor me retiro aquí', 'mejor me retiro acá',
     
     // INGLÉS - Expresiones de cancelación
     'cancel', 'cancellation', 'don\'t want', 'don\'t need', 'not going to', 'not going',
@@ -2913,6 +2931,58 @@ function isCancellationRequest(text) {
   // Buscar coincidencias exactas de palabras
   const hasCancellationWords = cancellationWords.some(word => lowerText.includes(word));
   console.log(`🔍 [DEBUG] Palabras de cancelación encontradas: ${hasCancellationWords}`);
+  
+  // Buscar patrones simples de cancelación (más flexibles)
+  const simpleCancellationPatterns = [
+    // Patrones simples en español
+    /quiero\s+cancelar/i,
+    /necesito\s+cancelar/i,
+    /deseo\s+cancelar/i,
+    /mejor\s+cancelo/i,
+    /mejor\s+no/i,
+    /al\s+final\s+no/i,
+    /ya\s+no\s+quiero/i,
+    /ya\s+no\s+necesito/i,
+    /ya\s+no\s+voy/i,
+    /cambié\s+de\s+opinión/i,
+    /cambie\s+de\s+opinion/i,
+    /cambié\s+de\s+idea/i,
+    /cambie\s+de\s+idea/i,
+    /no\s+me\s+interesa/i,
+    /no\s+me\s+convence/i,
+    /no\s+me\s+gusta/i,
+    /no\s+me\s+conviene/i,
+    /no\s+quiero\s+continuar/i,
+    /no\s+quiero\s+seguir/i,
+    /mejor\s+paro/i,
+    /mejor\s+termino/i,
+    /mejor\s+cuelgo/i,
+    /mejor\s+me\s+voy/i,
+    /mejor\s+me\s+despido/i,
+    /mejor\s+me\s+retiro/i,
+    
+    // Patrones simples en inglés
+    /want\s+to\s+cancel/i,
+    /need\s+to\s+cancel/i,
+    /wish\s+to\s+cancel/i,
+    /better\s+cancel/i,
+    /better\s+not/i,
+    /actually\s+no/i,
+    /changed\s+my\s+mind/i,
+    /change\s+my\s+mind/i,
+    /not\s+interested/i,
+    /not\s+convinced/i,
+    /don\'t\s+want\s+to\s+continue/i,
+    /don\'t\s+want\s+to\s+proceed/i,
+    /better\s+stop/i,
+    /better\s+end/i,
+    /better\s+hang\s+up/i,
+    /better\s+leave/i,
+    /better\s+go/i
+  ];
+  
+  const hasSimplePatterns = simpleCancellationPatterns.some(pattern => pattern.test(lowerText));
+  console.log(`🔍 [DEBUG] Patrones simples de cancelación encontrados: ${hasSimplePatterns}`);
   
   // Buscar patrones de frases comunes de cancelación
   const cancellationPatterns = [
@@ -3068,8 +3138,11 @@ function isCancellationRequest(text) {
   const hasPatterns = cancellationPatterns.some(pattern => pattern.test(lowerText));
   console.log(`🔍 [DEBUG] Patrones de cancelación encontrados: ${hasPatterns}`);
   
-  const result = hasCancellationWords || hasPatterns;
+  const result = hasCancellationWords || hasSimplePatterns || hasPatterns;
   console.log(`🔍 [DEBUG] Resultado final isCancellationRequest: ${result}`);
+  console.log(`🔍 [DEBUG] - Palabras: ${hasCancellationWords}`);
+  console.log(`🔍 [DEBUG] - Patrones simples: ${hasSimplePatterns}`);
+  console.log(`🔍 [DEBUG] - Patrones complejos: ${hasPatterns}`);
   
   return result;
 }
