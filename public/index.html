@@ -3,58 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CronosAI Webhook</title>
+    <title>Sistema de Reservas Telefónicas</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             text-align: center;
-            padding: 2rem;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            max-width: 500px;
         }
         h1 {
-            margin: 0 0 1rem 0;
-            font-size: 2.5rem;
+            color: #333;
+            margin-bottom: 20px;
         }
         p {
-            font-size: 1.2rem;
-            margin: 0.5rem 0;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 30px;
         }
         .status {
-            margin-top: 2rem;
-            padding: 1rem;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-        }
-        .emoji {
-            font-size: 3rem;
-            margin-bottom: 1rem;
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            display: inline-block;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="emoji">📞</div>
-        <h1>CronosAI Webhook</h1>
-        <p>Sistema de Reservas por Voz</p>
-        <div class="status">
-            <p>✅ API Activa</p>
-            <p>Endpoints disponibles:</p>
-            <p><code>/api/webhook</code></p>
-            <p><code>/api/twilio-call</code></p>
-        </div>
+        <h1>🎤 Sistema de Reservas Telefónicas</h1>
+        <p>Este es el sistema de reservas telefónicas multilingüe con soporte para español, inglés, alemán e italiano.</p>
+        <p>El sistema está funcionando correctamente y listo para recibir llamadas.</p>
+        <div class="status">✅ Sistema Online</div>
     </div>
 </body>
 </html>
-
