@@ -100,22 +100,22 @@ async function processConversationStep(state, userInput) {
     return await handleCancellationRequest(state, userInput);
   }
 
-  // Detectar idioma en TODOS los pasos si hay input del usuario
+  // Detectar idioma solo en pasos específicos para evitar cambios inesperados
   if (userInput && userInput.trim()) {
-    const detectedLanguage = detectLanguage(userInput);
-    console.log(`🔍 [DEBUG] Detectando idioma para: "${userInput}"`);
-    console.log(`🌍 [DEBUG] Idioma detectado: ${detectedLanguage}`);
-    console.log(`🌍 [DEBUG] Idioma actual del estado: ${state.language}`);
-    
-    // Actualizar idioma si:
-    // 1. Es el primer paso (greeting) - siempre actualizar
-    // 2. Detectamos un idioma diferente al español con confianza
-    // 3. El idioma actual es español y detectamos otro idioma
-    if (step === 'greeting' || 
-        (detectedLanguage !== 'es' && detectedLanguage !== state.language) ||
-        (state.language === 'es' && detectedLanguage !== 'es')) {
-      console.log(`🔄 [DEBUG] Cambiando idioma de ${state.language} a ${detectedLanguage}`);
-      state.language = detectedLanguage;
+    // Solo detectar idioma en greeting o si estamos en proceso de cancelación
+    if (step === 'greeting' || step === 'cancelling') {
+      const detectedLanguage = detectLanguage(userInput);
+      console.log(`🔍 [DEBUG] Detectando idioma para: "${userInput}"`);
+      console.log(`🌍 [DEBUG] Idioma detectado: ${detectedLanguage}`);
+      console.log(`🌍 [DEBUG] Idioma actual del estado: ${state.language}`);
+      
+      // Actualizar idioma solo si es necesario
+      if (step === 'greeting' || 
+          (detectedLanguage !== 'es' && detectedLanguage !== state.language) ||
+          (state.language === 'es' && detectedLanguage !== 'es')) {
+        console.log(`🔄 [DEBUG] Cambiando idioma de ${state.language} a ${detectedLanguage}`);
+        state.language = detectedLanguage;
+      }
     }
     
     console.log(`📝 [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
@@ -459,21 +459,6 @@ async function processConversationStep(state, userInput) {
          };
        }
 
-    case 'cancelled':
-      // Estado de cancelación - cliente confirmó que quiere cancelar
-      console.log(`🚫 [CANCELLED] Cliente confirmó cancelación - colgando llamada`);
-      
-      // Limpiar el estado inmediatamente
-      setTimeout(() => conversationStates.delete(state.callSid), 5000);
-      
-      // Devolver mensaje de despedida (ya se envió en handleCancellationConfirmation)
-      // Este caso no debería ejecutarse normalmente, pero por seguridad
-      const cancelledMessages = getMultilingualMessages('cancellation_goodbye', state.language);
-      return {
-        message: getRandomMessage(cancelledMessages),
-        gather: false // No más interacción - CUELGA LA LLAMADA
-      };
-
     case 'complete':
       // Estado completado - reserva exitosa
       console.log(`✅ [COMPLETE] Reserva completada exitosamente`);
@@ -521,18 +506,15 @@ async function handleCancellationConfirmation(state, userInput) {
   const confirmation = handleConfirmationResponse(userInput);
   
   if (confirmation === 'yes') {
-    // Cancelación confirmada
-    console.log(`✅ [CANCELACIÓN] Cancelación confirmada por el usuario`);
-    
-    // Cambiar estado a cancelled (estado específico para cancelaciones)
-    state.step = 'cancelled';
+    // Cancelación confirmada - COLGAR DIRECTAMENTE
+    console.log(`✅ [CANCELACIÓN] Cancelación confirmada - colgando llamada`);
     
     // Obtener mensaje de despedida tras cancelación
     const goodbyeMessages = getMultilingualMessages('cancellation_goodbye', state.language);
     
     return {
       message: getRandomMessage(goodbyeMessages),
-      gather: false // No más interacción
+      gather: false // No más interacción - CUELGA LA LLAMADA
     };
   } else if (confirmation === 'no') {
     // Cancelación rechazada - volver al paso anterior
