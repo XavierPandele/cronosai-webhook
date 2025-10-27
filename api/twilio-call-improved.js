@@ -54,10 +54,7 @@ module.exports = async function handler(req, res) {
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
-      // Solo guardar la reserva si no es una cancelación
-      if (!state.cancelled) {
-        await saveReservation(state);
-      }
+      await saveReservation(state);
       // Limpiar el estado después de guardar
       setTimeout(() => conversationStates.delete(CallSid), 60000); // Limpiar después de 1 minuto
     }
@@ -462,9 +459,23 @@ async function processConversationStep(state, userInput) {
          };
        }
 
+    case 'cancelled':
+      // Estado de cancelación - cliente confirmó que quiere cancelar
+      console.log(`🚫 [CANCELLED] Cliente confirmó cancelación - colgando llamada`);
+      
+      // Limpiar el estado inmediatamente
+      setTimeout(() => conversationStates.delete(state.callSid), 5000);
+      
+      // Devolver mensaje de despedida (ya se envió en handleCancellationConfirmation)
+      // Este caso no debería ejecutarse normalmente, pero por seguridad
+      const cancelledMessages = getMultilingualMessages('cancellation_goodbye', state.language);
+      return {
+        message: getRandomMessage(cancelledMessages),
+        gather: false // No más interacción - CUELGA LA LLAMADA
+      };
+
     case 'complete':
-      // Estado completado - no debería llegar aquí normalmente
-      // Si llegamos aquí, significa que la reserva se completó exitosamente
+      // Estado completado - reserva exitosa
       console.log(`✅ [COMPLETE] Reserva completada exitosamente`);
       
       // Limpiar el estado después de un tiempo
@@ -513,9 +524,8 @@ async function handleCancellationConfirmation(state, userInput) {
     // Cancelación confirmada
     console.log(`✅ [CANCELACIÓN] Cancelación confirmada por el usuario`);
     
-    // Marcar como cancelado y cambiar estado a completado
-    state.cancelled = true;
-    state.step = 'complete';
+    // Cambiar estado a cancelled (estado específico para cancelaciones)
+    state.step = 'cancelled';
     
     // Obtener mensaje de despedida tras cancelación
     const goodbyeMessages = getMultilingualMessages('cancellation_goodbye', state.language);
