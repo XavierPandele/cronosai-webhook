@@ -4590,16 +4590,17 @@ async function findReservationsByPhone(phoneNumber) {
     
     try {
       // Buscar reservas activas (no canceladas) por teléfono
+      // Usar LIKE para buscar teléfonos que contengan el número (maneja diferentes formatos)
       const query = `
         SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions
         FROM RESERVA 
-        WHERE telefon = ? 
+        WHERE telefon LIKE ? 
         AND data_reserva >= NOW() 
         AND observacions NOT LIKE '%CANCELADA%'
         ORDER BY data_reserva ASC
       `;
       
-      const [rows] = await connection.execute(query, [phoneNumber]);
+      const [rows] = await connection.execute(query, [`%${phoneNumber}%`]);
       console.log(`📋 Encontradas ${rows.length} reservas para ${phoneNumber}`);
       
       return rows;
@@ -4808,7 +4809,15 @@ function extractPhoneFromText(text) {
   phonePatterns.forEach(pattern => {
     const found = text.match(pattern);
     if (found) {
-      matches.push(...found.map(match => match.replace(/[\s\-]/g, '')));
+      // Limpiar el número pero mantener el + si existe
+      matches.push(...found.map(match => {
+        const cleaned = match.replace(/[\s\-]/g, '');
+        // Si no tiene + y empieza por 34, agregarlo
+        if (!cleaned.startsWith('+') && cleaned.startsWith('34') && cleaned.length >= 9) {
+          return '+' + cleaned;
+        }
+        return cleaned;
+      }));
     }
   });
   
