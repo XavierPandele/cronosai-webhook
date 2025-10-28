@@ -565,9 +565,13 @@ async function handleModificationRequest(state, userInput) {
     console.log(`✏️ [DEBUG] Obteniendo mensajes para modify_ask_phone_choice en idioma: ${state.language}`);
     const phoneChoiceMessages = getMultilingualMessages('modify_ask_phone_choice', state.language);
     console.log(`✏️ [DEBUG] Mensajes de elección de teléfono:`, phoneChoiceMessages);
+    console.log(`✏️ [DEBUG] Tipo de phoneChoiceMessages:`, typeof phoneChoiceMessages);
+    console.log(`✏️ [DEBUG] Es array:`, Array.isArray(phoneChoiceMessages));
+    console.log(`✏️ [DEBUG] Longitud:`, phoneChoiceMessages ? phoneChoiceMessages.length : 'undefined');
     
     if (!phoneChoiceMessages || phoneChoiceMessages.length === 0) {
       console.error(`❌ [ERROR] No se encontraron mensajes para modify_ask_phone_choice en idioma: ${state.language}`);
+      console.error(`❌ [ERROR] phoneChoiceMessages:`, phoneChoiceMessages);
       return {
         message: "Error: No se encontraron mensajes de elección de teléfono",
         gather: true
@@ -2312,6 +2316,13 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Very well, to locate your reservation I need your number. Do you use the same number from this call or would you prefer to give me another one?',
         'Perfect, to modify I need to verify your identity. Do you want to use this number or would you prefer to use another one?',
         'Understood, to proceed with the modification I need your number. Do you use the same number you are calling from or do you have another one?'
+      ],
+      pt: [
+        'Perfeito, para modificar sua reserva preciso verificar sua identidade. Quer usar o mesmo número de telefone de onde está ligando ou prefere usar outro número?',
+        'Entendido, para buscar sua reserva preciso do seu número de telefone. Quer usar este mesmo número ou tem outro?',
+        'Muito bem, para localizar sua reserva preciso do seu número. Usa o mesmo número desta chamada ou prefere me dar outro?',
+        'Perfeito, para modificar preciso verificar sua identidade. Quer usar este número ou prefere usar outro?',
+        'Entendido, para prosseguir com a modificação preciso do seu número. Usa o mesmo número de onde está ligando ou tem outro?'
       ]
     },
     modify_ask_phone: {
@@ -2328,6 +2339,13 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Very well, to locate your reservation I need your phone number. What is it?',
         'Perfect, to modify I need to verify your identity. What is your phone number?',
         'Understood, to proceed with the modification I need your phone number. Could you give it to me?'
+      ],
+      pt: [
+        'Perfeito, para modificar sua reserva preciso do seu número de telefone. Qual é o seu número?',
+        'Entendido, para buscar sua reserva preciso do seu número de telefone. Poderia me dar seu número?',
+        'Muito bem, para localizar sua reserva preciso do seu número de telefone. Qual é?',
+        'Perfeito, para modificar preciso verificar sua identidade. Qual é o seu número de telefone?',
+        'Entendido, para prosseguir com a modificação preciso do seu número de telefone. Poderia me dar?'
       ]
     },
     modify_show_multiple: {
@@ -3422,6 +3440,12 @@ function detectLanguage(text) {
       'si', 'sí', 'vale', 'bueno', 'perfecto', 'claro', 'por supuesto',
       'adelante', 'continúo', 'procedo', 'acepto', 'confirmo',
       'me llamo', 'como te llamas', 'mi nombre',
+      // Patrones específicos de español para evitar confusión con portugués
+      'ya debo', 'debo cambiar', 'cambiar la fecha', 'fecha de mi',
+      'modificar mi reserva', 'cambiar mi reserva', 'editar mi reserva',
+      'actualizar mi reserva', 'quiero modificar', 'necesito cambiar',
+      'quiero cambiar', 'necesito modificar', 'quiero editar',
+      'necesito editar', 'quiero actualizar', 'necesito actualizar',
       // Expresiones más naturales y comunes en español
       'me gustaría reservar', 'quisiera reservar', 'deseo reservar', 'quiero reservar',
       'necesito reservar', 'busco reservar', 'quiero hacer una reserva',
