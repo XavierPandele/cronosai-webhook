@@ -147,7 +147,7 @@ async function processConversationStep(state, userInput) {
        };
 
      case 'ask_intention':
-       // Confirmar que quiere hacer una reserva
+       // Confirmar que quiere hacer una reserva o cancelar
        const intentionResult = handleIntentionResponse(text);
        
        if (intentionResult.action === 'reservation') {
@@ -157,6 +157,9 @@ async function processConversationStep(state, userInput) {
            message: getRandomMessage(reservationMessages),
            gather: true
          };
+       } else if (intentionResult.action === 'cancel') {
+         // Usuario quiere cancelar una reserva existente
+         return await handleCancellationRequest(state, userInput);
        } else if (intentionResult.action === 'clarify') {
          return {
            message: intentionResult.message,
@@ -169,6 +172,22 @@ async function processConversationStep(state, userInput) {
            gather: true
          };
        }
+
+     // ===== NUEVOS CASOS PARA CANCELACIÓN DE RESERVAS =====
+     case 'cancel_ask_phone':
+       return await handleCancelAskPhone(state, userInput);
+
+     case 'cancel_show_multiple':
+       return await handleCancelShowMultiple(state, userInput);
+
+     case 'cancel_confirm_single':
+       return await handleCancelConfirmSingle(state, userInput);
+
+     case 'cancel_confirm_multiple':
+       return await handleCancelConfirmMultiple(state, userInput);
+
+     case 'cancel_no_reservations':
+       return await handleCancelNoReservations(state, userInput);
 
      case 'ask_people':
        const people = extractPeopleCount(text);
@@ -487,79 +506,196 @@ async function processConversationStep(state, userInput) {
 }
 
 // Funciones para manejar cancelación de reservas
+// ===== NUEVAS FUNCIONES DE CANCELACIÓN DE RESERVAS EXISTENTES =====
+
 async function handleCancellationRequest(state, userInput) {
-  console.log(`🚫 [CANCELACIÓN] Iniciando proceso de cancelación`);
+  console.log(`🚫 [CANCELACIÓN] Iniciando proceso de cancelación de reserva existente`);
   
-  // Cambiar estado a cancelación
-  state.step = 'cancelling';
+  // Cambiar estado a solicitud de teléfono para cancelación
+  state.step = 'cancel_ask_phone';
+  state.cancellationData = {}; // Inicializar datos de cancelación
   
-  // Obtener mensaje de confirmación de cancelación
-  const cancellationMessages = getMultilingualMessages('cancellation_confirm', state.language);
+  // Obtener mensaje pidiendo número de teléfono
+  const phoneMessages = getMultilingualMessages('cancel_ask_phone', state.language);
   
   return {
-    message: getRandomMessage(cancellationMessages),
+    message: getRandomMessage(phoneMessages),
     gather: true
   };
 }
 
-async function handleCancellationConfirmation(state, userInput) {
-  console.log(`🚫 [CANCELACIÓN] Procesando confirmación de cancelación`);
+async function handleCancelAskPhone(state, userInput) {
+  console.log(`📞 [CANCELACIÓN] Procesando número de teléfono: ${userInput}`);
   
-  // Detectar si confirma la cancelación
-  const confirmation = detectCancellationConfirmation(userInput);
+  // Extraer número de teléfono del input
+  let phoneNumber = extractPhoneFromText(userInput);
   
-  if (confirmation === 'yes') {
-    // Cancelación confirmada - COLGAR DIRECTAMENTE
-    console.log(`✅ [CANCELACIÓN] Cancelación confirmada - colgando llamada`);
-    
-    // Obtener mensaje de despedida tras cancelación
-    const goodbyeMessages = getMultilingualMessages('cancellation_goodbye', state.language);
+  // Si no se encontró en el texto, usar el teléfono de la llamada
+  if (!phoneNumber) {
+    phoneNumber = state.phone;
+    console.log(`📞 [CANCELACIÓN] Usando teléfono de la llamada: ${phoneNumber}`);
+  }
+  
+  // Buscar reservas para este teléfono
+  const reservations = await findReservationsByPhone(phoneNumber);
+  
+  if (reservations.length === 0) {
+    // No hay reservas
+    console.log(`❌ [CANCELACIÓN] No se encontraron reservas para ${phoneNumber}`);
+    state.step = 'cancel_no_reservations';
+    const noReservationsMessages = getMultilingualMessages('cancel_no_reservations', state.language);
     
     return {
-      message: getRandomMessage(goodbyeMessages),
-      gather: false // No más interacción - CUELGA LA LLAMADA
+      message: getRandomMessage(noReservationsMessages),
+      gather: true
     };
-  } else if (confirmation === 'no') {
-    // Cancelación rechazada - volver al paso anterior
-    console.log(`🔄 [CANCELACIÓN] Cancelación rechazada, volviendo al proceso normal`);
+  } else if (reservations.length === 1) {
+    // Solo una reserva - mostrar detalles y pedir confirmación
+    console.log(`📋 [CANCELACIÓN] Una reserva encontrada:`, reservations[0]);
+    state.step = 'cancel_confirm_single';
+    state.cancellationData = {
+      phone: phoneNumber,
+      reservations: reservations,
+      selectedReservation: reservations[0]
+    };
     
-    // Determinar a qué paso volver basado en los datos que ya tenemos
-    if (state.data.NumPersonas) {
-      if (state.data.FechaReserva) {
-        if (state.data.HoraReserva) {
-          if (state.data.NombreCliente) {
-            state.step = 'ask_phone';
-          } else {
-            state.step = 'ask_name';
-          }
-        } else {
-          state.step = 'ask_time';
-        }
-      } else {
-        state.step = 'ask_date';
-      }
-    } else {
-      state.step = 'ask_people';
-    }
-    
-    // Obtener mensaje de continuación
-    const continueMessages = getMultilingualMessages('cancellation_continue', state.language);
+    const singleReservationMessages = getMultilingualMessages('cancel_show_single', state.language);
+    const reservationText = formatReservationForDisplay(reservations[0], 0, state.language).single;
     
     return {
-      message: getRandomMessage(continueMessages),
+      message: `${getRandomMessage(singleReservationMessages)} ${reservationText}. ${getRandomMessage(getMultilingualMessages('cancel_confirm', state.language))}`,
       gather: true
     };
   } else {
-    // Respuesta no clara - pedir aclaración
-    console.log(`❓ [CANCELACIÓN] Respuesta no clara, pidiendo aclaración`);
+    // Múltiples reservas - mostrar lista
+    console.log(`📋 [CANCELACIÓN] Múltiples reservas encontradas: ${reservations.length}`);
+    state.step = 'cancel_show_multiple';
+    state.cancellationData = {
+      phone: phoneNumber,
+      reservations: reservations
+    };
     
-    const unclearMessages = getMultilingualMessages('cancellation_unclear', state.language);
+    const multipleReservationsMessages = getMultilingualMessages('cancel_show_multiple', state.language);
+    let message = getRandomMessage(multipleReservationsMessages);
     
+    // Agregar cada reserva como opción
+    reservations.forEach((reservation, index) => {
+      const reservationText = formatReservationForDisplay(reservation, index, state.language).option;
+      message += ` ${reservationText}.`;
+    });
+    
+    message += ` ${getRandomMessage(getMultilingualMessages('cancel_choose_option', state.language))}`;
+    
+    return {
+      message: message,
+      gather: true
+    };
+  }
+}
+
+async function handleCancelShowMultiple(state, userInput) {
+  console.log(`🔢 [CANCELACIÓN] Procesando selección de reserva: ${userInput}`);
+  
+  // Extraer número de opción del input
+  const optionMatch = userInput.match(/(\d+)/);
+  if (!optionMatch) {
+    const unclearMessages = getMultilingualMessages('cancel_unclear_option', state.language);
     return {
       message: getRandomMessage(unclearMessages),
       gather: true
     };
   }
+  
+  const selectedIndex = parseInt(optionMatch[1]) - 1; // Convertir a índice 0-based
+  const reservations = state.cancellationData.reservations;
+  
+  if (selectedIndex < 0 || selectedIndex >= reservations.length) {
+    const invalidMessages = getMultilingualMessages('cancel_invalid_option', state.language);
+    return {
+      message: getRandomMessage(invalidMessages),
+      gather: true
+    };
+  }
+  
+  // Guardar reserva seleccionada y pedir confirmación
+  const selectedReservation = reservations[selectedIndex];
+  state.cancellationData.selectedReservation = selectedReservation;
+  state.step = 'cancel_confirm_multiple';
+  
+  const confirmMessages = getMultilingualMessages('cancel_confirm_selected', state.language);
+  const reservationText = formatReservationForDisplay(selectedReservation, selectedIndex, state.language).single;
+  
+  return {
+    message: `${getRandomMessage(confirmMessages)} ${reservationText}. ${getRandomMessage(getMultilingualMessages('cancel_confirm', state.language))}`,
+    gather: true
+  };
+}
+
+async function handleCancelConfirmSingle(state, userInput) {
+  return await handleCancelConfirmation(state, userInput);
+}
+
+async function handleCancelConfirmMultiple(state, userInput) {
+  return await handleCancelConfirmation(state, userInput);
+}
+
+async function handleCancelConfirmation(state, userInput) {
+  console.log(`✅ [CANCELACIÓN] Procesando confirmación: ${userInput}`);
+  
+  if (isCancellationConfirmation(userInput)) {
+    // Confirmar cancelación
+    const selectedReservation = state.cancellationData.selectedReservation;
+    const success = await cancelReservation(selectedReservation.id, state.cancellationData.phone);
+    
+    if (success) {
+      console.log(`✅ [CANCELACIÓN] Reserva cancelada exitosamente`);
+      state.step = 'cancel_success';
+      const successMessages = getMultilingualMessages('cancel_success', state.language);
+      
+      return {
+        message: getRandomMessage(successMessages),
+        gather: false // Terminar llamada
+      };
+    } else {
+      console.log(`❌ [CANCELACIÓN] Error cancelando reserva`);
+      state.step = 'cancel_error';
+      const errorMessages = getMultilingualMessages('cancel_error', state.language);
+      
+      return {
+        message: getRandomMessage(errorMessages),
+        gather: false // Terminar llamada
+      };
+    }
+  } else if (isCancellationDenial(userInput)) {
+    // Rechazar cancelación
+    console.log(`🔄 [CANCELACIÓN] Cancelación rechazada`);
+    state.step = 'greeting'; // Volver al inicio
+    const cancelledMessages = getMultilingualMessages('cancel_cancelled', state.language);
+    
+    return {
+      message: getRandomMessage(cancelledMessages),
+      gather: true
+    };
+  } else {
+    // Respuesta no clara
+    const unclearMessages = getMultilingualMessages('cancel_unclear_confirmation', state.language);
+    return {
+      message: getRandomMessage(unclearMessages),
+      gather: true
+    };
+  }
+}
+
+async function handleCancelNoReservations(state, userInput) {
+  console.log(`❌ [CANCELACIÓN] No hay reservas - ofreciendo nueva reserva`);
+  
+  // Preguntar si quiere hacer una nueva reserva
+  const newReservationMessages = getMultilingualMessages('cancel_offer_new', state.language);
+  
+  return {
+    message: getRandomMessage(newReservationMessages),
+    gather: true
+  };
 }
 
 function generateTwiML(response, language = 'es') {
@@ -696,46 +832,46 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
   const messages = {
     greeting: {
       es: [
-        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?',
-        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy?',
-        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle?',
-        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita?',
-        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle?'
+        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle? Puede hacer una nueva reserva o cancelar una existente.',
+        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy? Puede reservar una mesa o cancelar una reserva existente.',
+        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle? Puedo ayudarle con una nueva reserva o cancelar una existente.',
+        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita? Puede hacer una reserva o cancelar una existente.',
+        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle? Puede reservar o cancelar una reserva.'
       ],
       en: [
-        'Hello! Welcome to our restaurant. How can I help you?',
-        'Good morning! Welcome. How can I assist you today?',
-        'Hello! Thank you for calling. How can I help you?',
-        'Good afternoon! Welcome to the restaurant. What do you need?',
-        'Hello! Delighted to serve you. How can I help you?'
+        'Hello! Welcome to our restaurant. How can I help you? You can make a new reservation or cancel an existing one.',
+        'Good morning! Welcome. How can I assist you today? You can book a table or cancel an existing reservation.',
+        'Hello! Thank you for calling. How can I help you? I can help you with a new reservation or cancel an existing one.',
+        'Good afternoon! Welcome to the restaurant. What do you need? You can make a reservation or cancel an existing one.',
+        'Hello! Delighted to serve you. How can I help you? You can book or cancel a reservation.'
       ],
       de: [
-        'Hallo! Willkommen in unserem Restaurant. Wie kann ich Ihnen helfen?',
-        'Guten Morgen! Willkommen. Wie kann ich Ihnen heute helfen?',
-        'Hallo! Vielen Dank für Ihren Anruf. Wie kann ich Ihnen helfen?',
-        'Guten Tag! Willkommen im Restaurant. Was benötigen Sie?',
-        'Hallo! Freue mich, Ihnen zu dienen. Wie kann ich Ihnen helfen?'
+        'Hallo! Willkommen in unserem Restaurant. Wie kann ich Ihnen helfen? Sie können eine neue Reservierung vornehmen oder eine bestehende stornieren.',
+        'Guten Morgen! Willkommen. Wie kann ich Ihnen heute helfen? Sie können einen Tisch reservieren oder eine bestehende Reservierung stornieren.',
+        'Hallo! Vielen Dank für Ihren Anruf. Wie kann ich Ihnen helfen? Ich kann Ihnen bei einer neuen Reservierung helfen oder eine bestehende stornieren.',
+        'Guten Tag! Willkommen im Restaurant. Was benötigen Sie? Sie können eine Reservierung vornehmen oder eine bestehende stornieren.',
+        'Hallo! Freue mich, Ihnen zu dienen. Wie kann ich Ihnen helfen? Sie können reservieren oder eine Reservierung stornieren.'
       ],
       it: [
-        'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarti?',
-        'Buongiorno! Benvenuto. Come posso assisterti oggi?',
-        'Ciao! Grazie per la chiamata. Come posso aiutarti?',
-        'Buon pomeriggio! Benvenuto nel ristorante. Di cosa hai bisogno?',
-        'Ciao! Felice di servirti. Come posso aiutarti?'
+        'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarti? Puoi fare una nuova prenotazione o cancellare una esistente.',
+        'Buongiorno! Benvenuto. Come posso assisterti oggi? Puoi prenotare un tavolo o cancellare una prenotazione esistente.',
+        'Ciao! Grazie per la chiamata. Come posso aiutarti? Posso aiutarti con una nuova prenotazione o cancellare una esistente.',
+        'Buon pomeriggio! Benvenuto nel ristorante. Di cosa hai bisogno? Puoi fare una prenotazione o cancellare una esistente.',
+        'Ciao! Felice di servirti. Come posso aiutarti? Puoi prenotare o cancellare una prenotazione.'
       ],
       fr: [
-        'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider?',
-        'Bonjour! Bienvenue. Comment puis-je vous assister aujourd\'hui?',
-        'Bonjour! Merci d\'avoir appelé. Comment puis-je vous aider?',
-        'Bonjour! Bienvenue au restaurant. De quoi avez-vous besoin?',
-        'Bonjour! Ravi de vous servir. Comment puis-je vous aider?'
+        'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider? Vous pouvez faire une nouvelle réservation ou annuler une existante.',
+        'Bonjour! Bienvenue. Comment puis-je vous assister aujourd\'hui? Vous pouvez réserver une table ou annuler une réservation existante.',
+        'Bonjour! Merci d\'avoir appelé. Comment puis-je vous aider? Je peux vous aider avec une nouvelle réservation ou annuler une existante.',
+        'Bonjour! Bienvenue au restaurant. De quoi avez-vous besoin? Vous pouvez faire une réservation ou annuler une existante.',
+        'Bonjour! Ravi de vous servir. Comment puis-je vous aider? Vous pouvez réserver ou annuler une réservation.'
       ],
       pt: [
-        'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo?',
-        'Bom dia! Bem-vindo. Como posso ajudá-lo hoje?',
-        'Olá! Obrigado por ligar. Como posso ajudá-lo?',
-        'Boa tarde! Bem-vindo ao restaurante. O que você precisa?',
-        'Olá! Prazer em atendê-lo. Como posso ajudá-lo?'
+        'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo? Você pode fazer uma nova reserva ou cancelar uma existente.',
+        'Bom dia! Bem-vindo. Como posso ajudá-lo hoje? Você pode reservar uma mesa ou cancelar uma reserva existente.',
+        'Olá! Obrigado por ligar. Como posso ajudá-lo? Posso ajudá-lo com uma nova reserva ou cancelar uma existente.',
+        'Boa tarde! Bem-vindo ao restaurante. O que você precisa? Você pode fazer uma reserva ou cancelar uma existente.',
+        'Olá! Prazer em atendê-lo. Como posso ajudá-lo? Você pode reservar ou cancelar uma reserva.'
       ]
     },
     reservation: {
@@ -1498,6 +1634,623 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Como posso ajudá-lo? Gostaria de reservar uma mesa?',
         'O que você precisa? Gostaria de fazer uma reserva?',
         'Como posso ajudá-lo? Quer fazer uma reserva?'
+      ]
+    },
+    // ===== MENSAJES PARA CANCELACIÓN DE RESERVAS =====
+    cancel_ask_phone: {
+      es: [
+        'Perfecto, para cancelar su reserva necesito su número de teléfono. ¿Cuál es su número?',
+        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Podría darme su número?',
+        'Muy bien, para localizar su reserva necesito su número de teléfono. ¿Cuál es?',
+        'Perfecto, para cancelar necesito verificar su identidad. ¿Cuál es su número de teléfono?',
+        'Entendido, para proceder con la cancelación necesito su número de teléfono. ¿Podría darmelo?'
+      ],
+      en: [
+        'Perfect, to cancel your reservation I need your phone number. What is your number?',
+        'Understood, to find your reservation I need your phone number. Could you give me your number?',
+        'Very well, to locate your reservation I need your phone number. What is it?',
+        'Perfect, to cancel I need to verify your identity. What is your phone number?',
+        'Understood, to proceed with the cancellation I need your phone number. Could you give it to me?'
+      ],
+      de: [
+        'Perfekt, um Ihre Reservierung zu stornieren, brauche ich Ihre Telefonnummer. Wie lautet Ihre Nummer?',
+        'Verstanden, um Ihre Reservierung zu finden, brauche ich Ihre Telefonnummer. Könnten Sie mir Ihre Nummer geben?',
+        'Sehr gut, um Ihre Reservierung zu finden, brauche ich Ihre Telefonnummer. Wie lautet sie?',
+        'Perfekt, um zu stornieren, muss ich Ihre Identität überprüfen. Wie lautet Ihre Telefonnummer?',
+        'Verstanden, um mit der Stornierung fortzufahren, brauche ich Ihre Telefonnummer. Könnten Sie sie mir geben?'
+      ],
+      it: [
+        'Perfetto, per cancellare la sua prenotazione ho bisogno del suo numero di telefono. Qual è il suo numero?',
+        'Capito, per trovare la sua prenotazione ho bisogno del suo numero di telefono. Potrebbe darmi il suo numero?',
+        'Molto bene, per localizzare la sua prenotazione ho bisogno del suo numero di telefono. Qual è?',
+        'Perfetto, per cancellare devo verificare la sua identità. Qual è il suo numero di telefono?',
+        'Capito, per procedere con la cancellazione ho bisogno del suo numero di telefono. Potrebbe darmelo?'
+      ],
+      fr: [
+        'Parfait, pour annuler votre réservation j\'ai besoin de votre numéro de téléphone. Quel est votre numéro?',
+        'Compris, pour trouver votre réservation j\'ai besoin de votre numéro de téléphone. Pourriez-vous me donner votre numéro?',
+        'Très bien, pour localiser votre réservation j\'ai besoin de votre numéro de téléphone. Quel est-il?',
+        'Parfait, pour annuler je dois vérifier votre identité. Quel est votre numéro de téléphone?',
+        'Compris, pour procéder à l\'annulation j\'ai besoin de votre numéro de téléphone. Pourriez-vous me le donner?'
+      ],
+      pt: [
+        'Perfeito, para cancelar sua reserva preciso do seu número de telefone. Qual é o seu número?',
+        'Entendido, para encontrar sua reserva preciso do seu número de telefone. Poderia me dar o seu número?',
+        'Muito bem, para localizar sua reserva preciso do seu número de telefone. Qual é?',
+        'Perfeito, para cancelar preciso verificar sua identidade. Qual é o seu número de telefone?',
+        'Entendido, para prosseguir com o cancelamento preciso do seu número de telefone. Poderia me dar?'
+      ]
+    },
+    cancel_show_single: {
+      es: [
+        'He encontrado su reserva:',
+        'Perfecto, he localizado su reserva:',
+        'Excelente, he encontrado su reserva:',
+        'Muy bien, aquí está su reserva:',
+        'Perfecto, aquí tiene su reserva:'
+      ],
+      en: [
+        'I found your reservation:',
+        'Perfect, I located your reservation:',
+        'Excellent, I found your reservation:',
+        'Very well, here is your reservation:',
+        'Perfect, here is your reservation:'
+      ],
+      de: [
+        'Ich habe Ihre Reservierung gefunden:',
+        'Perfekt, ich habe Ihre Reservierung gefunden:',
+        'Ausgezeichnet, ich habe Ihre Reservierung gefunden:',
+        'Sehr gut, hier ist Ihre Reservierung:',
+        'Perfekt, hier ist Ihre Reservierung:'
+      ],
+      it: [
+        'Ho trovato la sua prenotazione:',
+        'Perfetto, ho localizzato la sua prenotazione:',
+        'Eccellente, ho trovato la sua prenotazione:',
+        'Molto bene, ecco la sua prenotazione:',
+        'Perfetto, ecco la sua prenotazione:'
+      ],
+      fr: [
+        'J\'ai trouvé votre réservation:',
+        'Parfait, j\'ai localisé votre réservation:',
+        'Excellent, j\'ai trouvé votre réservation:',
+        'Très bien, voici votre réservation:',
+        'Parfait, voici votre réservation:'
+      ],
+      pt: [
+        'Encontrei sua reserva:',
+        'Perfeito, localizei sua reserva:',
+        'Excelente, encontrei sua reserva:',
+        'Muito bem, aqui está sua reserva:',
+        'Perfeito, aqui está sua reserva:'
+      ]
+    },
+    cancel_show_multiple: {
+      es: [
+        'He encontrado varias reservas a su nombre:',
+        'Perfecto, he localizado múltiples reservas:',
+        'Excelente, he encontrado varias reservas:',
+        'Muy bien, aquí están sus reservas:',
+        'Perfecto, aquí tiene sus reservas:'
+      ],
+      en: [
+        'I found several reservations under your name:',
+        'Perfect, I located multiple reservations:',
+        'Excellent, I found several reservations:',
+        'Very well, here are your reservations:',
+        'Perfect, here are your reservations:'
+      ],
+      de: [
+        'Ich habe mehrere Reservierungen unter Ihrem Namen gefunden:',
+        'Perfekt, ich habe mehrere Reservierungen gefunden:',
+        'Ausgezeichnet, ich habe mehrere Reservierungen gefunden:',
+        'Sehr gut, hier sind Ihre Reservierungen:',
+        'Perfekt, hier sind Ihre Reservierungen:'
+      ],
+      it: [
+        'Ho trovato diverse prenotazioni a suo nome:',
+        'Perfetto, ho localizzato più prenotazioni:',
+        'Eccellente, ho trovato diverse prenotazioni:',
+        'Molto bene, ecco le sue prenotazioni:',
+        'Perfetto, ecco le sue prenotazioni:'
+      ],
+      fr: [
+        'J\'ai trouvé plusieurs réservations à votre nom:',
+        'Parfait, j\'ai localisé plusieurs réservations:',
+        'Excellent, j\'ai trouvé plusieurs réservations:',
+        'Très bien, voici vos réservations:',
+        'Parfait, voici vos réservations:'
+      ],
+      pt: [
+        'Encontrei várias reservas em seu nome:',
+        'Perfeito, localizei múltiplas reservas:',
+        'Excelente, encontrei várias reservas:',
+        'Muito bem, aqui estão suas reservas:',
+        'Perfeito, aqui estão suas reservas:'
+      ]
+    },
+    cancel_choose_option: {
+      es: [
+        'Por favor, dígame qué opción desea cancelar. Puede decir "opción 1", "opción 2", etc.',
+        '¿Cuál de estas reservas desea cancelar? Diga el número de la opción.',
+        'Por favor, indique qué reserva quiere cancelar. Diga "primera", "segunda", etc.',
+        '¿Qué opción desea cancelar? Puede decir el número de la opción.',
+        'Por favor, elija qué reserva cancelar. Diga el número correspondiente.'
+      ],
+      en: [
+        'Please tell me which option you want to cancel. You can say "option 1", "option 2", etc.',
+        'Which of these reservations do you want to cancel? Say the option number.',
+        'Please indicate which reservation you want to cancel. Say "first", "second", etc.',
+        'Which option do you want to cancel? You can say the option number.',
+        'Please choose which reservation to cancel. Say the corresponding number.'
+      ],
+      de: [
+        'Bitte sagen Sie mir, welche Option Sie stornieren möchten. Sie können "Option 1", "Option 2" usw. sagen.',
+        'Welche dieser Reservierungen möchten Sie stornieren? Sagen Sie die Optionsnummer.',
+        'Bitte geben Sie an, welche Reservierung Sie stornieren möchten. Sagen Sie "erste", "zweite" usw.',
+        'Welche Option möchten Sie stornieren? Sie können die Optionsnummer sagen.',
+        'Bitte wählen Sie, welche Reservierung storniert werden soll. Sagen Sie die entsprechende Nummer.'
+      ],
+      it: [
+        'Per favore, dimmi quale opzione vuoi cancellare. Puoi dire "opzione 1", "opzione 2", ecc.',
+        'Quale di queste prenotazioni vuoi cancellare? Di\' il numero dell\'opzione.',
+        'Per favore, indica quale prenotazione vuoi cancellare. Di\' "prima", "seconda", ecc.',
+        'Quale opzione vuoi cancellare? Puoi dire il numero dell\'opzione.',
+        'Per favore, scegli quale prenotazione cancellare. Di\' il numero corrispondente.'
+      ],
+      fr: [
+        'Veuillez me dire quelle option vous voulez annuler. Vous pouvez dire "option 1", "option 2", etc.',
+        'Laquelle de ces réservations voulez-vous annuler? Dites le numéro de l\'option.',
+        'Veuillez indiquer quelle réservation vous voulez annuler. Dites "première", "deuxième", etc.',
+        'Quelle option voulez-vous annuler? Vous pouvez dire le numéro de l\'option.',
+        'Veuillez choisir quelle réservation annuler. Dites le numéro correspondant.'
+      ],
+      pt: [
+        'Por favor, me diga qual opção você quer cancelar. Você pode dizer "opção 1", "opção 2", etc.',
+        'Qual dessas reservas você quer cancelar? Diga o número da opção.',
+        'Por favor, indique qual reserva você quer cancelar. Diga "primeira", "segunda", etc.',
+        'Qual opção você quer cancelar? Você pode dizer o número da opção.',
+        'Por favor, escolha qual reserva cancelar. Diga o número correspondente.'
+      ]
+    },
+    cancel_confirm: {
+      es: [
+        '¿Está seguro de que desea cancelar esta reserva?',
+        '¿Confirma que quiere cancelar esta reserva?',
+        '¿Desea proceder con la cancelación?',
+        '¿Está completamente seguro de cancelar?',
+        '¿Confirma la cancelación de esta reserva?'
+      ],
+      en: [
+        'Are you sure you want to cancel this reservation?',
+        'Do you confirm that you want to cancel this reservation?',
+        'Do you want to proceed with the cancellation?',
+        'Are you completely sure about canceling?',
+        'Do you confirm the cancellation of this reservation?'
+      ],
+      de: [
+        'Sind Sie sicher, dass Sie diese Reservierung stornieren möchten?',
+        'Bestätigen Sie, dass Sie diese Reservierung stornieren möchten?',
+        'Möchten Sie mit der Stornierung fortfahren?',
+        'Sind Sie sich völlig sicher, dass Sie stornieren möchten?',
+        'Bestätigen Sie die Stornierung dieser Reservierung?'
+      ],
+      it: [
+        'È sicuro di voler cancellare questa prenotazione?',
+        'Conferma di voler cancellare questa prenotazione?',
+        'Vuole procedere con la cancellazione?',
+        'È completamente sicuro di cancellare?',
+        'Conferma la cancellazione di questa prenotazione?'
+      ],
+      fr: [
+        'Êtes-vous sûr de vouloir annuler cette réservation?',
+        'Confirmez-vous que vous voulez annuler cette réservation?',
+        'Voulez-vous procéder à l\'annulation?',
+        'Êtes-vous complètement sûr d\'annuler?',
+        'Confirmez-vous l\'annulation de cette réservation?'
+      ],
+      pt: [
+        'Tem certeza de que quer cancelar esta reserva?',
+        'Confirma que quer cancelar esta reserva?',
+        'Quer prosseguir com o cancelamento?',
+        'Tem certeza absoluta de cancelar?',
+        'Confirma o cancelamento desta reserva?'
+      ]
+    },
+    cancel_confirm_selected: {
+      es: [
+        'Perfecto, ha seleccionado:',
+        'Excelente, ha elegido:',
+        'Muy bien, ha escogido:',
+        'Perfecto, su selección es:',
+        'Excelente, ha seleccionado:'
+      ],
+      en: [
+        'Perfect, you selected:',
+        'Excellent, you chose:',
+        'Very well, you picked:',
+        'Perfect, your selection is:',
+        'Excellent, you selected:'
+      ],
+      de: [
+        'Perfekt, Sie haben ausgewählt:',
+        'Ausgezeichnet, Sie haben gewählt:',
+        'Sehr gut, Sie haben ausgewählt:',
+        'Perfekt, Ihre Auswahl ist:',
+        'Ausgezeichnet, Sie haben ausgewählt:'
+      ],
+      it: [
+        'Perfetto, ha selezionato:',
+        'Eccellente, ha scelto:',
+        'Molto bene, ha scelto:',
+        'Perfetto, la sua selezione è:',
+        'Eccellente, ha selezionato:'
+      ],
+      fr: [
+        'Parfait, vous avez sélectionné:',
+        'Excellent, vous avez choisi:',
+        'Très bien, vous avez choisi:',
+        'Parfait, votre sélection est:',
+        'Excellent, vous avez sélectionné:'
+      ],
+      pt: [
+        'Perfeito, você selecionou:',
+        'Excelente, você escolheu:',
+        'Muito bem, você escolheu:',
+        'Perfeito, sua seleção é:',
+        'Excelente, você selecionou:'
+      ]
+    },
+    cancel_success: {
+      es: [
+        '¡Perfecto! Su reserva ha sido cancelada exitosamente. Gracias por avisarnos. ¡Que tenga un buen día!',
+        '¡Excelente! La reserva ha sido cancelada correctamente. Gracias por notificarnos. ¡Hasta pronto!',
+        '¡Muy bien! Su reserva se ha cancelado exitosamente. Gracias por contactarnos. ¡Que tenga buen día!',
+        '¡Perfecto! La cancelación se ha procesado correctamente. Gracias por avisarnos. ¡Hasta la próxima!',
+        '¡Excelente! Su reserva ha sido cancelada. Gracias por notificarnos a tiempo. ¡Que tenga buen día!'
+      ],
+      en: [
+        'Perfect! Your reservation has been canceled successfully. Thank you for letting us know. Have a great day!',
+        'Excellent! The reservation has been canceled correctly. Thank you for notifying us. See you soon!',
+        'Very well! Your reservation has been canceled successfully. Thank you for contacting us. Have a great day!',
+        'Perfect! The cancellation has been processed correctly. Thank you for letting us know. Until next time!',
+        'Excellent! Your reservation has been canceled. Thank you for notifying us in time. Have a great day!'
+      ],
+      de: [
+        'Perfekt! Ihre Reservierung wurde erfolgreich storniert. Vielen Dank, dass Sie uns benachrichtigt haben. Haben Sie einen schönen Tag!',
+        'Ausgezeichnet! Die Reservierung wurde korrekt storniert. Vielen Dank für die Benachrichtigung. Bis bald!',
+        'Sehr gut! Ihre Reservierung wurde erfolgreich storniert. Vielen Dank für den Kontakt. Haben Sie einen schönen Tag!',
+        'Perfekt! Die Stornierung wurde korrekt bearbeitet. Vielen Dank, dass Sie uns benachrichtigt haben. Bis zum nächsten Mal!',
+        'Ausgezeichnet! Ihre Reservierung wurde storniert. Vielen Dank für die rechtzeitige Benachrichtigung. Haben Sie einen schönen Tag!'
+      ],
+      it: [
+        'Perfetto! La sua prenotazione è stata cancellata con successo. Grazie per averci avvisato. Buona giornata!',
+        'Eccellente! La prenotazione è stata cancellata correttamente. Grazie per averci notificato. A presto!',
+        'Molto bene! La sua prenotazione è stata cancellata con successo. Grazie per averci contattato. Buona giornata!',
+        'Perfetto! La cancellazione è stata elaborata correttamente. Grazie per averci avvisato. Alla prossima!',
+        'Eccellente! La sua prenotazione è stata cancellata. Grazie per averci notificato in tempo. Buona giornata!'
+      ],
+      fr: [
+        'Parfait! Votre réservation a été annulée avec succès. Merci de nous avoir prévenus. Passez une bonne journée!',
+        'Excellent! La réservation a été annulée correctement. Merci de nous avoir notifiés. À bientôt!',
+        'Très bien! Votre réservation a été annulée avec succès. Merci de nous avoir contactés. Passez une bonne journée!',
+        'Parfait! L\'annulation a été traitée correctement. Merci de nous avoir prévenus. À la prochaine!',
+        'Excellent! Votre réservation a été annulée. Merci de nous avoir notifiés à temps. Passez une bonne journée!'
+      ],
+      pt: [
+        'Perfeito! Sua reserva foi cancelada com sucesso. Obrigado por nos avisar. Tenha um ótimo dia!',
+        'Excelente! A reserva foi cancelada corretamente. Obrigado por nos notificar. Até logo!',
+        'Muito bem! Sua reserva foi cancelada com sucesso. Obrigado por nos contatar. Tenha um ótimo dia!',
+        'Perfeito! O cancelamento foi processado corretamente. Obrigado por nos avisar. Até a próxima!',
+        'Excelente! Sua reserva foi cancelada. Obrigado por nos notificar a tempo. Tenha um ótimo dia!'
+      ]
+    },
+    cancel_error: {
+      es: [
+        'Disculpe, hubo un error al cancelar su reserva. Por favor, contacte directamente al restaurante.',
+        'Lo siento, no pude cancelar su reserva. Por favor, llame directamente al restaurante.',
+        'Perdón, hubo un problema técnico. Por favor, contacte al restaurante directamente.',
+        'Disculpe, no pude procesar la cancelación. Por favor, llame al restaurante.',
+        'Lo siento, hubo un error. Por favor, contacte directamente al restaurante.'
+      ],
+      en: [
+        'Sorry, there was an error canceling your reservation. Please contact the restaurant directly.',
+        'I\'m sorry, I couldn\'t cancel your reservation. Please call the restaurant directly.',
+        'Sorry, there was a technical problem. Please contact the restaurant directly.',
+        'Sorry, I couldn\'t process the cancellation. Please call the restaurant.',
+        'I\'m sorry, there was an error. Please contact the restaurant directly.'
+      ],
+      de: [
+        'Entschuldigung, es gab einen Fehler beim Stornieren Ihrer Reservierung. Bitte kontaktieren Sie das Restaurant direkt.',
+        'Es tut mir leid, ich konnte Ihre Reservierung nicht stornieren. Bitte rufen Sie das Restaurant direkt an.',
+        'Entschuldigung, es gab ein technisches Problem. Bitte kontaktieren Sie das Restaurant direkt.',
+        'Entschuldigung, ich konnte die Stornierung nicht bearbeiten. Bitte rufen Sie das Restaurant an.',
+        'Es tut mir leid, es gab einen Fehler. Bitte kontaktieren Sie das Restaurant direkt.'
+      ],
+      it: [
+        'Scusi, c\'è stato un errore nel cancellare la sua prenotazione. Per favore, contatti direttamente il ristorante.',
+        'Mi dispiace, non sono riuscito a cancellare la sua prenotazione. Per favore, chiami direttamente il ristorante.',
+        'Scusi, c\'è stato un problema tecnico. Per favore, contatti direttamente il ristorante.',
+        'Scusi, non sono riuscito a processare la cancellazione. Per favore, chiami il ristorante.',
+        'Mi dispiace, c\'è stato un errore. Per favore, contatti direttamente il ristorante.'
+      ],
+      fr: [
+        'Désolé, il y a eu une erreur lors de l\'annulation de votre réservation. Veuillez contacter directement le restaurant.',
+        'Je suis désolé, je n\'ai pas pu annuler votre réservation. Veuillez appeler directement le restaurant.',
+        'Désolé, il y a eu un problème technique. Veuillez contacter directement le restaurant.',
+        'Désolé, je n\'ai pas pu traiter l\'annulation. Veuillez appeler le restaurant.',
+        'Je suis désolé, il y a eu une erreur. Veuillez contacter directement le restaurant.'
+      ],
+      pt: [
+        'Desculpe, houve um erro ao cancelar sua reserva. Por favor, entre em contato diretamente com o restaurante.',
+        'Sinto muito, não consegui cancelar sua reserva. Por favor, ligue diretamente para o restaurante.',
+        'Desculpe, houve um problema técnico. Por favor, entre em contato diretamente com o restaurante.',
+        'Desculpe, não consegui processar o cancelamento. Por favor, ligue para o restaurante.',
+        'Sinto muito, houve um erro. Por favor, entre em contato diretamente com o restaurante.'
+      ]
+    },
+    cancel_no_reservations: {
+      es: [
+        'No he encontrado ninguna reserva activa con ese número de teléfono. ¿Le gustaría hacer una nueva reserva?',
+        'No hay reservas registradas para ese número. ¿Quiere hacer una nueva reserva?',
+        'No he localizado reservas con ese teléfono. ¿Desea hacer una nueva reserva?',
+        'No hay reservas activas para ese número. ¿Le gustaría reservar una mesa?',
+        'No encontré reservas con ese teléfono. ¿Quiere hacer una nueva reserva?'
+      ],
+      en: [
+        'I didn\'t find any active reservations with that phone number. Would you like to make a new reservation?',
+        'There are no reservations registered for that number. Do you want to make a new reservation?',
+        'I didn\'t locate reservations with that phone. Do you want to make a new reservation?',
+        'There are no active reservations for that number. Would you like to reserve a table?',
+        'I didn\'t find reservations with that phone. Do you want to make a new reservation?'
+      ],
+      de: [
+        'Ich habe keine aktiven Reservierungen mit dieser Telefonnummer gefunden. Möchten Sie eine neue Reservierung vornehmen?',
+        'Es gibt keine Reservierungen für diese Nummer. Möchten Sie eine neue Reservierung vornehmen?',
+        'Ich habe keine Reservierungen mit diesem Telefon gefunden. Möchten Sie eine neue Reservierung vornehmen?',
+        'Es gibt keine aktiven Reservierungen für diese Nummer. Möchten Sie einen Tisch reservieren?',
+        'Ich habe keine Reservierungen mit diesem Telefon gefunden. Möchten Sie eine neue Reservierung vornehmen?'
+      ],
+      it: [
+        'Non ho trovato prenotazioni attive con quel numero di telefono. Vorresti fare una nuova prenotazione?',
+        'Non ci sono prenotazioni registrate per quel numero. Vuoi fare una nuova prenotazione?',
+        'Non ho localizzato prenotazioni con quel telefono. Vuoi fare una nuova prenotazione?',
+        'Non ci sono prenotazioni attive per quel numero. Vorresti prenotare un tavolo?',
+        'Non ho trovato prenotazioni con quel telefono. Vuoi fare una nuova prenotazione?'
+      ],
+      fr: [
+        'Je n\'ai trouvé aucune réservation active avec ce numéro de téléphone. Souhaitez-vous faire une nouvelle réservation?',
+        'Il n\'y a pas de réservations enregistrées pour ce numéro. Voulez-vous faire une nouvelle réservation?',
+        'Je n\'ai pas localisé de réservations avec ce téléphone. Voulez-vous faire une nouvelle réservation?',
+        'Il n\'y a pas de réservations actives pour ce numéro. Souhaitez-vous réserver une table?',
+        'Je n\'ai pas trouvé de réservations avec ce téléphone. Voulez-vous faire une nouvelle réservation?'
+      ],
+      pt: [
+        'Não encontrei reservas ativas com esse número de telefone. Gostaria de fazer uma nova reserva?',
+        'Não há reservas registradas para esse número. Quer fazer uma nova reserva?',
+        'Não localizei reservas com esse telefone. Quer fazer uma nova reserva?',
+        'Não há reservas ativas para esse número. Gostaria de reservar uma mesa?',
+        'Não encontrei reservas com esse telefone. Quer fazer uma nova reserva?'
+      ]
+    },
+    cancel_offer_new: {
+      es: [
+        '¿Le gustaría hacer una nueva reserva en su lugar?',
+        '¿Quiere hacer una nueva reserva?',
+        '¿Desea reservar una mesa?',
+        '¿Le gustaría hacer una reserva?',
+        '¿Quiere hacer una nueva reserva?'
+      ],
+      en: [
+        'Would you like to make a new reservation instead?',
+        'Do you want to make a new reservation?',
+        'Do you want to reserve a table?',
+        'Would you like to make a reservation?',
+        'Do you want to make a new reservation?'
+      ],
+      de: [
+        'Möchten Sie stattdessen eine neue Reservierung vornehmen?',
+        'Möchten Sie eine neue Reservierung vornehmen?',
+        'Möchten Sie einen Tisch reservieren?',
+        'Möchten Sie eine Reservierung vornehmen?',
+        'Möchten Sie eine neue Reservierung vornehmen?'
+      ],
+      it: [
+        'Vorresti fare una nuova prenotazione invece?',
+        'Vuoi fare una nuova prenotazione?',
+        'Vuoi prenotare un tavolo?',
+        'Vorresti fare una prenotazione?',
+        'Vuoi fare una nuova prenotazione?'
+      ],
+      fr: [
+        'Souhaitez-vous faire une nouvelle réservation à la place?',
+        'Voulez-vous faire une nouvelle réservation?',
+        'Voulez-vous réserver une table?',
+        'Souhaitez-vous faire une réservation?',
+        'Voulez-vous faire une nouvelle réservation?'
+      ],
+      pt: [
+        'Gostaria de fazer uma nova reserva em vez disso?',
+        'Quer fazer uma nova reserva?',
+        'Quer reservar uma mesa?',
+        'Gostaria de fazer uma reserva?',
+        'Quer fazer uma nova reserva?'
+      ]
+    },
+    cancel_cancelled: {
+      es: [
+        'Perfecto, no cancelaremos la reserva. ¿En qué más puedo ayudarle?',
+        'Entendido, mantendremos la reserva. ¿Qué más necesita?',
+        'Muy bien, no procederemos con la cancelación. ¿En qué puedo ayudarle?',
+        'Perfecto, la reserva se mantiene. ¿Qué más puedo hacer por usted?',
+        'Excelente, no cancelaremos. ¿En qué puedo asistirle?'
+      ],
+      en: [
+        'Perfect, we won\'t cancel the reservation. How else can I help you?',
+        'Understood, we\'ll keep the reservation. What else do you need?',
+        'Very well, we won\'t proceed with the cancellation. How can I help you?',
+        'Perfect, the reservation remains. What else can I do for you?',
+        'Excellent, we won\'t cancel. How can I assist you?'
+      ],
+      de: [
+        'Perfekt, wir werden die Reservierung nicht stornieren. Wie kann ich Ihnen sonst helfen?',
+        'Verstanden, wir behalten die Reservierung. Was brauchen Sie sonst?',
+        'Sehr gut, wir werden nicht mit der Stornierung fortfahren. Wie kann ich Ihnen helfen?',
+        'Perfekt, die Reservierung bleibt bestehen. Was kann ich sonst für Sie tun?',
+        'Ausgezeichnet, wir werden nicht stornieren. Wie kann ich Ihnen helfen?'
+      ],
+      it: [
+        'Perfetto, non cancelleremo la prenotazione. Come altro posso aiutarti?',
+        'Capito, manterremo la prenotazione. Cos\'altro ti serve?',
+        'Molto bene, non procederemo con la cancellazione. Come posso aiutarti?',
+        'Perfetto, la prenotazione rimane. Cos\'altro posso fare per te?',
+        'Eccellente, non cancelleremo. Come posso assisterti?'
+      ],
+      fr: [
+        'Parfait, nous n\'annulerons pas la réservation. Comment puis-je vous aider d\'autre?',
+        'Compris, nous garderons la réservation. De quoi avez-vous besoin d\'autre?',
+        'Très bien, nous ne procéderons pas à l\'annulation. Comment puis-je vous aider?',
+        'Parfait, la réservation reste. Que puis-je faire d\'autre pour vous?',
+        'Excellent, nous n\'annulerons pas. Comment puis-je vous assister?'
+      ],
+      pt: [
+        'Perfeito, não cancelaremos a reserva. Como mais posso ajudá-lo?',
+        'Entendido, manteremos a reserva. O que mais você precisa?',
+        'Muito bem, não procederemos com o cancelamento. Como posso ajudá-lo?',
+        'Perfeito, a reserva permanece. O que mais posso fazer por você?',
+        'Excelente, não cancelaremos. Como posso assisti-lo?'
+      ]
+    },
+    cancel_unclear_option: {
+      es: [
+        'Disculpe, no entendí qué opción desea. Por favor, diga el número de la opción que quiere cancelar.',
+        'No entendí bien. Por favor, indique el número de la opción que desea cancelar.',
+        'Perdón, no capté bien. Por favor, diga "opción 1", "opción 2", etc.',
+        'No entendí. Por favor, repita el número de la opción que quiere cancelar.',
+        'Disculpe, no entendí. Por favor, diga claramente el número de la opción.'
+      ],
+      en: [
+        'Sorry, I didn\'t understand which option you want. Please say the number of the option you want to cancel.',
+        'I didn\'t understand well. Please indicate the number of the option you want to cancel.',
+        'Sorry, I didn\'t catch that. Please say "option 1", "option 2", etc.',
+        'I didn\'t understand. Please repeat the number of the option you want to cancel.',
+        'Sorry, I didn\'t understand. Please say the option number clearly.'
+      ],
+      de: [
+        'Entschuldigung, ich verstand nicht, welche Option Sie möchten. Bitte sagen Sie die Nummer der Option, die Sie stornieren möchten.',
+        'Ich verstand nicht gut. Bitte geben Sie die Nummer der Option an, die Sie stornieren möchten.',
+        'Entschuldigung, ich habe das nicht verstanden. Bitte sagen Sie "Option 1", "Option 2" usw.',
+        'Ich verstand nicht. Bitte wiederholen Sie die Nummer der Option, die Sie stornieren möchten.',
+        'Entschuldigung, ich verstand nicht. Bitte sagen Sie die Optionsnummer deutlich.'
+      ],
+      it: [
+        'Scusi, non ho capito quale opzione vuole. Per favore, dica il numero dell\'opzione che vuole cancellare.',
+        'Non ho capito bene. Per favore, indichi il numero dell\'opzione che vuole cancellare.',
+        'Scusi, non ho capito. Per favore, dica "opzione 1", "opzione 2", ecc.',
+        'Non ho capito. Per favore, ripeta il numero dell\'opzione che vuole cancellare.',
+        'Scusi, non ho capito. Per favore, dica chiaramente il numero dell\'opzione.'
+      ],
+      fr: [
+        'Désolé, je n\'ai pas compris quelle option vous voulez. Veuillez dire le numéro de l\'option que vous voulez annuler.',
+        'Je n\'ai pas bien compris. Veuillez indiquer le numéro de l\'option que vous voulez annuler.',
+        'Désolé, je n\'ai pas saisi. Veuillez dire "option 1", "option 2", etc.',
+        'Je n\'ai pas compris. Veuillez répéter le numéro de l\'option que vous voulez annuler.',
+        'Désolé, je n\'ai pas compris. Veuillez dire clairement le numéro de l\'option.'
+      ],
+      pt: [
+        'Desculpe, não entendi qual opção você quer. Por favor, diga o número da opção que quer cancelar.',
+        'Não entendi bem. Por favor, indique o número da opção que quer cancelar.',
+        'Desculpe, não entendi. Por favor, diga "opção 1", "opção 2", etc.',
+        'Não entendi. Por favor, repita o número da opção que quer cancelar.',
+        'Desculpe, não entendi. Por favor, diga claramente o número da opção.'
+      ]
+    },
+    cancel_invalid_option: {
+      es: [
+        'Esa opción no es válida. Por favor, elija una de las opciones disponibles.',
+        'Esa opción no existe. Por favor, seleccione una opción válida.',
+        'Opción incorrecta. Por favor, elija entre las opciones mostradas.',
+        'Esa opción no está disponible. Por favor, seleccione una opción válida.',
+        'Opción no válida. Por favor, elija una de las opciones correctas.'
+      ],
+      en: [
+        'That option is not valid. Please choose one of the available options.',
+        'That option doesn\'t exist. Please select a valid option.',
+        'Incorrect option. Please choose from the options shown.',
+        'That option is not available. Please select a valid option.',
+        'Invalid option. Please choose one of the correct options.'
+      ],
+      de: [
+        'Diese Option ist nicht gültig. Bitte wählen Sie eine der verfügbaren Optionen.',
+        'Diese Option existiert nicht. Bitte wählen Sie eine gültige Option.',
+        'Falsche Option. Bitte wählen Sie aus den gezeigten Optionen.',
+        'Diese Option ist nicht verfügbar. Bitte wählen Sie eine gültige Option.',
+        'Ungültige Option. Bitte wählen Sie eine der korrekten Optionen.'
+      ],
+      it: [
+        'Quell\'opzione non è valida. Per favore, scegli una delle opzioni disponibili.',
+        'Quell\'opzione non esiste. Per favore, seleziona un\'opzione valida.',
+        'Opzione incorretta. Per favore, scegli tra le opzioni mostrate.',
+        'Quell\'opzione non è disponibile. Per favore, seleziona un\'opzione valida.',
+        'Opzione non valida. Per favore, scegli una delle opzioni corrette.'
+      ],
+      fr: [
+        'Cette option n\'est pas valide. Veuillez choisir une des options disponibles.',
+        'Cette option n\'existe pas. Veuillez sélectionner une option valide.',
+        'Option incorrecte. Veuillez choisir parmi les options affichées.',
+        'Cette option n\'est pas disponible. Veuillez sélectionner une option valide.',
+        'Option non valide. Veuillez choisir une des options correctes.'
+      ],
+      pt: [
+        'Essa opção não é válida. Por favor, escolha uma das opções disponíveis.',
+        'Essa opção não existe. Por favor, selecione uma opção válida.',
+        'Opção incorreta. Por favor, escolha entre as opções mostradas.',
+        'Essa opção não está disponível. Por favor, selecione uma opção válida.',
+        'Opção inválida. Por favor, escolha uma das opções corretas.'
+      ]
+    },
+    cancel_unclear_confirmation: {
+      es: [
+        'Disculpe, no entendí bien su respuesta. ¿Desea cancelar la reserva o no?',
+        'No entendí claramente. Por favor, diga "sí" para cancelar o "no" para mantener la reserva.',
+        'Perdón, no capté bien. ¿Confirma que quiere cancelar esta reserva?',
+        'No entendí. Por favor, responda claramente: ¿sí o no?',
+        'Disculpe, no entendí. ¿Quiere cancelar la reserva?'
+      ],
+      en: [
+        'Sorry, I didn\'t understand your response well. Do you want to cancel the reservation or not?',
+        'I didn\'t understand clearly. Please say "yes" to cancel or "no" to keep the reservation.',
+        'Sorry, I didn\'t catch that. Do you confirm you want to cancel this reservation?',
+        'I didn\'t understand. Please answer clearly: yes or no?',
+        'Sorry, I didn\'t understand. Do you want to cancel the reservation?'
+      ],
+      de: [
+        'Entschuldigung, ich verstand Ihre Antwort nicht gut. Möchten Sie die Reservierung stornieren oder nicht?',
+        'Ich verstand nicht klar. Bitte sagen Sie "ja" zum Stornieren oder "nein" zum Behalten der Reservierung.',
+        'Entschuldigung, ich habe das nicht verstanden. Bestätigen Sie, dass Sie diese Reservierung stornieren möchten?',
+        'Ich verstand nicht. Bitte antworten Sie klar: ja oder nein?',
+        'Entschuldigung, ich verstand nicht. Möchten Sie die Reservierung stornieren?'
+      ],
+      it: [
+        'Scusi, non ho capito bene la sua risposta. Vuole cancellare la prenotazione o no?',
+        'Non ho capito chiaramente. Per favore, dica "sì" per cancellare o "no" per mantenere la prenotazione.',
+        'Scusi, non ho capito. Conferma di voler cancellare questa prenotazione?',
+        'Non ho capito. Per favore, risponda chiaramente: sì o no?',
+        'Scusi, non ho capito. Vuole cancellare la prenotazione?'
+      ],
+      fr: [
+        'Désolé, je n\'ai pas bien compris votre réponse. Voulez-vous annuler la réservation ou non?',
+        'Je n\'ai pas compris clairement. Veuillez dire "oui" pour annuler ou "non" pour garder la réservation.',
+        'Désolé, je n\'ai pas saisi. Confirmez-vous que vous voulez annuler cette réservation?',
+        'Je n\'ai pas compris. Veuillez répondre clairement: oui ou non?',
+        'Désolé, je n\'ai pas compris. Voulez-vous annuler la réservation?'
+      ],
+      pt: [
+        'Desculpe, não entendi bem sua resposta. Quer cancelar a reserva ou não?',
+        'Não entendi claramente. Por favor, diga "sim" para cancelar ou "não" para manter a reserva.',
+        'Desculpe, não entendi. Confirma que quer cancelar esta reserva?',
+        'Não entendi. Por favor, responda claramente: sim ou não?',
+        'Desculpe, não entendi. Quer cancelar a reserva?'
       ]
     }
   };
@@ -2333,6 +3086,11 @@ function handleIntentionResponse(text) {
   
   const lowerText = text.toLowerCase();
   
+  // Verificar cancelación de reserva existente
+  if (isCancellationRequest(text)) {
+    return { action: 'cancel' };
+  }
+  
   // Verificar reserva directa
   if (directReservationWords.some(word => lowerText.includes(word))) {
     return { action: 'reservation' };
@@ -2342,7 +3100,7 @@ function handleIntentionResponse(text) {
   if (negativeWords.some(word => lowerText.includes(word))) {
     return { 
       action: 'clarify', 
-      message: 'Entiendo. Si cambia de opinión y quiere hacer una reserva, solo dígamelo.' 
+      message: 'Entiendo. Si cambia de opinión y quiere hacer una reserva o cancelar una existente, solo dígamelo.' 
     };
   }
   
@@ -2354,7 +3112,7 @@ function handleIntentionResponse(text) {
   // Respuesta ambigua
   return { 
     action: 'clarify', 
-    message: '¿Le gustaría hacer una reserva para nuestro restaurante?' 
+    message: '¿Le gustaría hacer una nueva reserva o cancelar una existente?' 
   };
 }
 
@@ -3819,6 +4577,234 @@ function escapeXml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+// ===== FUNCIONES PARA CANCELACIÓN DE RESERVAS =====
+
+// Buscar reservas por número de teléfono
+async function findReservationsByPhone(phoneNumber) {
+  try {
+    console.log(`🔍 Buscando reservas para el teléfono: ${phoneNumber}`);
+    
+    const connection = await createConnection();
+    
+    try {
+      // Buscar reservas activas (no canceladas) por teléfono
+      const query = `
+        SELECT id, data_reserva, num_persones, nom_persona_reserva, observacions
+        FROM RESERVA 
+        WHERE telefon = ? 
+        AND data_reserva >= NOW() 
+        AND observacions NOT LIKE '%CANCELADA%'
+        ORDER BY data_reserva ASC
+      `;
+      
+      const [rows] = await connection.execute(query, [phoneNumber]);
+      console.log(`📋 Encontradas ${rows.length} reservas para ${phoneNumber}`);
+      
+      return rows;
+    } finally {
+      await connection.end();
+    }
+  } catch (error) {
+    console.error('❌ Error buscando reservas:', error);
+    return [];
+  }
+}
+
+// Cancelar una reserva específica
+async function cancelReservation(reservationId, phoneNumber) {
+  try {
+    console.log(`🗑️ Cancelando reserva ID: ${reservationId} para teléfono: ${phoneNumber}`);
+    
+    const connection = await createConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      // Marcar la reserva como cancelada en lugar de borrarla
+      const updateQuery = `
+        UPDATE RESERVA 
+        SET observacions = CONCAT(observacions, ' - CANCELADA el ', NOW())
+        WHERE id = ? AND telefon = ?
+      `;
+      
+      const [result] = await connection.execute(updateQuery, [reservationId, phoneNumber]);
+      
+      if (result.affectedRows === 0) {
+        throw new Error('No se encontró la reserva para cancelar');
+      }
+      
+      await connection.commit();
+      console.log(`✅ Reserva ${reservationId} cancelada exitosamente`);
+      return true;
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      await connection.end();
+    }
+  } catch (error) {
+    console.error('❌ Error cancelando reserva:', error);
+    return false;
+  }
+}
+
+// Formatear reserva para mostrar al usuario
+function formatReservationForDisplay(reservation, index, language = 'es') {
+  const date = new Date(reservation.data_reserva);
+  const formattedDate = formatDateSpanish(reservation.data_reserva);
+  const formattedTime = date.toLocaleTimeString('es-ES', { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+  
+  const messages = {
+    es: {
+      option: `Opción ${index + 1}: Reserva a nombre de ${reservation.nom_persona_reserva} para ${formattedDate} a las ${formattedTime} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Tiene una reserva a nombre de ${reservation.nom_persona_reserva} para ${formattedDate} a las ${formattedTime} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`
+    },
+    en: {
+      option: `Option ${index + 1}: Reservation under ${reservation.nom_persona_reserva} for ${formattedDate} at ${formattedTime} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `You have a reservation under ${reservation.nom_persona_reserva} for ${formattedDate} at ${formattedTime} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`
+    },
+    de: {
+      option: `Option ${index + 1}: Reservierung unter ${reservation.nom_persona_reserva} für ${formattedDate} um ${formattedTime} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`,
+      single: `Sie haben eine Reservierung unter ${reservation.nom_persona_reserva} für ${formattedDate} um ${formattedTime} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`
+    },
+    fr: {
+      option: `Option ${index + 1}: Réservation au nom de ${reservation.nom_persona_reserva} pour ${formattedDate} à ${formattedTime} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Vous avez une réservation au nom de ${reservation.nom_persona_reserva} pour ${formattedDate} à ${formattedTime} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`
+    },
+    it: {
+      option: `Opzione ${index + 1}: Prenotazione a nome di ${reservation.nom_persona_reserva} per ${formattedDate} alle ${formattedTime} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`,
+      single: `Hai una prenotazione a nome di ${reservation.nom_persona_reserva} per ${formattedDate} alle ${formattedTime} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`
+    },
+    pt: {
+      option: `Opção ${index + 1}: Reserva em nome de ${reservation.nom_persona_reserva} para ${formattedDate} às ${formattedTime} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Você tem uma reserva em nome de ${reservation.nom_persona_reserva} para ${formattedDate} às ${formattedTime} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`
+    }
+  };
+  
+  return messages[language] || messages.es;
+}
+
+// Detectar si el usuario quiere cancelar una reserva existente
+function isCancellationRequest(text) {
+  const cancelPatterns = [
+    // Español
+    /cancelar|borrar|eliminar|quitar.*reserva/i,
+    /reserva.*cancelar|reserva.*borrar|reserva.*eliminar/i,
+    /no.*quiero.*reserva|no.*necesito.*reserva/i,
+    /anular.*reserva/i,
+    
+    // Inglés
+    /cancel.*reservation|delete.*reservation|remove.*reservation/i,
+    /reservation.*cancel|reservation.*delete|reservation.*remove/i,
+    /don't.*want.*reservation|don't.*need.*reservation/i,
+    
+    // Alemán
+    /reservierung.*stornieren|reservierung.*löschen|reservierung.*entfernen/i,
+    /stornieren.*reservierung|löschen.*reservierung/i,
+    
+    // Francés
+    /annuler.*réservation|supprimer.*réservation/i,
+    /réservation.*annuler|réservation.*supprimer/i,
+    
+    // Italiano
+    /cancellare.*prenotazione|eliminare.*prenotazione/i,
+    /prenotazione.*cancellare|prenotazione.*eliminare/i,
+    
+    // Portugués
+    /cancelar.*reserva|deletar.*reserva|remover.*reserva/i,
+    /reserva.*cancelar|reserva.*deletar|reserva.*remover/i
+  ];
+  
+  return cancelPatterns.some(pattern => pattern.test(text));
+}
+
+// Detectar confirmación de cancelación
+function isCancellationConfirmation(text) {
+  const confirmPatterns = [
+    // Español
+    /sí|si|confirmo|confirmar|correcto|exacto|vale|ok|okay/i,
+    /estoy.*seguro|seguro.*que.*sí|sí.*quiero/i,
+    
+    // Inglés
+    /yes|yeah|yep|confirm|correct|exactly|ok|okay/i,
+    /i.*am.*sure|sure.*yes|yes.*i.*want/i,
+    
+    // Alemán
+    /ja|jep|bestätigen|korrekt|genau|ok|okay/i,
+    /ich.*bin.*sicher|sicher.*ja|ja.*ich.*will/i,
+    
+    // Francés
+    /oui|ouais|confirmer|correct|exactement|ok|okay/i,
+    /je.*suis.*sûr|sûr.*oui|oui.*je.*veux/i,
+    
+    // Italiano
+    /sì|sí|confermo|confermare|corretto|esatto|ok|okay/i,
+    /sono.*sicuro|sicuro.*sì|sì.*voglio/i,
+    
+    // Português
+    /sim|confirma|confirmar|correto|exato|ok|okay/i,
+    /tenho.*certeza|certeza.*sim|sim.*quero/i
+  ];
+  
+  return confirmPatterns.some(pattern => pattern.test(text));
+}
+
+// Detectar negación de cancelación
+function isCancellationDenial(text) {
+  const denyPatterns = [
+    // Español
+    /no|nada|mejor.*no|no.*quiero|no.*gracias/i,
+    /mejor.*déjalo|déjalo.*así|no.*cancelar/i,
+    
+    // Inglés
+    /no|nothing|better.*not|don't.*want|no.*thanks/i,
+    /better.*leave.*it|leave.*it.*as.*is|don't.*cancel/i,
+    
+    // Alemán
+    /nein|nichts|lieber.*nicht|will.*nicht|nein.*danke/i,
+    /lieber.*lassen|so.*lassen|nicht.*stornieren/i,
+    
+    // Francés
+    /non|rien|mieux.*pas|ne.*veux.*pas|non.*merci/i,
+    /mieux.*laisser|laisser.*comme.*ça|ne.*pas.*annuler/i,
+    
+    // Italiano
+    /no|niente|meglio.*no|non.*voglio|no.*grazie/i,
+    /meglio.*lasciare|lasciare.*così|non.*cancellare/i,
+    
+    // Português
+    /não|nada|melhor.*não|não.*quero|não.*obrigado/i,
+    /melhor.*deixar|deixar.*assim|não.*cancelar/i
+  ];
+  
+  return denyPatterns.some(pattern => pattern.test(text));
+}
+
+// Extraer número de teléfono del texto
+function extractPhoneFromText(text) {
+  // Patrones para detectar números de teléfono
+  const phonePatterns = [
+    /(\+?[0-9]{9,15})/g,  // Números con 9-15 dígitos
+    /(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})/g,  // Formato español: 123 456 789
+    /(\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/g,  // Formato español: 12 345 67 89
+  ];
+  
+  const matches = [];
+  phonePatterns.forEach(pattern => {
+    const found = text.match(pattern);
+    if (found) {
+      matches.push(...found.map(match => match.replace(/[\s\-]/g, '')));
+    }
+  });
+  
+  // Devolver el primer número encontrado
+  return matches.length > 0 ? matches[0] : null;
 }
 
 function generateMarkdownConversation(state) {
