@@ -560,7 +560,7 @@ async function handleCancelAskPhone(state, userInput) {
     };
     
     const singleReservationMessages = getMultilingualMessages('cancel_show_single', state.language);
-    const reservationText = formatReservationForDisplay(reservations[0], 0, state.language).single;
+    const reservationText = formatReservationForDisplay(reservations[0], 0, state.language, reservations).single;
     
     return {
       message: `${getRandomMessage(singleReservationMessages)} ${reservationText}. ${getRandomMessage(getMultilingualMessages('cancel_confirm', state.language))}`,
@@ -580,7 +580,7 @@ async function handleCancelAskPhone(state, userInput) {
     
     // Agregar cada reserva como opción
     reservations.forEach((reservation, index) => {
-      const reservationText = formatReservationForDisplay(reservation, index, state.language).option;
+      const reservationText = formatReservationForDisplay(reservation, index, state.language, reservations).option;
       message += ` ${reservationText}.`;
     });
     
@@ -4591,7 +4591,7 @@ async function findReservationsByPhone(phoneNumber) {
     try {
       // Buscar reservas activas (no canceladas) por teléfono
       const query = `
-        SELECT id, data_reserva, num_persones, nom_persona_reserva, observacions
+        SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions
         FROM RESERVA 
         WHERE telefon = ? 
         AND data_reserva >= NOW() 
@@ -4626,7 +4626,7 @@ async function cancelReservation(reservationId, phoneNumber) {
       const updateQuery = `
         UPDATE RESERVA 
         SET observacions = CONCAT(observacions, ' - CANCELADA el ', NOW())
-        WHERE id = ? AND telefon = ?
+        WHERE id_reserva = ? AND telefon = ?
       `;
       
       const [result] = await connection.execute(updateQuery, [reservationId, phoneNumber]);
@@ -4652,7 +4652,7 @@ async function cancelReservation(reservationId, phoneNumber) {
 }
 
 // Formatear reserva para mostrar al usuario
-function formatReservationForDisplay(reservation, index, language = 'es') {
+function formatReservationForDisplay(reservation, index, language = 'es', reservations = []) {
   const date = new Date(reservation.data_reserva);
   const formattedDate = formatDateSpanish(reservation.data_reserva);
   const formattedTime = date.toLocaleTimeString('es-ES', { 
@@ -4660,30 +4660,39 @@ function formatReservationForDisplay(reservation, index, language = 'es') {
     minute: '2-digit' 
   });
   
+  // Verificar si hay múltiples reservas con el mismo nombre
+  const sameNameReservations = reservations.filter(r => r.nom_persona_reserva === reservation.nom_persona_reserva);
+  const hasMultipleSameName = sameNameReservations.length > 1;
+  
+  // Si hay múltiples reservas con el mismo nombre, incluir fecha y hora
+  const nameDisplay = hasMultipleSameName 
+    ? `${reservation.nom_persona_reserva} para ${formattedDate} a las ${formattedTime}`
+    : reservation.nom_persona_reserva;
+  
   const messages = {
     es: {
-      option: `Opción ${index + 1}: Reserva a nombre de ${reservation.nom_persona_reserva} para ${formattedDate} a las ${formattedTime} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `Tiene una reserva a nombre de ${reservation.nom_persona_reserva} para ${formattedDate} a las ${formattedTime} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Opción ${index + 1}: Reserva a nombre de ${nameDisplay} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Tiene una reserva a nombre de ${nameDisplay} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`
     },
     en: {
-      option: `Option ${index + 1}: Reservation under ${reservation.nom_persona_reserva} for ${formattedDate} at ${formattedTime} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `You have a reservation under ${reservation.nom_persona_reserva} for ${formattedDate} at ${formattedTime} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Option ${index + 1}: Reservation under ${nameDisplay} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `You have a reservation under ${nameDisplay} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`
     },
     de: {
-      option: `Option ${index + 1}: Reservierung unter ${reservation.nom_persona_reserva} für ${formattedDate} um ${formattedTime} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`,
-      single: `Sie haben eine Reservierung unter ${reservation.nom_persona_reserva} für ${formattedDate} um ${formattedTime} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`
+      option: `Option ${index + 1}: Reservierung unter ${nameDisplay} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`,
+      single: `Sie haben eine Reservierung unter ${nameDisplay} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`
     },
     fr: {
-      option: `Option ${index + 1}: Réservation au nom de ${reservation.nom_persona_reserva} pour ${formattedDate} à ${formattedTime} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `Vous avez une réservation au nom de ${reservation.nom_persona_reserva} pour ${formattedDate} à ${formattedTime} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Option ${index + 1}: Réservation au nom de ${nameDisplay} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Vous avez une réservation au nom de ${nameDisplay} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`
     },
     it: {
-      option: `Opzione ${index + 1}: Prenotazione a nome di ${reservation.nom_persona_reserva} per ${formattedDate} alle ${formattedTime} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`,
-      single: `Hai una prenotazione a nome di ${reservation.nom_persona_reserva} per ${formattedDate} alle ${formattedTime} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`
+      option: `Opzione ${index + 1}: Prenotazione a nome di ${nameDisplay} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`,
+      single: `Hai una prenotazione a nome di ${nameDisplay} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`
     },
     pt: {
-      option: `Opção ${index + 1}: Reserva em nome de ${reservation.nom_persona_reserva} para ${formattedDate} às ${formattedTime} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `Você tem uma reserva em nome de ${reservation.nom_persona_reserva} para ${formattedDate} às ${formattedTime} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Opção ${index + 1}: Reserva em nome de ${nameDisplay} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Você tem uma reserva em nome de ${nameDisplay} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`
     }
   };
   
