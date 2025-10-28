@@ -157,9 +157,12 @@ async function processConversationStep(state, userInput) {
            message: getRandomMessage(reservationMessages),
            gather: true
          };
-       } else if (intentionResult.action === 'cancel') {
-         // Usuario quiere cancelar una reserva existente
-         return await handleCancellationRequest(state, userInput);
+      } else if (intentionResult.action === 'modify') {
+        // Usuario quiere modificar una reserva existente
+        return await handleModificationRequest(state, userInput);
+      } else if (intentionResult.action === 'cancel') {
+        // Usuario quiere cancelar una reserva existente
+        return await handleCancellationRequest(state, userInput);
        } else if (intentionResult.action === 'clarify') {
          return {
            message: intentionResult.message,
@@ -173,7 +176,27 @@ async function processConversationStep(state, userInput) {
          };
        }
 
-     // ===== NUEVOS CASOS PARA CANCELACIÓN DE RESERVAS =====
+     // ===== NUEVOS CASOS PARA MODIFICACIÓN DE RESERVAS =====
+    case 'modify_ask_phone_choice':
+      return await handleModifyAskPhoneChoice(state, userInput);
+    case 'modify_ask_phone':
+      return await handleModifyAskPhone(state, userInput);
+    case 'modify_show_multiple':
+      return await handleModifyShowMultiple(state, userInput);
+    case 'modify_ask_field':
+      return await handleModifyAskField(state, userInput);
+    case 'modify_ask_value':
+      return await handleModifyAskValue(state, userInput);
+    case 'modify_confirm':
+      return await handleModifyConfirm(state, userInput);
+    case 'modify_success':
+      return await handleModifySuccess(state, userInput);
+    case 'modify_error':
+      return await handleModifyError(state, userInput);
+    case 'modify_no_reservations':
+      return await handleModifyNoReservations(state, userInput);
+
+    // ===== NUEVOS CASOS PARA CANCELACIÓN DE RESERVAS =====
     case 'cancel_ask_phone_choice':
       return await handleCancelAskPhoneChoice(state, userInput);
     case 'cancel_ask_phone':
@@ -504,6 +527,458 @@ async function processConversationStep(state, userInput) {
         message: getRandomMessage(defaultMessages),
         gather: true
       };
+  }
+}
+
+// Funciones para manejar modificación de reservas
+// ===== NUEVAS FUNCIONES DE MODIFICACIÓN DE RESERVAS EXISTENTES =====
+
+async function handleModificationRequest(state, userInput) {
+  console.log(`✏️ [MODIFICACIÓN] Iniciando proceso de modificación de reserva existente`);
+  
+  // Cambiar estado a preguntar si usar el mismo teléfono
+  state.step = 'modify_ask_phone_choice';
+  state.modificationData = {}; // Inicializar datos de modificación
+  
+  // Obtener mensaje preguntando si usar el mismo teléfono
+  const phoneChoiceMessages = getMultilingualMessages('modify_ask_phone_choice', state.language);
+  
+  return {
+    message: getRandomMessage(phoneChoiceMessages),
+    gather: true
+  };
+}
+
+async function handleModifyAskPhoneChoice(state, userInput) {
+  console.log(`📞 [MODIFICACIÓN] Procesando elección de teléfono: ${userInput}`);
+  
+  const lowerInput = userInput.toLowerCase().trim();
+  
+  // Detectar si quiere usar el mismo teléfono (reutilizar lógica de cancelación)
+  const samePhonePatterns = [
+    // Español
+    /sí|si|mismo|igual|este|actual|desde.*aquí|desde.*aquí/i,
+    /mismo.*teléfono|mismo.*número|igual.*teléfono|igual.*número/i,
+    /usar.*este|usar.*mismo|usar.*igual/i,
+    
+    // Inglés
+    /yes|same|this|current|from.*here/i,
+    /same.*phone|same.*number|this.*phone|this.*number/i,
+    /use.*this|use.*same|use.*current/i,
+    
+    // Alemán
+    /ja|gleich|dasselbe|dieser|aktuell|von.*hier/i,
+    /gleiche.*telefon|gleiche.*nummer|dieses.*telefon/i,
+    /verwenden.*dieses|verwenden.*gleiche/i,
+    
+    // Francés
+    /oui|même|identique|cet|actuel|d'ici/i,
+    /même.*téléphone|même.*numéro|cet.*téléphone/i,
+    /utiliser.*ce|utiliser.*même/i,
+    
+    // Italiano
+    /sì|stesso|uguale|questo|attuale|da.*qui/i,
+    /stesso.*telefono|stesso.*numero|questo.*telefono/i,
+    /usare.*questo|usare.*stesso/i,
+    
+    // Português
+    /sim|mesmo|igual|este|atual|daqui/i,
+    /mesmo.*telefone|mesmo.*número|este.*telefone/i,
+    /usar.*este|usar.*mesmo/i
+  ];
+  
+  const useSamePhone = samePhonePatterns.some(pattern => pattern.test(lowerInput));
+  
+  if (useSamePhone) {
+    console.log(`📞 [MODIFICACIÓN] Usuario eligió usar el mismo teléfono: ${state.phone}`);
+    // Usar el teléfono de la llamada directamente
+    const reservations = await findReservationsByPhone(state.phone);
+    
+    if (reservations.length === 0) {
+      state.step = 'modify_no_reservations';
+      const noReservationsMessages = getMultilingualMessages('modify_no_reservations', state.language);
+      return {
+        message: getRandomMessage(noReservationsMessages),
+        gather: true
+      };
+    } else if (reservations.length === 1) {
+      state.step = 'modify_ask_field';
+      state.modificationData = {
+        phone: state.phone,
+        reservations: reservations,
+        selectedReservation: reservations[0]
+      };
+      
+      const fieldMessages = getMultilingualMessages('modify_ask_field', state.language);
+      return {
+        message: getRandomMessage(fieldMessages),
+        gather: true
+      };
+    } else {
+      state.step = 'modify_show_multiple';
+      state.modificationData = {
+        phone: state.phone,
+        reservations: reservations
+      };
+      
+      const multipleReservationsMessages = getMultilingualMessages('modify_show_multiple', state.language);
+      let message = getRandomMessage(multipleReservationsMessages);
+      
+      reservations.forEach((reservation, index) => {
+        const reservationText = formatReservationForDisplay(reservation, index, state.language, reservations).option;
+        message += ` ${reservationText}.`;
+      });
+      
+      message += ` ${getRandomMessage(getMultilingualMessages('modify_choose_option', state.language))}`;
+      
+      return {
+        message: message,
+        gather: true
+      };
+    }
+  } else {
+    // Usuario quiere usar otro teléfono
+    console.log(`📞 [MODIFICACIÓN] Usuario eligió usar otro teléfono`);
+    state.step = 'modify_ask_phone';
+    state.modificationData.useOtherPhone = true;
+    const phoneMessages = getMultilingualMessages('modify_ask_phone', state.language);
+    
+    return {
+      message: getRandomMessage(phoneMessages),
+      gather: true
+    };
+  }
+}
+
+async function handleModifyAskPhone(state, userInput) {
+  console.log(`📞 [MODIFICACIÓN] Procesando número de teléfono: ${userInput}`);
+  
+  // Extraer número de teléfono del input
+  let phoneNumber = extractPhoneFromText(userInput);
+  
+  // Si el usuario eligió usar otro teléfono, NO usar el de la llamada
+  if (state.modificationData.useOtherPhone) {
+    if (!phoneNumber) {
+      const unclearMessages = getMultilingualMessages('modify_ask_phone', state.language);
+      return {
+        message: `No pude entender el número de teléfono. ${getRandomMessage(unclearMessages)}`,
+        gather: true
+      };
+    }
+  } else {
+    // Si no se encontró en el texto, usar el teléfono de la llamada
+    if (!phoneNumber) {
+      phoneNumber = state.phone;
+    }
+  }
+  
+  // Buscar reservas para este teléfono
+  const reservations = await findReservationsByPhone(phoneNumber);
+  
+  if (reservations.length === 0) {
+    state.step = 'modify_no_reservations';
+    const noReservationsMessages = getMultilingualMessages('modify_no_reservations', state.language);
+    return {
+      message: getRandomMessage(noReservationsMessages),
+      gather: true
+    };
+  } else if (reservations.length === 1) {
+    state.step = 'modify_ask_field';
+    state.modificationData = {
+      phone: phoneNumber,
+      reservations: reservations,
+      selectedReservation: reservations[0]
+    };
+    
+    const fieldMessages = getMultilingualMessages('modify_ask_field', state.language);
+    return {
+      message: getRandomMessage(fieldMessages),
+      gather: true
+    };
+  } else {
+    state.step = 'modify_show_multiple';
+    state.modificationData = {
+      phone: phoneNumber,
+      reservations: reservations
+    };
+    
+    const multipleReservationsMessages = getMultilingualMessages('modify_show_multiple', state.language);
+    let message = getRandomMessage(multipleReservationsMessages);
+    
+    reservations.forEach((reservation, index) => {
+      const reservationText = formatReservationForDisplay(reservation, index, state.language, reservations).option;
+      message += ` ${reservationText}.`;
+    });
+    
+    message += ` ${getRandomMessage(getMultilingualMessages('modify_choose_option', state.language))}`;
+    
+    return {
+      message: message,
+      gather: true
+    };
+  }
+}
+
+async function handleModifyShowMultiple(state, userInput) {
+  console.log(`🔢 [MODIFICACIÓN] Procesando selección de reserva: ${userInput}`);
+  
+  // Extraer número de opción del input usando la función mejorada
+  const optionNumber = extractOptionFromText(userInput);
+  
+  if (!optionNumber) {
+    const unclearMessages = getMultilingualMessages('modify_unclear_option', state.language);
+    return {
+      message: getRandomMessage(unclearMessages),
+      gather: true
+    };
+  }
+  
+  const selectedIndex = optionNumber - 1; // Convertir a índice 0-based
+  const reservations = state.modificationData.reservations;
+  
+  if (selectedIndex < 0 || selectedIndex >= reservations.length) {
+    const invalidMessages = getMultilingualMessages('modify_invalid_option', state.language);
+    return {
+      message: getRandomMessage(invalidMessages),
+      gather: true
+    };
+  }
+  
+  // Reserva seleccionada
+  const selectedReservation = reservations[selectedIndex];
+  state.modificationData.selectedReservation = selectedReservation;
+  state.step = 'modify_ask_field';
+  
+  const fieldMessages = getMultilingualMessages('modify_ask_field', state.language);
+  return {
+    message: getRandomMessage(fieldMessages),
+    gather: true
+  };
+}
+
+async function handleModifyAskField(state, userInput) {
+  console.log(`✏️ [MODIFICACIÓN] Procesando campo a modificar: ${userInput}`);
+  
+  const lowerInput = userInput.toLowerCase().trim();
+  
+  // Detectar qué campo quiere modificar
+  const fieldPatterns = {
+    name: [/nombre|name/i, /a.*nombre.*de|under.*name/i, /nom.*persona|person.*name/i],
+    date: [/fecha|date|día|day/i, /cuando|when|cuándo/i, /día.*mes|day.*month/i],
+    time: [/hora|time|tiempo/i, /a.*qué.*hora|what.*time/i, /cuando|when/i],
+    people: [/personas|people|gente/i, /cuántas.*personas|how.*many.*people/i, /número.*personas|number.*people/i, /comensales|diners/i]
+  };
+  
+  let selectedField = null;
+  for (const [field, patterns] of Object.entries(fieldPatterns)) {
+    if (patterns.some(pattern => pattern.test(lowerInput))) {
+      selectedField = field;
+      break;
+    }
+  }
+  
+  if (!selectedField) {
+    const unclearMessages = getMultilingualMessages('modify_unclear_field', state.language);
+    return {
+      message: getRandomMessage(unclearMessages),
+      gather: true
+    };
+  }
+  
+  state.modificationData.fieldToModify = selectedField;
+  state.step = 'modify_ask_value';
+  
+  const valueMessages = getMultilingualMessages('modify_ask_value', state.language, { field: selectedField });
+  return {
+    message: getRandomMessage(valueMessages),
+    gather: true
+  };
+}
+
+async function handleModifyAskValue(state, userInput) {
+  console.log(`✏️ [MODIFICACIÓN] Procesando nuevo valor: ${userInput}`);
+  
+  const field = state.modificationData.fieldToModify;
+  let newValue = null;
+  
+  // Extraer el nuevo valor según el campo
+  switch (field) {
+    case 'name':
+      newValue = extractName(userInput);
+      break;
+    case 'date':
+      newValue = extractDate(userInput);
+      break;
+    case 'time':
+      newValue = extractTime(userInput);
+      break;
+    case 'people':
+      newValue = extractPeopleCount(userInput);
+      break;
+  }
+  
+  if (!newValue) {
+    const unclearMessages = getMultilingualMessages('modify_unclear_value', state.language, { field });
+    return {
+      message: getRandomMessage(unclearMessages),
+      gather: true
+    };
+  }
+  
+  state.modificationData.newValue = newValue;
+  state.step = 'modify_confirm';
+  
+  const confirmMessages = getMultilingualMessages('modify_confirm', state.language, {
+    field: field,
+    oldValue: getFieldValue(state.modificationData.selectedReservation, field),
+    newValue: newValue
+  });
+  
+  return {
+    message: getRandomMessage(confirmMessages),
+    gather: true
+  };
+}
+
+async function handleModifyConfirm(state, userInput) {
+  console.log(`✅ [MODIFICACIÓN] Procesando confirmación: ${userInput}`);
+  
+  if (isCancellationConfirmation(userInput)) {
+    // Confirmar modificación
+    const success = await updateReservation(state.modificationData);
+    
+    if (success) {
+      console.log(`✅ [MODIFICACIÓN] Reserva modificada exitosamente`);
+      state.step = 'modify_success';
+      const successMessages = getMultilingualMessages('modify_success', state.language);
+      
+      return {
+        message: getRandomMessage(successMessages),
+        gather: false // Terminar llamada
+      };
+    } else {
+      console.log(`❌ [MODIFICACIÓN] Error modificando reserva`);
+      state.step = 'modify_error';
+      const errorMessages = getMultilingualMessages('modify_error', state.language);
+      
+      return {
+        message: getRandomMessage(errorMessages),
+        gather: false // Terminar llamada
+      };
+    }
+  } else if (isCancellationDenial(userInput)) {
+    // Rechazar modificación
+    console.log(`🔄 [MODIFICACIÓN] Modificación rechazada`);
+    state.step = 'greeting'; // Volver al inicio
+    const cancelledMessages = getMultilingualMessages('modify_cancelled', state.language);
+    
+    return {
+      message: getRandomMessage(cancelledMessages),
+      gather: true
+    };
+  } else {
+    // Respuesta no clara
+    const unclearMessages = getMultilingualMessages('modify_unclear_confirmation', state.language);
+    return {
+      message: getRandomMessage(unclearMessages),
+      gather: true
+    };
+  }
+}
+
+async function handleModifySuccess(state, userInput) {
+  return { message: '', gather: false };
+}
+
+async function handleModifyError(state, userInput) {
+  return { message: '', gather: false };
+}
+
+async function handleModifyNoReservations(state, userInput) {
+  console.log(`❌ [MODIFICACIÓN] No hay reservas para modificar`);
+  
+  const offerNewMessages = getMultilingualMessages('modify_offer_new', state.language);
+  return {
+    message: getRandomMessage(offerNewMessages),
+    gather: true
+  };
+}
+
+// Función auxiliar para obtener el valor de un campo
+function getFieldValue(reservation, field) {
+  switch (field) {
+    case 'name':
+      return reservation.nom_persona_reserva;
+    case 'date':
+      return formatDateSpanish(reservation.data_reserva.split(' ')[0]);
+    case 'time':
+      const date = new Date(reservation.data_reserva);
+      return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    case 'people':
+      return reservation.num_persones;
+    default:
+      return '';
+  }
+}
+
+// Función para actualizar la reserva en la base de datos
+async function updateReservation(modificationData) {
+  try {
+    const { selectedReservation, fieldToModify, newValue, phone } = modificationData;
+    console.log(`✏️ Actualizando reserva ID: ${selectedReservation.id_reserva}, campo: ${fieldToModify}, nuevo valor: ${newValue}`);
+    
+    const connection = await createConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      let updateQuery = '';
+      let updateValues = [];
+      
+      switch (fieldToModify) {
+        case 'name':
+          updateQuery = `UPDATE RESERVA SET nom_persona_reserva = ? WHERE id_reserva = ? AND telefon = ?`;
+          updateValues = [newValue, selectedReservation.id_reserva, phone];
+          break;
+        case 'date':
+          // Combinar nueva fecha con hora existente
+          const existingTime = selectedReservation.data_reserva.split(' ')[1];
+          const newDateTime = `${newValue} ${existingTime}`;
+          updateQuery = `UPDATE RESERVA SET data_reserva = ? WHERE id_reserva = ? AND telefon = ?`;
+          updateValues = [newDateTime, selectedReservation.id_reserva, phone];
+          break;
+        case 'time':
+          // Combinar fecha existente con nueva hora
+          const existingDate = selectedReservation.data_reserva.split(' ')[0];
+          const newDateTime = `${existingDate} ${newValue}`;
+          updateQuery = `UPDATE RESERVA SET data_reserva = ? WHERE id_reserva = ? AND telefon = ?`;
+          updateValues = [newDateTime, selectedReservation.id_reserva, phone];
+          break;
+        case 'people':
+          updateQuery = `UPDATE RESERVA SET num_persones = ? WHERE id_reserva = ? AND telefon = ?`;
+          updateValues = [newValue, selectedReservation.id_reserva, phone];
+          break;
+      }
+      
+      const [result] = await connection.execute(updateQuery, updateValues);
+      
+      if (result.affectedRows === 0) {
+        throw new Error('No se encontró la reserva para modificar');
+      }
+      
+      await connection.commit();
+      console.log(`✅ Reserva ${selectedReservation.id_reserva} modificada exitosamente`);
+      return true;
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      await connection.end();
+    }
+  } catch (error) {
+    console.error('❌ Error modificando reserva:', error);
+    return false;
   }
 }
 
@@ -1781,6 +2256,280 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Como posso ajudá-lo? Quer fazer uma reserva?'
       ]
     },
+    // ===== MENSAJES PARA MODIFICACIÓN DE RESERVAS =====
+    modify_ask_phone_choice: {
+      es: [
+        'Perfecto, para modificar su reserva necesito verificar su identidad. ¿Quiere usar el mismo número de teléfono desde el que está llamando o prefiere usar otro número?',
+        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Desea usar este mismo número o tiene otro?',
+        'Muy bien, para localizar su reserva necesito su número. ¿Usa el mismo número de esta llamada o prefiere darme otro?',
+        'Perfecto, para modificar necesito verificar su identidad. ¿Quiere usar este número o prefiere usar otro?',
+        'Entendido, para proceder con la modificación necesito su número. ¿Usa el mismo número desde el que llama o tiene otro?'
+      ],
+      en: [
+        'Perfect, to modify your reservation I need to verify your identity. Do you want to use the same phone number you are calling from or would you prefer to use another number?',
+        'Understood, to find your reservation I need your phone number. Do you want to use this same number or do you have another one?',
+        'Very well, to locate your reservation I need your number. Do you use the same number from this call or would you prefer to give me another one?',
+        'Perfect, to modify I need to verify your identity. Do you want to use this number or would you prefer to use another one?',
+        'Understood, to proceed with the modification I need your number. Do you use the same number you are calling from or do you have another one?'
+      ]
+    },
+    modify_ask_phone: {
+      es: [
+        'Perfecto, para modificar su reserva necesito su número de teléfono. ¿Cuál es su número?',
+        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Podría darme su número?',
+        'Muy bien, para localizar su reserva necesito su número de teléfono. ¿Cuál es?',
+        'Perfecto, para modificar necesito verificar su identidad. ¿Cuál es su número de teléfono?',
+        'Entendido, para proceder con la modificación necesito su número de teléfono. ¿Podría darmelo?'
+      ],
+      en: [
+        'Perfect, to modify your reservation I need your phone number. What is your number?',
+        'Understood, to find your reservation I need your phone number. Could you give me your number?',
+        'Very well, to locate your reservation I need your phone number. What is it?',
+        'Perfect, to modify I need to verify your identity. What is your phone number?',
+        'Understood, to proceed with the modification I need your phone number. Could you give it to me?'
+      ]
+    },
+    modify_show_multiple: {
+      es: [
+        'Muy bien, aquí están sus reservas:',
+        'Perfecto, he encontrado sus reservas:',
+        'Excelente, estas son sus reservas:',
+        'Aquí tiene sus reservas:',
+        'He localizado sus reservas:'
+      ],
+      en: [
+        'Very well, here are your reservations:',
+        'Perfect, I found your reservations:',
+        'Excellent, these are your reservations:',
+        'Here are your reservations:',
+        'I located your reservations:'
+      ]
+    },
+    modify_choose_option: {
+      es: [
+        'Por favor, elija qué reserva modificar. Diga el número correspondiente.',
+        '¿Cuál de estas reservas quiere modificar? Diga el número.',
+        'Seleccione la reserva que desea modificar. Indique el número.',
+        '¿Qué reserva quiere modificar? Diga el número de la opción.',
+        'Elija la reserva a modificar. Mencione el número correspondiente.'
+      ],
+      en: [
+        'Please choose which reservation to modify. Say the corresponding number.',
+        'Which of these reservations do you want to modify? Say the number.',
+        'Select the reservation you want to modify. Indicate the number.',
+        'What reservation do you want to modify? Say the option number.',
+        'Choose the reservation to modify. Mention the corresponding number.'
+      ]
+    },
+    modify_ask_field: {
+      es: [
+        '¿Qué desea modificar de su reserva? Puede cambiar el nombre, la fecha, la hora o el número de personas.',
+        '¿Qué parte de la reserva quiere cambiar? Puede modificar el nombre, la fecha, la hora o las personas.',
+        '¿Qué campo desea actualizar? Opciones: nombre, fecha, hora o número de personas.',
+        '¿Qué información quiere cambiar? Puede actualizar el nombre, la fecha, la hora o las personas.',
+        '¿Qué aspecto de la reserva desea modificar? Nombre, fecha, hora o personas.'
+      ],
+      en: [
+        'What would you like to modify about your reservation? You can change the name, date, time or number of people.',
+        'What part of the reservation do you want to change? You can modify the name, date, time or people.',
+        'What field do you want to update? Options: name, date, time or number of people.',
+        'What information do you want to change? You can update the name, date, time or people.',
+        'What aspect of the reservation do you want to modify? Name, date, time or people.'
+      ]
+    },
+    modify_ask_value: {
+      es: [
+        'Perfecto, ¿cuál es el nuevo {field}?',
+        'Entendido, ¿cuál es el nuevo {field}?',
+        'Muy bien, ¿cuál es el nuevo {field}?',
+        'Perfecto, indique el nuevo {field}.',
+        '¿Cuál es el nuevo {field}?'
+      ],
+      en: [
+        'Perfect, what is the new {field}?',
+        'Understood, what is the new {field}?',
+        'Very well, what is the new {field}?',
+        'Perfect, indicate the new {field}.',
+        'What is the new {field}?'
+      ]
+    },
+    modify_confirm: {
+      es: [
+        'Perfecto, voy a cambiar el {field} de "{oldValue}" a "{newValue}". ¿Confirma esta modificación?',
+        'Entendido, cambiaré el {field} de "{oldValue}" a "{newValue}". ¿Está de acuerdo?',
+        'Muy bien, actualizaré el {field} de "{oldValue}" a "{newValue}". ¿Confirma?',
+        'Perfecto, modificaré el {field} de "{oldValue}" a "{newValue}". ¿Procedo?',
+        '¿Confirma cambiar el {field} de "{oldValue}" a "{newValue}"?'
+      ],
+      en: [
+        'Perfect, I will change the {field} from "{oldValue}" to "{newValue}". Do you confirm this modification?',
+        'Understood, I will change the {field} from "{oldValue}" to "{newValue}". Do you agree?',
+        'Very well, I will update the {field} from "{oldValue}" to "{newValue}". Do you confirm?',
+        'Perfect, I will modify the {field} from "{oldValue}" to "{newValue}". Shall I proceed?',
+        'Do you confirm changing the {field} from "{oldValue}" to "{newValue}"?'
+      ]
+    },
+    modify_success: {
+      es: [
+        '¡Perfecto! Su reserva ha sido modificada exitosamente. Gracias por avisarnos. ¡Que tenga un buen día!',
+        '¡Excelente! La modificación se ha realizado correctamente. Gracias por contactarnos. ¡Hasta luego!',
+        '¡Muy bien! Su reserva ha sido actualizada exitosamente. Gracias por su llamada. ¡Que disfrute!',
+        '¡Perfecto! La modificación se ha completado. Gracias por avisarnos. ¡Que tenga un buen día!',
+        '¡Excelente! Su reserva ha sido modificada correctamente. Gracias por contactarnos. ¡Hasta pronto!'
+      ],
+      en: [
+        'Perfect! Your reservation has been modified successfully. Thank you for letting us know. Have a great day!',
+        'Excellent! The modification has been completed correctly. Thank you for contacting us. Goodbye!',
+        'Very well! Your reservation has been updated successfully. Thank you for your call. Enjoy!',
+        'Perfect! The modification has been completed. Thank you for letting us know. Have a great day!',
+        'Excellent! Your reservation has been modified correctly. Thank you for contacting us. See you soon!'
+      ]
+    },
+    modify_error: {
+      es: [
+        'Lo siento, ha ocurrido un error al modificar su reserva. Por favor, inténtelo de nuevo más tarde o contacte con nosotros directamente.',
+        'Disculpe, no he podido modificar su reserva. Por favor, llame de nuevo o contacte con nosotros por teléfono.',
+        'Lo siento, ha habido un problema con la modificación. Por favor, inténtelo de nuevo o contacte con nosotros.',
+        'Disculpe las molestias, no he podido actualizar su reserva. Por favor, contacte con nosotros directamente.',
+        'Lo siento, ha ocurrido un error. Por favor, inténtelo de nuevo o llame a nuestro número principal.'
+      ],
+      en: [
+        'Sorry, an error occurred while modifying your reservation. Please try again later or contact us directly.',
+        'I apologize, I could not modify your reservation. Please call again or contact us by phone.',
+        'Sorry, there was a problem with the modification. Please try again or contact us.',
+        'Sorry for the inconvenience, I could not update your reservation. Please contact us directly.',
+        'Sorry, an error occurred. Please try again or call our main number.'
+      ]
+    },
+    modify_no_reservations: {
+      es: [
+        'No he encontrado reservas futuras con ese número de teléfono. ¿Desea hacer una nueva reserva?',
+        'No hay reservas activas para ese número. ¿Quiere hacer una nueva reserva?',
+        'No he localizado reservas con ese teléfono. ¿Desea reservar una mesa?',
+        'No hay reservas registradas para ese número. ¿Quiere hacer una nueva reserva?',
+        'No he encontrado reservas para ese teléfono. ¿Desea hacer una reserva?'
+      ],
+      en: [
+        'I have not found future reservations with that phone number. Would you like to make a new reservation?',
+        'There are no active reservations for that number. Would you like to make a new reservation?',
+        'I have not located reservations with that phone. Would you like to reserve a table?',
+        'There are no reservations registered for that number. Would you like to make a new reservation?',
+        'I have not found reservations for that phone. Would you like to make a reservation?'
+      ]
+    },
+    modify_offer_new: {
+      es: [
+        'No hay reservas para modificar. ¿Desea hacer una nueva reserva?',
+        'No hay reservas activas. ¿Quiere hacer una nueva reserva?',
+        'No hay reservas futuras. ¿Desea reservar una mesa?',
+        'No hay reservas para modificar. ¿Quiere hacer una reserva?',
+        'No hay reservas. ¿Desea hacer una nueva reserva?'
+      ],
+      en: [
+        'There are no reservations to modify. Would you like to make a new reservation?',
+        'There are no active reservations. Would you like to make a new reservation?',
+        'There are no future reservations. Would you like to reserve a table?',
+        'There are no reservations to modify. Would you like to make a reservation?',
+        'There are no reservations. Would you like to make a new reservation?'
+      ]
+    },
+    modify_cancelled: {
+      es: [
+        'Entendido, no se realizará ninguna modificación. ¿En qué más puedo ayudarle?',
+        'Perfecto, no modificaremos la reserva. ¿Qué necesita?',
+        'Muy bien, no se harán cambios. ¿En qué puedo asistirle?',
+        'Entendido, no se modificará nada. ¿Qué desea hacer?',
+        'Perfecto, no se realizarán cambios. ¿Cómo puedo ayudarle?'
+      ],
+      en: [
+        'Understood, no modification will be made. How else can I help you?',
+        'Perfect, we will not modify the reservation. What do you need?',
+        'Very well, no changes will be made. How can I assist you?',
+        'Understood, nothing will be modified. What would you like to do?',
+        'Perfect, no changes will be made. How can I help you?'
+      ]
+    },
+    modify_unclear_option: {
+      es: [
+        'No he entendido qué opción quiere seleccionar. Por favor, diga el número de la reserva que desea modificar.',
+        'No he podido identificar la opción. Por favor, mencione el número de la reserva.',
+        'No he entendido su selección. Por favor, diga el número correspondiente.',
+        'No he podido procesar su elección. Por favor, indique el número de la opción.',
+        'No he entendido. Por favor, diga el número de la reserva que quiere modificar.'
+      ],
+      en: [
+        'I did not understand which option you want to select. Please say the number of the reservation you want to modify.',
+        'I could not identify the option. Please mention the number of the reservation.',
+        'I did not understand your selection. Please say the corresponding number.',
+        'I could not process your choice. Please indicate the option number.',
+        'I did not understand. Please say the number of the reservation you want to modify.'
+      ]
+    },
+    modify_invalid_option: {
+      es: [
+        'Esa opción no es válida. Por favor, elija un número de la lista.',
+        'Esa opción no existe. Por favor, seleccione un número válido.',
+        'Opción inválida. Por favor, elija un número de las opciones disponibles.',
+        'Esa opción no está disponible. Por favor, seleccione otra.',
+        'Opción no válida. Por favor, elija un número de la lista.'
+      ],
+      en: [
+        'That option is not valid. Please choose a number from the list.',
+        'That option does not exist. Please select a valid number.',
+        'Invalid option. Please choose a number from the available options.',
+        'That option is not available. Please select another one.',
+        'Invalid option. Please choose a number from the list.'
+      ]
+    },
+    modify_unclear_field: {
+      es: [
+        'No he entendido qué campo quiere modificar. Por favor, diga si quiere cambiar el nombre, la fecha, la hora o el número de personas.',
+        'No he podido identificar qué desea cambiar. Por favor, mencione el campo: nombre, fecha, hora o personas.',
+        'No he entendido su elección. Por favor, especifique qué quiere modificar.',
+        'No he podido procesar su solicitud. Por favor, indique el campo a cambiar.',
+        'No he entendido. Por favor, diga qué campo quiere modificar.'
+      ],
+      en: [
+        'I did not understand which field you want to modify. Please say if you want to change the name, date, time or number of people.',
+        'I could not identify what you want to change. Please mention the field: name, date, time or people.',
+        'I did not understand your choice. Please specify what you want to modify.',
+        'I could not process your request. Please indicate the field to change.',
+        'I did not understand. Please say which field you want to modify.'
+      ]
+    },
+    modify_unclear_value: {
+      es: [
+        'No he entendido el nuevo {field}. Por favor, dígamelo de nuevo.',
+        'No he podido procesar el nuevo {field}. Por favor, repítalo.',
+        'No he entendido el valor para {field}. Por favor, indíquelo de nuevo.',
+        'No he podido identificar el nuevo {field}. Por favor, mencione el valor.',
+        'No he entendido. Por favor, diga el nuevo {field} de nuevo.'
+      ],
+      en: [
+        'I did not understand the new {field}. Please tell me again.',
+        'I could not process the new {field}. Please repeat it.',
+        'I did not understand the value for {field}. Please indicate it again.',
+        'I could not identify the new {field}. Please mention the value.',
+        'I did not understand. Please say the new {field} again.'
+      ]
+    },
+    modify_unclear_confirmation: {
+      es: [
+        'No he entendido su respuesta. Por favor, diga "sí" para confirmar la modificación o "no" para cancelarla.',
+        'No he podido procesar su confirmación. Por favor, responda "sí" o "no".',
+        'No he entendido. Por favor, confirme con "sí" o cancele con "no".',
+        'No he podido identificar su respuesta. Por favor, diga "sí" o "no".',
+        'No he entendido. Por favor, responda "sí" para confirmar o "no" para cancelar.'
+      ],
+      en: [
+        'I did not understand your response. Please say "yes" to confirm the modification or "no" to cancel it.',
+        'I could not process your confirmation. Please answer "yes" or "no".',
+        'I did not understand. Please confirm with "yes" or cancel with "no".',
+        'I could not identify your response. Please say "yes" or "no".',
+        'I did not understand. Please answer "yes" to confirm or "no" to cancel.'
+      ]
+    },
+
     // ===== MENSAJES PARA CANCELACIÓN DE RESERVAS =====
     cancel_ask_phone_choice: {
       es: [
@@ -3274,6 +4023,11 @@ function handleIntentionResponse(text) {
   ];
   
   const lowerText = text.toLowerCase();
+  
+  // Verificar modificación de reserva existente
+  if (isModificationRequest(text)) {
+    return { action: 'modify' };
+  }
   
   // Verificar cancelación de reserva existente
   if (isCancellationRequest(text)) {
@@ -4902,6 +5656,47 @@ function formatReservationForDisplay(reservation, index, language = 'es', reserv
   };
   
   return messages[language] || messages.es;
+}
+
+// Detectar si el usuario quiere modificar una reserva existente
+function isModificationRequest(text) {
+  const modificationPatterns = [
+    // Español
+    /modificar|editar|cambiar|actualizar.*reserva/i,
+    /reserva.*modificar|reserva.*editar|reserva.*cambiar/i,
+    /quiero.*modificar|quiero.*editar|quiero.*cambiar/i,
+    /necesito.*modificar|necesito.*editar|necesito.*cambiar/i,
+    /puedo.*modificar|puedo.*editar|puedo.*cambiar/i,
+    
+    // Inglés
+    /modify|edit|change|update.*reservation/i,
+    /reservation.*modify|reservation.*edit|reservation.*change/i,
+    /want.*to.*modify|want.*to.*edit|want.*to.*change/i,
+    /need.*to.*modify|need.*to.*edit|need.*to.*change/i,
+    /can.*modify|can.*edit|can.*change/i,
+    
+    // Alemán
+    /modifizieren|bearbeiten|ändern|aktualisieren.*reservierung/i,
+    /reservierung.*modifizieren|reservierung.*bearbeiten|reservierung.*ändern/i,
+    /möchte.*modifizieren|möchte.*bearbeiten|möchte.*ändern/i,
+    
+    // Francés
+    /modifier|éditer|changer|mettre.*à.*jour.*réservation/i,
+    /réservation.*modifier|réservation.*éditer|réservation.*changer/i,
+    /vouloir.*modifier|vouloir.*éditer|vouloir.*changer/i,
+    
+    // Italiano
+    /modificare|editare|cambiare|aggiornare.*prenotazione/i,
+    /prenotazione.*modificare|prenotazione.*editare|prenotazione.*cambiare/i,
+    /volere.*modificare|volere.*editare|volere.*cambiare/i,
+    
+    // Português
+    /modificar|editar|alterar|atualizar.*reserva/i,
+    /reserva.*modificar|reserva.*editar|reserva.*alterar/i,
+    /querer.*modificar|querer.*editar|querer.*alterar/i
+  ];
+  
+  return modificationPatterns.some(pattern => pattern.test(text));
 }
 
 // Detectar si el usuario quiere cancelar una reserva existente
