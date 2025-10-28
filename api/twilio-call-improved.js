@@ -943,16 +943,16 @@ async function updateReservation(modificationData) {
         case 'date':
           // Combinar nueva fecha con hora existente
           const existingTime = selectedReservation.data_reserva.split(' ')[1];
-          const newDateTime = `${newValue} ${existingTime}`;
+          const newDateTimeWithTime = `${newValue} ${existingTime}`;
           updateQuery = `UPDATE RESERVA SET data_reserva = ? WHERE id_reserva = ? AND telefon = ?`;
-          updateValues = [newDateTime, selectedReservation.id_reserva, phone];
+          updateValues = [newDateTimeWithTime, selectedReservation.id_reserva, phone];
           break;
         case 'time':
           // Combinar fecha existente con nueva hora
           const existingDate = selectedReservation.data_reserva.split(' ')[0];
-          const newDateTime = `${existingDate} ${newValue}`;
+          const newDateTimeWithDate = `${existingDate} ${newValue}`;
           updateQuery = `UPDATE RESERVA SET data_reserva = ? WHERE id_reserva = ? AND telefon = ?`;
-          updateValues = [newDateTime, selectedReservation.id_reserva, phone];
+          updateValues = [newDateTimeWithDate, selectedReservation.id_reserva, phone];
           break;
         case 'people':
           updateQuery = `UPDATE RESERVA SET num_persones = ? WHERE id_reserva = ? AND telefon = ?`;
