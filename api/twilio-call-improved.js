@@ -526,15 +526,20 @@ async function handleCancellationRequest(state, userInput) {
 
 async function handleCancelAskPhone(state, userInput) {
   console.log(`📞 [CANCELACIÓN] Procesando número de teléfono: ${userInput}`);
+  console.log(`📞 [DEBUG] Input del usuario: "${userInput}"`);
+  console.log(`📞 [DEBUG] Teléfono del estado: "${state.phone}"`);
   
   // Extraer número de teléfono del input
   let phoneNumber = extractPhoneFromText(userInput);
+  console.log(`📞 [DEBUG] Teléfono extraído del input: "${phoneNumber}"`);
   
   // Si no se encontró en el texto, usar el teléfono de la llamada
   if (!phoneNumber) {
     phoneNumber = state.phone;
     console.log(`📞 [CANCELACIÓN] Usando teléfono de la llamada: ${phoneNumber}`);
   }
+  
+  console.log(`📞 [DEBUG] Teléfono final a usar para búsqueda: "${phoneNumber}"`);
   
   // Buscar reservas para este teléfono
   const reservations = await findReservationsByPhone(phoneNumber);
@@ -4584,15 +4589,20 @@ function escapeXml(text) {
 // Buscar reservas por número de teléfono
 async function findReservationsByPhone(phoneNumber) {
   try {
-      console.log(`🔍 Buscando reservas para el teléfono: ${phoneNumber} (versión actualizada)`);
+      console.log(`🔍 [DEBUG] Buscando reservas para el teléfono: "${phoneNumber}" (versión actualizada)`);
+      console.log(`🔍 [DEBUG] Tipo de dato del teléfono:`, typeof phoneNumber);
+      console.log(`🔍 [DEBUG] Longitud del teléfono:`, phoneNumber ? phoneNumber.length : 'undefined');
     
     const connection = await createConnection();
     
     try {
       // Buscar reservas activas (no canceladas) por teléfono
       // Usar LIKE para buscar teléfonos que contengan el número (maneja diferentes formatos)
+      const searchPattern = `%${phoneNumber}%`;
+      console.log(`🔍 [DEBUG] Patrón de búsqueda: "${searchPattern}"`);
+      
       const query = `
-        SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions
+        SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon
         FROM RESERVA 
         WHERE telefon LIKE ? 
         AND data_reserva >= NOW() 
@@ -4600,8 +4610,17 @@ async function findReservationsByPhone(phoneNumber) {
         ORDER BY data_reserva ASC
       `;
       
-      const [rows] = await connection.execute(query, [`%${phoneNumber}%`]);
-      console.log(`📋 Encontradas ${rows.length} reservas para ${phoneNumber}`);
+      console.log(`🔍 [DEBUG] Ejecutando consulta SQL:`, query);
+      console.log(`🔍 [DEBUG] Parámetros:`, [searchPattern]);
+      
+      const [rows] = await connection.execute(query, [searchPattern]);
+      console.log(`📋 [DEBUG] Resultado de la consulta:`, rows);
+      console.log(`📋 [DEBUG] Número de filas encontradas: ${rows.length}`);
+      
+      // Log adicional: buscar TODAS las reservas para este teléfono (sin filtros de fecha)
+      const debugQuery = `SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon FROM RESERVA WHERE telefon LIKE ?`;
+      const [debugRows] = await connection.execute(debugQuery, [searchPattern]);
+      console.log(`🔍 [DEBUG] TODAS las reservas (incluyendo pasadas):`, debugRows);
       
       return rows;
     } finally {
@@ -4798,6 +4817,8 @@ function isCancellationDenial(text) {
 
 // Extraer número de teléfono del texto
 function extractPhoneFromText(text) {
+  console.log(`📞 [DEBUG] Extrayendo teléfono del texto: "${text}"`);
+  
   // Patrones para detectar números de teléfono
   const phonePatterns = [
     /(\+?[0-9]{9,15})/g,  // Números con 9-15 dígitos
@@ -4806,23 +4827,32 @@ function extractPhoneFromText(text) {
   ];
   
   const matches = [];
-  phonePatterns.forEach(pattern => {
+  phonePatterns.forEach((pattern, index) => {
     const found = text.match(pattern);
+    console.log(`📞 [DEBUG] Patrón ${index + 1} (${pattern}):`, found);
     if (found) {
       // Limpiar el número pero mantener el + si existe
-      matches.push(...found.map(match => {
+      const cleanedMatches = found.map(match => {
         const cleaned = match.replace(/[\s\-]/g, '');
+        console.log(`📞 [DEBUG] Match original: "${match}" -> Limpiado: "${cleaned}"`);
         // Si no tiene + y empieza por 34, agregarlo
         if (!cleaned.startsWith('+') && cleaned.startsWith('34') && cleaned.length >= 9) {
-          return '+' + cleaned;
+          const withPlus = '+' + cleaned;
+          console.log(`📞 [DEBUG] Agregando +34: "${cleaned}" -> "${withPlus}"`);
+          return withPlus;
         }
         return cleaned;
-      }));
+      });
+      matches.push(...cleanedMatches);
     }
   });
   
+  console.log(`📞 [DEBUG] Todos los matches encontrados:`, matches);
+  const result = matches.length > 0 ? matches[0] : null;
+  console.log(`📞 [DEBUG] Teléfono final extraído: "${result}"`);
+  
   // Devolver el primer número encontrado
-  return matches.length > 0 ? matches[0] : null;
+  return result;
 }
 
 function generateMarkdownConversation(state) {
