@@ -4584,7 +4584,7 @@ function escapeXml(text) {
 // Buscar reservas por número de teléfono
 async function findReservationsByPhone(phoneNumber) {
   try {
-    console.log(`🔍 Buscando reservas para el teléfono: ${phoneNumber}`);
+      console.log(`🔍 Buscando reservas para el teléfono: ${phoneNumber} (versión actualizada)`);
     
     const connection = await createConnection();
     
