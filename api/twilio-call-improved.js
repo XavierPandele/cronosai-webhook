@@ -754,19 +754,36 @@ async function handleCancelConfirmation(state, userInput) {
   if (isCancellationConfirmation(userInput)) {
     // Confirmar cancelación
     const selectedReservation = state.cancellationData.selectedReservation;
-    const success = await cancelReservation(selectedReservation.id, state.cancellationData.phone);
+    console.log(`🗑️ [DEBUG] Datos de cancelación:`, {
+      selectedReservation: selectedReservation,
+      phone: state.cancellationData.phone,
+      id_reserva: selectedReservation?.id_reserva
+    });
     
-    if (success) {
-      console.log(`✅ [CANCELACIÓN] Reserva cancelada exitosamente`);
-      state.step = 'cancel_success';
-      const successMessages = getMultilingualMessages('cancel_success', state.language);
+    try {
+      const success = await cancelReservation(selectedReservation.id_reserva, state.cancellationData.phone);
       
-      return {
-        message: getRandomMessage(successMessages),
-        gather: false // Terminar llamada
-      };
-    } else {
-      console.log(`❌ [CANCELACIÓN] Error cancelando reserva`);
+      if (success) {
+        console.log(`✅ [CANCELACIÓN] Reserva cancelada exitosamente`);
+        state.step = 'cancel_success';
+        const successMessages = getMultilingualMessages('cancel_success', state.language);
+        
+        return {
+          message: getRandomMessage(successMessages),
+          gather: false // Terminar llamada
+        };
+      } else {
+        console.log(`❌ [CANCELACIÓN] Error cancelando reserva`);
+        state.step = 'cancel_error';
+        const errorMessages = getMultilingualMessages('cancel_error', state.language);
+        
+        return {
+          message: getRandomMessage(errorMessages),
+          gather: false // Terminar llamada
+        };
+      }
+    } catch (error) {
+      console.error(`❌ [CANCELACIÓN] Error en cancelación:`, error);
       state.step = 'cancel_error';
       const errorMessages = getMultilingualMessages('cancel_error', state.language);
       
