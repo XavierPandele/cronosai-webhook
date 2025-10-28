@@ -120,27 +120,38 @@ async function processConversationStep(state, userInput) {
   }
 
   switch (step) {
-     case 'greeting':
-       // Primera interacción - saludo general
-       console.log(`🎯 [DEBUG] GREETING: language=${state.language}, userInput="${userInput}"`);
-       
-       // Si detectamos un idioma diferente al español y hay intención de reserva, saltar al siguiente paso
-       if (state.language !== 'es' && userInput && isReservationRequest(userInput)) {
-         console.log(`🚀 [DEBUG] Saltando saludo - idioma=${state.language}, intención detectada`);
-         state.step = 'ask_people';
-         const reservationMessages = getMultilingualMessages('reservation', state.language);
-         console.log(`💬 [DEBUG] Mensajes de reserva obtenidos:`, reservationMessages);
-         return {
-           message: getRandomMessage(reservationMessages),
-           gather: true
-         };
-       }
-       
-       // Si es español o no hay intención clara de reserva, hacer saludo normal
-       console.log(`👋 [DEBUG] Saludo normal - idioma=${state.language}`);
-       state.step = 'ask_intention';
-       const greetingMessages = getMultilingualMessages('greeting', state.language);
-       console.log(`💬 [DEBUG] Mensajes de saludo obtenidos:`, greetingMessages);
+    case 'greeting':
+      // Primera interacción - saludo general
+      console.log(`🎯 [DEBUG] GREETING: language=${state.language}, userInput="${userInput}"`);
+      
+      // Si hay input del usuario, detectar intención inmediatamente
+      if (userInput && userInput.trim()) {
+        console.log(`🔍 [DEBUG] Detectando intención en saludo: "${userInput}"`);
+        const intentionResult = handleIntentionResponse(userInput);
+        console.log(`🎯 [DEBUG] Intención detectada:`, intentionResult);
+        
+        if (intentionResult.action === 'reservation') {
+          console.log(`🚀 [DEBUG] Intención de reserva detectada en saludo`);
+          state.step = 'ask_people';
+          const reservationMessages = getMultilingualMessages('reservation', state.language);
+          return {
+            message: getRandomMessage(reservationMessages),
+            gather: true
+          };
+        } else if (intentionResult.action === 'modify') {
+          console.log(`✏️ [DEBUG] Intención de modificación detectada en saludo`);
+          return await handleModificationRequest(state, userInput);
+        } else if (intentionResult.action === 'cancel') {
+          console.log(`🚫 [DEBUG] Intención de cancelación detectada en saludo`);
+          return await handleCancellationRequest(state, userInput);
+        }
+      }
+      
+      // Si no hay input o no se detectó intención, hacer saludo normal
+      console.log(`👋 [DEBUG] Saludo normal - idioma=${state.language}`);
+      state.step = 'ask_intention';
+      const greetingMessages = getMultilingualMessages('greeting', state.language);
+      console.log(`💬 [DEBUG] Mensajes de saludo obtenidos:`, greetingMessages);
        return {
          message: getRandomMessage(greetingMessages),
          gather: true
@@ -1452,18 +1463,18 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
   const messages = {
     greeting: {
       es: [
-        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle? Puede hacer una nueva reserva o cancelar una existente.',
-        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy? Puede reservar una mesa o cancelar una reserva existente.',
-        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle? Puedo ayudarle con una nueva reserva o cancelar una existente.',
-        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita? Puede hacer una reserva o cancelar una existente.',
-        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle? Puede reservar o cancelar una reserva.'
+        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle? Puede hacer una nueva reserva, modificar una existente o cancelar una reserva.',
+        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy? Puede reservar una mesa, modificar una reserva existente o cancelar una reserva.',
+        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle? Puedo ayudarle con una nueva reserva, modificar una existente o cancelar una reserva.',
+        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita? Puede hacer una reserva, modificar una existente o cancelar una reserva.',
+        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle? Puede reservar, modificar o cancelar una reserva.'
       ],
       en: [
-        'Hello! Welcome to our restaurant. How can I help you? You can make a new reservation or cancel an existing one.',
-        'Good morning! Welcome. How can I assist you today? You can book a table or cancel an existing reservation.',
-        'Hello! Thank you for calling. How can I help you? I can help you with a new reservation or cancel an existing one.',
-        'Good afternoon! Welcome to the restaurant. What do you need? You can make a reservation or cancel an existing one.',
-        'Hello! Delighted to serve you. How can I help you? You can book or cancel a reservation.'
+        'Hello! Welcome to our restaurant. How can I help you? You can make a new reservation, modify an existing one, or cancel a reservation.',
+        'Good morning! Welcome. How can I assist you today? You can book a table, modify an existing reservation, or cancel a reservation.',
+        'Hello! Thank you for calling. How can I help you? I can help you with a new reservation, modify an existing one, or cancel a reservation.',
+        'Good afternoon! Welcome to the restaurant. What do you need? You can make a reservation, modify an existing one, or cancel a reservation.',
+        'Hello! Delighted to serve you. How can I help you? You can book, modify, or cancel a reservation.'
       ],
       de: [
         'Hallo! Willkommen in unserem Restaurant. Wie kann ich Ihnen helfen? Sie können eine neue Reservierung vornehmen oder eine bestehende stornieren.',
