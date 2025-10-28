@@ -141,7 +141,11 @@ async function processConversationStep(state, userInput) {
         } else if (intentionResult.action === 'modify') {
           console.log(`✏️ [DEBUG] Intención de modificación detectada en saludo`);
           console.log(`✏️ [DEBUG] Llamando a handleModificationRequest con input: "${userInput}"`);
-          return await handleModificationRequest(state, userInput);
+          console.log(`✏️ [DEBUG] Estado antes de llamar a handleModificationRequest: step=${state.step}, language=${state.language}`);
+          const result = await handleModificationRequest(state, userInput);
+          console.log(`✏️ [DEBUG] Resultado de handleModificationRequest:`, result);
+          console.log(`✏️ [DEBUG] Estado después de llamar a handleModificationRequest: step=${state.step}, language=${state.language}`);
+          return result;
         } else if (intentionResult.action === 'cancel') {
           console.log(`🚫 [DEBUG] Intención de cancelación detectada en saludo`);
           return await handleCancellationRequest(state, userInput);
@@ -546,27 +550,44 @@ async function processConversationStep(state, userInput) {
 // ===== NUEVAS FUNCIONES DE MODIFICACIÓN DE RESERVAS EXISTENTES =====
 
 async function handleModificationRequest(state, userInput) {
-  console.log(`✏️ [MODIFICACIÓN] Iniciando proceso de modificación de reserva existente`);
-  console.log(`✏️ [DEBUG] Input del usuario: "${userInput}"`);
-  console.log(`✏️ [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
-  
-  // Cambiar estado a preguntar si usar el mismo teléfono
-  state.step = 'modify_ask_phone_choice';
-  state.modificationData = {}; // Inicializar datos de modificación
-  
-  console.log(`✏️ [DEBUG] Nuevo estado: step=${state.step}`);
-  
-  // Obtener mensaje preguntando si usar el mismo teléfono
-  const phoneChoiceMessages = getMultilingualMessages('modify_ask_phone_choice', state.language);
-  console.log(`✏️ [DEBUG] Mensajes de elección de teléfono:`, phoneChoiceMessages);
-  
-  const selectedMessage = getRandomMessage(phoneChoiceMessages);
-  console.log(`✏️ [DEBUG] Mensaje seleccionado: "${selectedMessage}"`);
-  
-  return {
-    message: selectedMessage,
-    gather: true
-  };
+  try {
+    console.log(`✏️ [MODIFICACIÓN] Iniciando proceso de modificación de reserva existente`);
+    console.log(`✏️ [DEBUG] Input del usuario: "${userInput}"`);
+    console.log(`✏️ [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
+    
+    // Cambiar estado a preguntar si usar el mismo teléfono
+    state.step = 'modify_ask_phone_choice';
+    state.modificationData = {}; // Inicializar datos de modificación
+    
+    console.log(`✏️ [DEBUG] Nuevo estado: step=${state.step}`);
+    
+    // Obtener mensaje preguntando si usar el mismo teléfono
+    console.log(`✏️ [DEBUG] Obteniendo mensajes para modify_ask_phone_choice en idioma: ${state.language}`);
+    const phoneChoiceMessages = getMultilingualMessages('modify_ask_phone_choice', state.language);
+    console.log(`✏️ [DEBUG] Mensajes de elección de teléfono:`, phoneChoiceMessages);
+    
+    if (!phoneChoiceMessages || phoneChoiceMessages.length === 0) {
+      console.error(`❌ [ERROR] No se encontraron mensajes para modify_ask_phone_choice en idioma: ${state.language}`);
+      return {
+        message: "Error: No se encontraron mensajes de elección de teléfono",
+        gather: true
+      };
+    }
+    
+    const selectedMessage = getRandomMessage(phoneChoiceMessages);
+    console.log(`✏️ [DEBUG] Mensaje seleccionado: "${selectedMessage}"`);
+    
+    return {
+      message: selectedMessage,
+      gather: true
+    };
+  } catch (error) {
+    console.error(`❌ [ERROR] Error en handleModificationRequest:`, error);
+    return {
+      message: "Error: No se pudo procesar la solicitud de modificación",
+      gather: true
+    };
+  }
 }
 
 async function handleModifyAskPhoneChoice(state, userInput) {
