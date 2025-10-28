@@ -619,6 +619,7 @@ async function handleCancelAskPhoneChoice(state, userInput) {
     // Usuario quiere usar otro teléfono
     console.log(`📞 [CANCELACIÓN] Usuario eligió usar otro teléfono`);
     state.step = 'cancel_ask_phone';
+    state.cancellationData.useOtherPhone = true; // Marcar que debe usar otro teléfono
     const phoneMessages = getMultilingualMessages('cancel_ask_phone', state.language);
     
     return {
@@ -637,10 +638,23 @@ async function handleCancelAskPhone(state, userInput) {
   let phoneNumber = extractPhoneFromText(userInput);
   console.log(`📞 [DEBUG] Teléfono extraído del input: "${phoneNumber}"`);
   
-  // Si no se encontró en el texto, usar el teléfono de la llamada
-  if (!phoneNumber) {
-    phoneNumber = state.phone;
-    console.log(`📞 [CANCELACIÓN] Usando teléfono de la llamada: ${phoneNumber}`);
+  // Si el usuario eligió usar otro teléfono, NO usar el de la llamada
+  if (state.cancellationData.useOtherPhone) {
+    if (!phoneNumber) {
+      console.log(`❌ [CANCELACIÓN] No se pudo extraer teléfono del input: "${userInput}"`);
+      const unclearMessages = getMultilingualMessages('cancel_ask_phone', state.language);
+      return {
+        message: `No pude entender el número de teléfono. ${getRandomMessage(unclearMessages)}`,
+        gather: true
+      };
+    }
+    console.log(`📞 [CANCELACIÓN] Usando teléfono proporcionado por el usuario: ${phoneNumber}`);
+  } else {
+    // Si no se encontró en el texto, usar el teléfono de la llamada
+    if (!phoneNumber) {
+      phoneNumber = state.phone;
+      console.log(`📞 [CANCELACIÓN] Usando teléfono de la llamada: ${phoneNumber}`);
+    }
   }
   
   console.log(`📞 [DEBUG] Teléfono final a usar para búsqueda: "${phoneNumber}"`);
@@ -704,10 +718,15 @@ async function handleCancelAskPhone(state, userInput) {
 
 async function handleCancelShowMultiple(state, userInput) {
   console.log(`🔢 [CANCELACIÓN] Procesando selección de reserva: ${userInput}`);
+  console.log(`🔢 [DEBUG] Input del usuario: "${userInput}"`);
+  console.log(`🔢 [DEBUG] Número de reservas disponibles: ${state.cancellationData.reservations.length}`);
   
   // Extraer número de opción del input usando la función mejorada
   const optionNumber = extractOptionFromText(userInput);
+  console.log(`🔢 [DEBUG] Número de opción extraído: ${optionNumber}`);
+  
   if (!optionNumber) {
+    console.log(`❌ [CANCELACIÓN] No se pudo detectar opción en: "${userInput}"`);
     const unclearMessages = getMultilingualMessages('cancel_unclear_option', state.language);
     return {
       message: getRandomMessage(unclearMessages),
@@ -4761,7 +4780,7 @@ async function findReservationsByPhone(phoneNumber) {
     const connection = await createConnection();
     
     try {
-      // Buscar TODAS las reservas (incluyendo pasadas) por teléfono
+      // Buscar reservas futuras (no canceladas) por teléfono
       // Usar LIKE para buscar teléfonos que contengan el número (maneja diferentes formatos)
       const searchPattern = `%${phoneNumber}%`;
       console.log(`🔍 [DEBUG] Patrón de búsqueda: "${searchPattern}"`);
@@ -4770,6 +4789,7 @@ async function findReservationsByPhone(phoneNumber) {
         SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon
         FROM RESERVA 
         WHERE telefon LIKE ? 
+        AND data_reserva >= NOW() 
         AND observacions NOT LIKE '%CANCELADA%'
         ORDER BY data_reserva ASC
       `;
@@ -5005,11 +5025,38 @@ function extractOptionFromText(text) {
     /^n[úu]mero\s*(\d+)$/,
     /^n[úu]mero\s*(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
     
+    // Patrones más específicos para selección
+    /^(?:quiero\s+)?(?:cancelar\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(\d+)$/,
+    /^(?:quiero\s+)?(?:borrar\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(\d+)$/,
+    /^(?:selecciono\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(\d+)$/,
+    /^(?:escojo\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(\d+)$/,
+    /^(?:elijo\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(\d+)$/,
+    
+    // Patrones con palabras
+    /^(?:quiero\s+)?(?:cancelar\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    /^(?:quiero\s+)?(?:borrar\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    /^(?:selecciono\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    /^(?:escojo\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    /^(?:elijo\s+)?(?:la\s+)?(?:opci[oó]n\s+)?(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    
     // Inglés
     /^(?:the\s*)?(\d+)$/,
     /^(?:the\s*)?(?:option\s*)?(\d+)$/,
     /^(?:the\s*)?(?:option\s*)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
     /^(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)$/,
+    
+    // Patrones específicos en inglés
+    /^(?:i\s+want\s+to\s+)?(?:cancel\s+)?(?:option\s+)?(\d+)$/,
+    /^(?:i\s+want\s+to\s+)?(?:delete\s+)?(?:option\s+)?(\d+)$/,
+    /^(?:i\s+select\s+)?(?:option\s+)?(\d+)$/,
+    /^(?:i\s+choose\s+)?(?:option\s+)?(\d+)$/,
+    /^(?:i\s+pick\s+)?(?:option\s+)?(\d+)$/,
+    
+    /^(?:i\s+want\s+to\s+)?(?:cancel\s+)?(?:option\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
+    /^(?:i\s+want\s+to\s+)?(?:delete\s+)?(?:option\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
+    /^(?:i\s+select\s+)?(?:option\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
+    /^(?:i\s+choose\s+)?(?:option\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
+    /^(?:i\s+pick\s+)?(?:option\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
     
     // Alemán
     /^(?:die\s*)?(\d+)$/,
@@ -5124,6 +5171,8 @@ function extractPhoneFromText(text) {
     /(\+?[0-9]{9,15})/g,  // Números con 9-15 dígitos
     /(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})/g,  // Formato español: 123 456 789
     /(\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/g,  // Formato español: 12 345 67 89
+    /(\d{3}[\s\-]?\d{2}[\s\-]?\d{2}[\s\-]?\d{2})/g,  // Formato: 611 67 01 89
+    /(\d{3}[\s\-]?\d{2}[\s\-]?\d{2}[\s\-]?\d{2}[\s\-]?\d{2})/g,  // Formato: 611 67 01 89 12
   ];
   
   const matches = [];
