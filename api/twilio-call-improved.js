@@ -174,8 +174,10 @@ async function processConversationStep(state, userInput) {
        }
 
      // ===== NUEVOS CASOS PARA CANCELACIÓN DE RESERVAS =====
-     case 'cancel_ask_phone':
-       return await handleCancelAskPhone(state, userInput);
+    case 'cancel_ask_phone_choice':
+      return await handleCancelAskPhoneChoice(state, userInput);
+    case 'cancel_ask_phone':
+      return await handleCancelAskPhone(state, userInput);
 
      case 'cancel_show_multiple':
        return await handleCancelShowMultiple(state, userInput);
@@ -511,17 +513,119 @@ async function processConversationStep(state, userInput) {
 async function handleCancellationRequest(state, userInput) {
   console.log(`🚫 [CANCELACIÓN] Iniciando proceso de cancelación de reserva existente`);
   
-  // Cambiar estado a solicitud de teléfono para cancelación
-  state.step = 'cancel_ask_phone';
+  // Cambiar estado a preguntar si usar el mismo teléfono
+  state.step = 'cancel_ask_phone_choice';
   state.cancellationData = {}; // Inicializar datos de cancelación
   
-  // Obtener mensaje pidiendo número de teléfono
-  const phoneMessages = getMultilingualMessages('cancel_ask_phone', state.language);
+  // Obtener mensaje preguntando si usar el mismo teléfono
+  const phoneChoiceMessages = getMultilingualMessages('cancel_ask_phone_choice', state.language);
   
   return {
-    message: getRandomMessage(phoneMessages),
+    message: getRandomMessage(phoneChoiceMessages),
     gather: true
   };
+}
+
+async function handleCancelAskPhoneChoice(state, userInput) {
+  console.log(`📞 [CANCELACIÓN] Procesando elección de teléfono: ${userInput}`);
+  
+  const lowerInput = userInput.toLowerCase().trim();
+  
+  // Detectar si quiere usar el mismo teléfono
+  const samePhonePatterns = [
+    // Español
+    /sí|si|mismo|igual|este|actual|desde.*aquí|desde.*aquí/i,
+    /mismo.*teléfono|mismo.*número|igual.*teléfono|igual.*número/i,
+    /usar.*este|usar.*mismo|usar.*igual/i,
+    
+    // Inglés
+    /yes|same|this|current|from.*here/i,
+    /same.*phone|same.*number|this.*phone|this.*number/i,
+    /use.*this|use.*same|use.*current/i,
+    
+    // Alemán
+    /ja|gleich|dasselbe|dieser|aktuell|von.*hier/i,
+    /gleiche.*telefon|gleiche.*nummer|dieses.*telefon/i,
+    /verwenden.*dieses|verwenden.*gleiche/i,
+    
+    // Francés
+    /oui|même|identique|cet|actuel|d'ici/i,
+    /même.*téléphone|même.*numéro|cet.*téléphone/i,
+    /utiliser.*ce|utiliser.*même/i,
+    
+    // Italiano
+    /sì|stesso|uguale|questo|attuale|da.*qui/i,
+    /stesso.*telefono|stesso.*numero|questo.*telefono/i,
+    /usare.*questo|usare.*stesso/i,
+    
+    // Português
+    /sim|mesmo|igual|este|atual|daqui/i,
+    /mesmo.*telefone|mesmo.*número|este.*telefone/i,
+    /usar.*este|usar.*mesmo/i
+  ];
+  
+  const useSamePhone = samePhonePatterns.some(pattern => pattern.test(lowerInput));
+  
+  if (useSamePhone) {
+    console.log(`📞 [CANCELACIÓN] Usuario eligió usar el mismo teléfono: ${state.phone}`);
+    // Usar el teléfono de la llamada directamente
+    const reservations = await findReservationsByPhone(state.phone);
+    
+    if (reservations.length === 0) {
+      state.step = 'cancel_no_reservations';
+      const noReservationsMessages = getMultilingualMessages('cancel_no_reservations', state.language);
+      return {
+        message: getRandomMessage(noReservationsMessages),
+        gather: true
+      };
+    } else if (reservations.length === 1) {
+      state.step = 'cancel_confirm_single';
+      state.cancellationData = {
+        phone: state.phone,
+        reservations: reservations,
+        selectedReservation: reservations[0]
+      };
+      
+      const singleReservationMessages = getMultilingualMessages('cancel_show_single', state.language);
+      const reservationText = formatReservationForDisplay(reservations[0], 0, state.language, reservations).single;
+      
+      return {
+        message: `${getRandomMessage(singleReservationMessages)} ${reservationText}. ${getRandomMessage(getMultilingualMessages('cancel_confirm', state.language))}`,
+        gather: true
+      };
+    } else {
+      state.step = 'cancel_show_multiple';
+      state.cancellationData = {
+        phone: state.phone,
+        reservations: reservations
+      };
+      
+      const multipleReservationsMessages = getMultilingualMessages('cancel_show_multiple', state.language);
+      let message = getRandomMessage(multipleReservationsMessages);
+      
+      reservations.forEach((reservation, index) => {
+        const reservationText = formatReservationForDisplay(reservation, index, state.language, reservations).option;
+        message += ` ${reservationText}.`;
+      });
+      
+      message += ` ${getRandomMessage(getMultilingualMessages('cancel_choose_option', state.language))}`;
+      
+      return {
+        message: message,
+        gather: true
+      };
+    }
+  } else {
+    // Usuario quiere usar otro teléfono
+    console.log(`📞 [CANCELACIÓN] Usuario eligió usar otro teléfono`);
+    state.step = 'cancel_ask_phone';
+    const phoneMessages = getMultilingualMessages('cancel_ask_phone', state.language);
+    
+    return {
+      message: getRandomMessage(phoneMessages),
+      gather: true
+    };
+  }
 }
 
 async function handleCancelAskPhone(state, userInput) {
@@ -1642,6 +1746,50 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
       ]
     },
     // ===== MENSAJES PARA CANCELACIÓN DE RESERVAS =====
+    cancel_ask_phone_choice: {
+      es: [
+        'Perfecto, para cancelar su reserva necesito verificar su identidad. ¿Quiere usar el mismo número de teléfono desde el que está llamando o prefiere usar otro número?',
+        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Desea usar este mismo número o tiene otro?',
+        'Muy bien, para localizar su reserva necesito su número. ¿Usa el mismo número de esta llamada o prefiere darme otro?',
+        'Perfecto, para cancelar necesito verificar su identidad. ¿Quiere usar este número o prefiere usar otro?',
+        'Entendido, para proceder con la cancelación necesito su número. ¿Usa el mismo número desde el que llama o tiene otro?'
+      ],
+      en: [
+        'Perfect, to cancel your reservation I need to verify your identity. Do you want to use the same phone number you are calling from or would you prefer to use another number?',
+        'Understood, to find your reservation I need your phone number. Do you want to use this same number or do you have another one?',
+        'Very well, to locate your reservation I need your number. Do you use the same number from this call or would you prefer to give me another one?',
+        'Perfect, to cancel I need to verify your identity. Do you want to use this number or would you prefer to use another one?',
+        'Understood, to proceed with the cancellation I need your number. Do you use the same number you are calling from or do you have another one?'
+      ],
+      de: [
+        'Perfekt, um Ihre Reservierung zu stornieren, muss ich Ihre Identität überprüfen. Möchten Sie dieselbe Telefonnummer verwenden, von der aus Sie anrufen, oder bevorzugen Sie eine andere Nummer?',
+        'Verstanden, um Ihre Reservierung zu finden, brauche ich Ihre Telefonnummer. Möchten Sie dieselbe Nummer verwenden oder haben Sie eine andere?',
+        'Sehr gut, um Ihre Reservierung zu finden, brauche ich Ihre Nummer. Verwenden Sie dieselbe Nummer von diesem Anruf oder bevorzugen Sie es, mir eine andere zu geben?',
+        'Perfekt, zum Stornieren muss ich Ihre Identität überprüfen. Möchten Sie diese Nummer verwenden oder bevorzugen Sie eine andere?',
+        'Verstanden, um mit der Stornierung fortzufahren, brauche ich Ihre Nummer. Verwenden Sie dieselbe Nummer, von der aus Sie anrufen, oder haben Sie eine andere?'
+      ],
+      fr: [
+        'Parfait, pour annuler votre réservation, je dois vérifier votre identité. Voulez-vous utiliser le même numéro de téléphone depuis lequel vous appelez ou préférez-vous utiliser un autre numéro?',
+        'Compris, pour trouver votre réservation, j\'ai besoin de votre numéro de téléphone. Voulez-vous utiliser ce même numéro ou en avez-vous un autre?',
+        'Très bien, pour localiser votre réservation, j\'ai besoin de votre numéro. Utilisez-vous le même numéro de cet appel ou préférez-vous m\'en donner un autre?',
+        'Parfait, pour annuler, je dois vérifier votre identité. Voulez-vous utiliser ce numéro ou préférez-vous utiliser un autre?',
+        'Compris, pour procéder à l\'annulation, j\'ai besoin de votre numéro. Utilisez-vous le même numéro depuis lequel vous appelez ou en avez-vous un autre?'
+      ],
+      it: [
+        'Perfetto, per cancellare la sua prenotazione devo verificare la sua identità. Vuole usare lo stesso numero di telefono da cui sta chiamando o preferisce usare un altro numero?',
+        'Capito, per trovare la sua prenotazione ho bisogno del suo numero di telefono. Vuole usare questo stesso numero o ne ha un altro?',
+        'Molto bene, per localizzare la sua prenotazione ho bisogno del suo numero. Usa lo stesso numero di questa chiamata o preferisce darmene un altro?',
+        'Perfetto, per cancellare devo verificare la sua identità. Vuole usare questo numero o preferisce usarne un altro?',
+        'Capito, per procedere con la cancellazione ho bisogno del suo numero. Usa lo stesso numero da cui sta chiamando o ne ha un altro?'
+      ],
+      pt: [
+        'Perfeito, para cancelar sua reserva preciso verificar sua identidade. Quer usar o mesmo número de telefone de onde está ligando ou prefere usar outro número?',
+        'Entendido, para encontrar sua reserva preciso do seu número de telefone. Quer usar este mesmo número ou tem outro?',
+        'Muito bem, para localizar sua reserva preciso do seu número. Usa o mesmo número desta chamada ou prefere me dar outro?',
+        'Perfeito, para cancelar preciso verificar sua identidade. Quer usar este número ou prefere usar outro?',
+        'Entendido, para prosseguir com o cancelamento preciso do seu número. Usa o mesmo número de onde está ligando ou tem outro?'
+      ]
+    },
     cancel_ask_phone: {
       es: [
         'Perfecto, para cancelar su reserva necesito su número de teléfono. ¿Cuál es su número?',
