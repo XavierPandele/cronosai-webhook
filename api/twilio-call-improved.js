@@ -705,9 +705,9 @@ async function handleCancelAskPhone(state, userInput) {
 async function handleCancelShowMultiple(state, userInput) {
   console.log(`🔢 [CANCELACIÓN] Procesando selección de reserva: ${userInput}`);
   
-  // Extraer número de opción del input
-  const optionMatch = userInput.match(/(\d+)/);
-  if (!optionMatch) {
+  // Extraer número de opción del input usando la función mejorada
+  const optionNumber = extractOptionFromText(userInput);
+  if (!optionNumber) {
     const unclearMessages = getMultilingualMessages('cancel_unclear_option', state.language);
     return {
       message: getRandomMessage(unclearMessages),
@@ -715,7 +715,7 @@ async function handleCancelShowMultiple(state, userInput) {
     };
   }
   
-  const selectedIndex = parseInt(optionMatch[1]) - 1; // Convertir a índice 0-based
+  const selectedIndex = optionNumber - 1; // Convertir a índice 0-based
   const reservations = state.cancellationData.reservations;
   
   if (selectedIndex < 0 || selectedIndex >= reservations.length) {
@@ -4761,7 +4761,7 @@ async function findReservationsByPhone(phoneNumber) {
     const connection = await createConnection();
     
     try {
-      // Buscar reservas activas (no canceladas) por teléfono
+      // Buscar TODAS las reservas (incluyendo pasadas) por teléfono
       // Usar LIKE para buscar teléfonos que contengan el número (maneja diferentes formatos)
       const searchPattern = `%${phoneNumber}%`;
       console.log(`🔍 [DEBUG] Patrón de búsqueda: "${searchPattern}"`);
@@ -4770,7 +4770,6 @@ async function findReservationsByPhone(phoneNumber) {
         SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon
         FROM RESERVA 
         WHERE telefon LIKE ? 
-        AND data_reserva >= NOW() 
         AND observacions NOT LIKE '%CANCELADA%'
         ORDER BY data_reserva ASC
       `;
@@ -4797,31 +4796,30 @@ async function findReservationsByPhone(phoneNumber) {
   }
 }
 
-// Cancelar una reserva específica
+// Cancelar una reserva específica (BORRAR de la base de datos)
 async function cancelReservation(reservationId, phoneNumber) {
   try {
-    console.log(`🗑️ Cancelando reserva ID: ${reservationId} para teléfono: ${phoneNumber}`);
+    console.log(`🗑️ Borrando reserva ID: ${reservationId} para teléfono: ${phoneNumber}`);
     
     const connection = await createConnection();
     
     try {
       await connection.beginTransaction();
       
-      // Marcar la reserva como cancelada en lugar de borrarla
-      const updateQuery = `
-        UPDATE RESERVA 
-        SET observacions = CONCAT(observacions, ' - CANCELADA el ', NOW())
+      // BORRAR la reserva directamente de la base de datos
+      const deleteQuery = `
+        DELETE FROM RESERVA 
         WHERE id_reserva = ? AND telefon = ?
       `;
       
-      const [result] = await connection.execute(updateQuery, [reservationId, phoneNumber]);
+      const [result] = await connection.execute(deleteQuery, [reservationId, phoneNumber]);
       
       if (result.affectedRows === 0) {
         throw new Error('No se encontró la reserva para cancelar');
       }
       
       await connection.commit();
-      console.log(`✅ Reserva ${reservationId} cancelada exitosamente`);
+      console.log(`✅ Reserva ${reservationId} borrada exitosamente`);
       return true;
       
     } catch (error) {
@@ -4980,6 +4978,141 @@ function isCancellationDenial(text) {
   ];
   
   return denyPatterns.some(pattern => pattern.test(text));
+}
+
+// Extraer número de opción del texto (mejorado)
+function extractOptionFromText(text) {
+  console.log(`🔢 [DEBUG] Extrayendo opción del texto: "${text}"`);
+  
+  const lowerText = text.toLowerCase().trim();
+  
+  // Patrones para detectar selección de opciones
+  const optionPatterns = [
+    // Números directos: "1", "2", "3"
+    /^(\d+)$/,
+    
+    // Con artículo: "la 1", "la 2", "el 1", "el 2"
+    /^(?:la|el|lo)\s*(\d+)$/,
+    
+    // Con "opción": "opción 1", "opción número 1", "opción uno"
+    /^opci[oó]n\s*(?:n[úu]mero\s*)?(\d+)$/,
+    /^opci[oó]n\s*(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    
+    // Con "primera", "segunda", etc.
+    /^(primera?|segunda?|tercera?|cuarta?|quinta?|sexta?|séptima?|octava?|novena?|décima?)$/,
+    
+    // Con "número": "número 1", "número uno"
+    /^n[úu]mero\s*(\d+)$/,
+    /^n[úu]mero\s*(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/,
+    
+    // Inglés
+    /^(?:the\s*)?(\d+)$/,
+    /^(?:the\s*)?(?:option\s*)?(\d+)$/,
+    /^(?:the\s*)?(?:option\s*)?(one|two|three|four|five|six|seven|eight|nine|ten)$/,
+    /^(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)$/,
+    
+    // Alemán
+    /^(?:die\s*)?(\d+)$/,
+    /^(?:die\s*)?(?:option\s*)?(\d+)$/,
+    /^(?:die\s*)?(?:option\s*)?(eins|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn)$/,
+    /^(erste?|zweite?|dritte?|vierte?|fünfte?|sechste?|siebte?|achte?|neunte?|zehnte?)$/,
+    
+    // Francés
+    /^(?:la\s*)?(\d+)$/,
+    /^(?:la\s*)?(?:option\s*)?(\d+)$/,
+    /^(?:la\s*)?(?:option\s*)?(un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)$/,
+    /^(première?|deuxième?|troisième?|quatrième?|cinquième?|sixième?|septième?|huitième?|neuvième?|dixième?)$/,
+    
+    // Italiano
+    /^(?:la\s*)?(\d+)$/,
+    /^(?:la\s*)?(?:opzione\s*)?(\d+)$/,
+    /^(?:la\s*)?(?:opzione\s*)?(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)$/,
+    /^(prima?|seconda?|terza?|quarta?|quinta?|sesta?|settima?|ottava?|nona?|decima?)$/,
+    
+    // Português
+    /^(?:a\s*)?(\d+)$/,
+    /^(?:a\s*)?(?:opção\s*)?(\d+)$/,
+    /^(?:a\s*)?(?:opção\s*)?(um|dois|três|quatro|cinco|seis|sete|oito|nove|dez)$/,
+    /^(primeira?|segunda?|terceira?|quarta?|quinta?|sexta?|sétima?|oitava?|nona?|décima?)$/
+  ];
+  
+  // Diccionarios para convertir palabras a números
+  const wordToNumber = {
+    // Español
+    'uno': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+    'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+    'primera': 1, 'primero': 1, 'segunda': 2, 'segundo': 2,
+    'tercera': 3, 'tercero': 3, 'cuarta': 4, 'cuarto': 4,
+    'quinta': 5, 'quinto': 5, 'sexta': 6, 'sexto': 6,
+    'séptima': 7, 'séptimo': 7, 'octava': 8, 'octavo': 8,
+    'novena': 9, 'noveno': 9, 'décima': 10, 'décimo': 10,
+    
+    // Inglés
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+    'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+    
+    // Alemán
+    'eins': 1, 'zwei': 2, 'drei': 3, 'vier': 4, 'fünf': 5,
+    'sechs': 6, 'sieben': 7, 'acht': 8, 'neun': 9, 'zehn': 10,
+    'erste': 1, 'erster': 1, 'zweite': 2, 'zweiter': 2,
+    'dritte': 3, 'dritter': 3, 'vierte': 4, 'vierter': 4,
+    'fünfte': 5, 'fünfter': 5, 'sechste': 6, 'sechster': 6,
+    'siebte': 7, 'siebter': 7, 'achte': 8, 'achter': 8,
+    'neunte': 9, 'neunter': 9, 'zehnte': 10, 'zehnter': 10,
+    
+    // Francés
+    'un': 1, 'deux': 2, 'trois': 3, 'quatre': 4, 'cinq': 5,
+    'six': 6, 'sept': 7, 'huit': 8, 'neuf': 9, 'dix': 10,
+    'première': 1, 'premier': 1, 'deuxième': 2, 'troisième': 3,
+    'quatrième': 4, 'cinquième': 5, 'sixième': 6, 'septième': 7,
+    'huitième': 8, 'neuvième': 9, 'dixième': 10,
+    
+    // Italiano
+    'uno': 1, 'due': 2, 'tre': 3, 'quattro': 4, 'cinque': 5,
+    'sei': 6, 'sette': 7, 'otto': 8, 'nove': 9, 'dieci': 10,
+    'prima': 1, 'primo': 1, 'seconda': 2, 'secondo': 2,
+    'terza': 3, 'terzo': 3, 'quarta': 4, 'quarto': 4,
+    'quinta': 5, 'quinto': 5, 'sesta': 6, 'sesto': 6,
+    'settima': 7, 'settimo': 7, 'ottava': 8, 'ottavo': 8,
+    'nona': 9, 'nono': 9, 'decima': 10, 'decimo': 10,
+    
+    // Português
+    'um': 1, 'dois': 2, 'três': 3, 'quatro': 4, 'cinco': 5,
+    'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10,
+    'primeira': 1, 'primeiro': 1, 'segunda': 2, 'segundo': 2,
+    'terceira': 3, 'terceiro': 3, 'quarta': 4, 'quarto': 4,
+    'quinta': 5, 'quinto': 5, 'sexta': 6, 'sexto': 6,
+    'sétima': 7, 'sétimo': 7, 'oitava': 8, 'oitavo': 8,
+    'nona': 9, 'nono': 9, 'décima': 10, 'décimo': 10
+  };
+  
+  // Probar cada patrón
+  for (const pattern of optionPatterns) {
+    const match = lowerText.match(pattern);
+    if (match) {
+      let optionNumber;
+      
+      if (match[1]) {
+        // Patrón con grupo de captura (número o palabra)
+        const captured = match[1];
+        optionNumber = wordToNumber[captured] || parseInt(captured);
+      } else {
+        // Patrón sin grupo de captura (palabras ordinales)
+        const captured = match[0];
+        optionNumber = wordToNumber[captured];
+      }
+      
+      if (optionNumber && optionNumber > 0) {
+        console.log(`🔢 [DEBUG] Opción detectada: "${text}" -> ${optionNumber}`);
+        return optionNumber;
+      }
+    }
+  }
+  
+  console.log(`🔢 [DEBUG] No se pudo detectar opción en: "${text}"`);
+  return null;
 }
 
 // Extraer número de teléfono del texto
