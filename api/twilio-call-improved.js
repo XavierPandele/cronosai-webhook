@@ -4674,7 +4674,9 @@ async function cancelReservation(reservationId, phoneNumber) {
 // Formatear reserva para mostrar al usuario
 function formatReservationForDisplay(reservation, index, language = 'es', reservations = []) {
   const date = new Date(reservation.data_reserva);
-  const formattedDate = formatDateSpanish(reservation.data_reserva);
+  // Convertir a string ISO para formatDateSpanish
+  const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
+  const formattedDate = formatDateSpanish(dateString);
   const formattedTime = date.toLocaleTimeString('es-ES', { 
     hour: '2-digit', 
     minute: '2-digit' 
