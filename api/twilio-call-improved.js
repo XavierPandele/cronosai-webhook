@@ -697,25 +697,117 @@ async function handleModifyAskPhoneChoice(state, userInput) {
 
 async function handleModifyAskPhone(state, userInput) {
   console.log(`📞 [MODIFICACIÓN] Procesando número de teléfono: ${userInput}`);
+  console.log(`📞 [DEBUG] Input del usuario: "${userInput}"`);
+  console.log(`📞 [DEBUG] Teléfono del estado: "${state.phone}"`);
+  
+  const lowerInput = userInput.toLowerCase().trim();
+  
+  // Detectar si el usuario quiere usar el mismo teléfono (volver al paso anterior)
+  const samePhonePatterns = [
+    // Español
+    /sí|si|mismo|igual|este|actual|desde.*aquí|desde.*aquí|el.*mismo|este.*número|mismo.*número|este.*teléfono|mismo.*teléfono/i,
+    /mismo.*teléfono|mismo.*número|igual.*teléfono|igual.*número|usar.*este|usar.*mismo|usar.*igual|quiere.*usar.*mismo|quisiera.*usar.*mismo/i,
+    
+    // Inglés
+    /yes|same|this|current|from.*here|use.*this|use.*same|use.*current/i,
+    /same.*phone|same.*number|this.*phone|this.*number/i,
+    
+    // Alemán
+    /ja|gleich|dasselbe|dieser|aktuell|von.*hier|verwenden.*dieses|verwenden.*gleiche/i,
+    /gleiche.*telefon|gleiche.*nummer|dieses.*telefon/i,
+    
+    // Francés
+    /oui|même|identique|cet|actuel|d'ici|utiliser.*ce|utiliser.*même/i,
+    /même.*téléphone|même.*numéro|cet.*téléphone/i,
+    
+    // Italiano
+    /sì|stesso|uguale|questo|attuale|da.*qui|usare.*questo|usare.*stesso/i,
+    /stesso.*telefono|stesso.*numero|questo.*telefono/i,
+    
+    // Português
+    /sim|mesmo|igual|este|atual|daqui|usar.*este|usar.*mesmo/i,
+    /mesmo.*telefone|mesmo.*número|este.*telefone/i
+  ];
+  
+  const useSamePhone = samePhonePatterns.some(pattern => pattern.test(lowerInput));
+  
+  if (useSamePhone) {
+    console.log(`📞 [MODIFICACIÓN] Usuario quiere usar el mismo teléfono: ${state.phone}`);
+    // Volver al paso anterior y usar el teléfono de la llamada
+    state.step = 'modify_ask_phone_choice';
+    state.modificationData.useOtherPhone = false;
+    
+    // Usar el teléfono de la llamada directamente
+    const reservations = await findReservationsByPhone(state.phone);
+    
+    if (reservations.length === 0) {
+      state.step = 'modify_no_reservations';
+      const noReservationsMessages = getMultilingualMessages('modify_no_reservations', state.language);
+      return {
+        message: getRandomMessage(noReservationsMessages),
+        gather: true
+      };
+    } else if (reservations.length === 1) {
+      state.step = 'modify_ask_field';
+      state.modificationData = {
+        phone: state.phone,
+        reservations: reservations,
+        selectedReservation: reservations[0]
+      };
+      
+      const fieldMessages = getMultilingualMessages('modify_ask_field', state.language);
+      return {
+        message: getRandomMessage(fieldMessages),
+        gather: true
+      };
+    } else {
+      state.step = 'modify_show_multiple';
+      state.modificationData = {
+        phone: state.phone,
+        reservations: reservations
+      };
+      
+      const multipleReservationsMessages = getMultilingualMessages('modify_show_multiple', state.language);
+      let message = getRandomMessage(multipleReservationsMessages);
+      
+      reservations.forEach((reservation, index) => {
+        const reservationText = formatReservationForDisplay(reservation, index, state.language, reservations).option;
+        message += ` ${reservationText}.`;
+      });
+      
+      message += ` ${getRandomMessage(getMultilingualMessages('modify_choose_option', state.language))}`;
+      
+      return {
+        message: message,
+        gather: true
+      };
+    }
+  }
   
   // Extraer número de teléfono del input
   let phoneNumber = extractPhoneFromText(userInput);
+  console.log(`📞 [DEBUG] Teléfono extraído del input: "${phoneNumber}"`);
   
   // Si el usuario eligió usar otro teléfono, NO usar el de la llamada
   if (state.modificationData.useOtherPhone) {
     if (!phoneNumber) {
+      console.log(`❌ [MODIFICACIÓN] No se pudo extraer teléfono del input: "${userInput}"`);
       const unclearMessages = getMultilingualMessages('modify_ask_phone', state.language);
       return {
         message: `No pude entender el número de teléfono. ${getRandomMessage(unclearMessages)}`,
         gather: true
       };
     }
+    console.log(`📞 [MODIFICACIÓN] Usando teléfono proporcionado por el usuario: ${phoneNumber}`);
   } else {
     // Si no se encontró en el texto, usar el teléfono de la llamada
     if (!phoneNumber) {
       phoneNumber = state.phone;
+      console.log(`📞 [MODIFICACIÓN] Usando teléfono de la llamada: ${phoneNumber}`);
     }
   }
+  
+  console.log(`📞 [DEBUG] Teléfono final a usar para búsqueda: "${phoneNumber}"`);
   
   // Buscar reservas para este teléfono
   const reservations = await findReservationsByPhone(phoneNumber);
@@ -6490,30 +6582,67 @@ async function findReservationsByPhone(phoneNumber) {
     const connection = await createConnection();
     
     try {
-      // Buscar reservas futuras (no canceladas) por teléfono
-      // Usar LIKE para buscar teléfonos que contengan el número (maneja diferentes formatos)
-      const searchPattern = `%${phoneNumber}%`;
-      console.log(`🔍 [DEBUG] Patrón de búsqueda: "${searchPattern}"`);
+      // Normalizar el teléfono: extraer solo dígitos para búsqueda flexible
+      const normalizedPhone = phoneNumber.replace(/\D/g, ''); // Solo dígitos
+      console.log(`🔍 [DEBUG] Teléfono normalizado (solo dígitos): "${normalizedPhone}"`);
       
-      const query = `
-        SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon
-        FROM RESERVA 
-        WHERE telefon LIKE ? 
-        AND data_reserva >= NOW() 
-        AND observacions NOT LIKE '%CANCELADA%'
-        ORDER BY data_reserva ASC
-      `;
+      // Buscar reservas futuras (no canceladas) por teléfono
+      // Buscar tanto con el número completo como solo con los últimos dígitos (sin prefijo)
+      // Esto maneja casos donde el teléfono está guardado como "+3463254378" pero se busca como "63254378"
+      const searchPattern1 = `%${normalizedPhone}%`; // Buscar número completo
+      const searchPattern2 = normalizedPhone.length >= 8 ? `%${normalizedPhone.slice(-8)}%` : null; // Últimos 8 dígitos
+      
+      console.log(`🔍 [DEBUG] Patrón de búsqueda 1 (completo): "${searchPattern1}"`);
+      if (searchPattern2) {
+        console.log(`🔍 [DEBUG] Patrón de búsqueda 2 (últimos 8 dígitos): "${searchPattern2}"`);
+      }
+      
+      // Buscar con ambos patrones usando OR
+      let query;
+      let params;
+      
+      if (searchPattern2) {
+        query = `
+          SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon
+          FROM RESERVA 
+          WHERE (telefon LIKE ? OR telefon LIKE ?)
+          AND data_reserva >= NOW() 
+          AND observacions NOT LIKE '%CANCELADA%'
+          ORDER BY data_reserva ASC
+        `;
+        params = [searchPattern1, searchPattern2];
+      } else {
+        query = `
+          SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon
+          FROM RESERVA 
+          WHERE telefon LIKE ? 
+          AND data_reserva >= NOW() 
+          AND observacions NOT LIKE '%CANCELADA%'
+          ORDER BY data_reserva ASC
+        `;
+        params = [searchPattern1];
+      }
       
       console.log(`🔍 [DEBUG] Ejecutando consulta SQL:`, query);
-      console.log(`🔍 [DEBUG] Parámetros:`, [searchPattern]);
+      console.log(`🔍 [DEBUG] Parámetros:`, params);
       
-      const [rows] = await connection.execute(query, [searchPattern]);
+      const [rows] = await connection.execute(query, params);
       console.log(`📋 [DEBUG] Resultado de la consulta:`, rows);
       console.log(`📋 [DEBUG] Número de filas encontradas: ${rows.length}`);
       
       // Log adicional: buscar TODAS las reservas para este teléfono (sin filtros de fecha)
-      const debugQuery = `SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon FROM RESERVA WHERE telefon LIKE ?`;
-      const [debugRows] = await connection.execute(debugQuery, [searchPattern]);
+      let debugQuery;
+      let debugParams;
+      
+      if (searchPattern2) {
+        debugQuery = `SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon FROM RESERVA WHERE telefon LIKE ? OR telefon LIKE ?`;
+        debugParams = [searchPattern1, searchPattern2];
+      } else {
+        debugQuery = `SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon FROM RESERVA WHERE telefon LIKE ?`;
+        debugParams = [searchPattern1];
+      }
+      
+      const [debugRows] = await connection.execute(debugQuery, debugParams);
       console.log(`🔍 [DEBUG] TODAS las reservas (incluyendo pasadas):`, debugRows);
       
       return rows;
@@ -6931,7 +7060,30 @@ function extractOptionFromText(text) {
 function extractPhoneFromText(text) {
   console.log(`📞 [DEBUG] Extrayendo teléfono del texto: "${text}"`);
   
-  // Patrones para detectar números de teléfono
+  // Primero, intentar extraer cualquier secuencia de dígitos (mínimo 7 dígitos para ser un teléfono válido)
+  // Esto captura números simples como "63254378", "632543787", etc.
+  const allDigits = text.replace(/\D/g, ''); // Extraer solo dígitos
+  console.log(`📞 [DEBUG] Dígitos extraídos del texto: "${allDigits}"`);
+  
+  // Si hay 7 o más dígitos consecutivos, usarlos como teléfono
+  if (allDigits.length >= 7 && allDigits.length <= 15) {
+    let phoneNumber = allDigits;
+    
+    // Si empieza por 34 y no tiene +, agregarlo (números españoles)
+    if (phoneNumber.startsWith('34') && phoneNumber.length >= 9) {
+      phoneNumber = '+' + phoneNumber;
+      console.log(`📞 [DEBUG] Agregando prefijo +34: "${phoneNumber}"`);
+    } else if (phoneNumber.length === 9 && !phoneNumber.startsWith('+')) {
+      // Número español de 9 dígitos sin prefijo, agregar +34
+      phoneNumber = '+34' + phoneNumber;
+      console.log(`📞 [DEBUG] Agregando prefijo +34 a número de 9 dígitos: "${phoneNumber}"`);
+    }
+    
+    console.log(`📞 [DEBUG] Teléfono final extraído (método dígitos): "${phoneNumber}"`);
+    return phoneNumber;
+  }
+  
+  // Patrones específicos para formatos con espacios o guiones (fallback)
   const phonePatterns = [
     /(\+?[0-9]{9,15})/g,  // Números con 9-15 dígitos
     /(\d{3}[\s\-]?\d{3}[\s\-]?\d{3})/g,  // Formato español: 123 456 789
