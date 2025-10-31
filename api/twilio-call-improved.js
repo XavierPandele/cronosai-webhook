@@ -4093,8 +4093,12 @@ function handleIntentionResponse(text) {
   
   const lowerText = text.toLowerCase();
   
-  // Verificar modificación de reserva existente
-  if (isModificationRequest(text)) {
+  // Verificar modificación de reserva existente (PRIORIDAD ALTA - antes de otras verificaciones)
+  console.log(`🔍 [DEBUG] handleIntentionResponse - Texto recibido: "${text}"`);
+  const isModify = isModificationRequest(text);
+  console.log(`🔍 [DEBUG] handleIntentionResponse - isModificationRequest result: ${isModify}`);
+  if (isModify) {
+    console.log(`✏️ [DEBUG] ✅ Acción MODIFY detectada para: "${text}"`);
     return { action: 'modify' };
   }
   
@@ -5729,13 +5733,19 @@ function formatReservationForDisplay(reservation, index, language = 'es', reserv
 
 // Detectar si el usuario quiere modificar una reserva existente
 function isModificationRequest(text) {
+  console.log(`🔍 [DEBUG] isModificationRequest - Analizando: "${text}"`);
   const modificationPatterns = [
-    // Español
-    /modificar|editar|cambiar|actualizar.*reserva/i,
-    /reserva.*modificar|reserva.*editar|reserva.*cambiar/i,
+    // Español - Patrones mejorados y más específicos
+    /modificar.*reserva|editar.*reserva|cambiar.*reserva|actualizar.*reserva/i,
+    /reserva.*modificar|reserva.*editar|reserva.*cambiar|reserva.*actualizar/i,
+    /quiero.*modificar.*reserva|quiero.*editar.*reserva|quiero.*cambiar.*reserva/i,
     /quiero.*modificar|quiero.*editar|quiero.*cambiar/i,
+    /necesito.*modificar.*reserva|necesito.*editar.*reserva|necesito.*cambiar.*reserva/i,
     /necesito.*modificar|necesito.*editar|necesito.*cambiar/i,
+    /puedo.*modificar.*reserva|puedo.*editar.*reserva|puedo.*cambiar.*reserva/i,
     /puedo.*modificar|puedo.*editar|puedo.*cambiar/i,
+    // Patrones con "una reserva"
+    /modificar.*una.*reserva|editar.*una.*reserva|cambiar.*una.*reserva/i,
     
     // Inglés
     /modify|edit|change|update.*reservation/i,
@@ -5765,7 +5775,15 @@ function isModificationRequest(text) {
     /querer.*modificar|querer.*editar|querer.*alterar/i
   ];
   
-  return modificationPatterns.some(pattern => pattern.test(text));
+  const result = modificationPatterns.some(pattern => {
+    const match = pattern.test(text);
+    if (match) {
+      console.log(`✅ [DEBUG] isModificationRequest - Patrón coincidió: ${pattern}`);
+    }
+    return match;
+  });
+  console.log(`🔍 [DEBUG] isModificationRequest result para "${text}": ${result}`);
+  return result;
 }
 
 // Detectar si el usuario quiere cancelar una reserva existente
