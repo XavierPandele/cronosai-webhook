@@ -3253,6 +3253,798 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Não entendi. Por favor, responda claramente: sim ou não?',
         'Desculpe, não entendi. Quer cancelar a reserva?'
       ]
+    },
+    modify_ask_phone_choice: {
+      es: [
+        'Para modificar su reserva, ¿desea usar el mismo número de teléfono desde el que está llamando?',
+        '¿Quiere usar este número de teléfono para buscar su reserva o tiene otro?',
+        '¿Desea buscar su reserva con este número o prefiere usar otro?',
+        '¿Usamos este teléfono para encontrar su reserva o tiene otro número?',
+        '¿Desea buscar la reserva con este número de teléfono?'
+      ],
+      en: [
+        'To modify your reservation, do you want to use the same phone number you are calling from?',
+        'Do you want to use this phone number to find your reservation or do you have another one?',
+        'Do you want to search for your reservation with this number or would you prefer to use another?',
+        'Shall we use this phone to find your reservation or do you have another number?',
+        'Do you want to search for the reservation with this phone number?'
+      ],
+      de: [
+        'Um Ihre Reservierung zu ändern, möchten Sie die gleiche Telefonnummer verwenden, von der Sie anrufen?',
+        'Möchten Sie diese Telefonnummer verwenden, um Ihre Reservierung zu finden, oder haben Sie eine andere?',
+        'Möchten Sie mit dieser Nummer nach Ihrer Reservierung suchen oder bevorzugen Sie eine andere?',
+        'Sollen wir dieses Telefon verwenden, um Ihre Reservierung zu finden, oder haben Sie eine andere Nummer?',
+        'Möchten Sie mit dieser Telefonnummer nach der Reservierung suchen?'
+      ],
+      it: [
+        'Per modificare la sua prenotazione, vuole usare lo stesso numero di telefono da cui sta chiamando?',
+        'Vuole usare questo numero di telefono per trovare la sua prenotazione o ne ha un altro?',
+        'Vuole cercare la sua prenotazione con questo numero o preferisce usare un altro?',
+        'Usiamo questo telefono per trovare la sua prenotazione o ha un altro numero?',
+        'Vuole cercare la prenotazione con questo numero di telefono?'
+      ],
+      fr: [
+        'Pour modifier votre réservation, souhaitez-vous utiliser le même numéro de téléphone depuis lequel vous appelez?',
+        'Voulez-vous utiliser ce numéro de téléphone pour trouver votre réservation ou en avez-vous un autre?',
+        'Voulez-vous rechercher votre réservation avec ce numéro ou préférez-vous en utiliser un autre?',
+        'Utilisons-nous ce téléphone pour trouver votre réservation ou avez-vous un autre numéro?',
+        'Voulez-vous rechercher la réservation avec ce numéro de téléphone?'
+      ],
+      pt: [
+        'Para modificar sua reserva, deseja usar o mesmo número de telefone de onde está ligando?',
+        'Quer usar este número de telefone para encontrar sua reserva ou tem outro?',
+        'Quer buscar sua reserva com este número ou prefere usar outro?',
+        'Usamos este telefone para encontrar sua reserva ou você tem outro número?',
+        'Quer buscar a reserva com este número de telefone?'
+      ]
+    },
+    modify_ask_phone: {
+      es: [
+        'Perfecto. ¿Cuál es el número de teléfono con el que hizo la reserva?',
+        'Por favor, dígame el número de teléfono de la reserva que desea modificar.',
+        '¿Puede indicarme el número de teléfono asociado a su reserva?',
+        'Necesito el número de teléfono con el que hizo la reserva. ¿Cuál es?',
+        'Por favor, proporcione el número de teléfono de su reserva.'
+      ],
+      en: [
+        'Perfect. What is the phone number you used for the reservation?',
+        'Please tell me the phone number of the reservation you want to modify.',
+        'Can you give me the phone number associated with your reservation?',
+        'I need the phone number you used for the reservation. What is it?',
+        'Please provide the phone number of your reservation.'
+      ],
+      de: [
+        'Perfekt. Wie lautet die Telefonnummer, die Sie für die Reservierung verwendet haben?',
+        'Bitte sagen Sie mir die Telefonnummer der Reservierung, die Sie ändern möchten.',
+        'Können Sie mir die mit Ihrer Reservierung verbundene Telefonnummer geben?',
+        'Ich brauche die Telefonnummer, die Sie für die Reservierung verwendet haben. Wie lautet sie?',
+        'Bitte geben Sie die Telefonnummer Ihrer Reservierung an.'
+      ],
+      it: [
+        'Perfetto. Qual è il numero di telefono che ha usato per la prenotazione?',
+        'Per favore, mi dica il numero di telefono della prenotazione che desidera modificare.',
+        'Può darmi il numero di telefono associato alla sua prenotazione?',
+        'Ho bisogno del numero di telefono che ha usato per la prenotazione. Qual è?',
+        'Per favore, fornisca il numero di telefono della sua prenotazione.'
+      ],
+      fr: [
+        'Parfait. Quel est le numéro de téléphone que vous avez utilisé pour la réservation?',
+        'Veuillez me donner le numéro de téléphone de la réservation que vous souhaitez modifier.',
+        'Pouvez-vous me donner le numéro de téléphone associé à votre réservation?',
+        'J\'ai besoin du numéro de téléphone que vous avez utilisé pour la réservation. Quel est-il?',
+        'Veuillez fournir le numéro de téléphone de votre réservation.'
+      ],
+      pt: [
+        'Perfeito. Qual é o número de telefone que você usou para a reserva?',
+        'Por favor, me diga o número de telefone da reserva que deseja modificar.',
+        'Pode me dar o número de telefone associado à sua reserva?',
+        'Preciso do número de telefone que você usou para a reserva. Qual é?',
+        'Por favor, forneça o número de telefone da sua reserva.'
+      ]
+    },
+    modify_show_single: {
+      es: [
+        'He encontrado su reserva:',
+        'Perfecto, he localizado su reserva:',
+        'Excelente, he encontrado su reserva:',
+        'Muy bien, aquí está su reserva:',
+        'Perfecto, aquí tiene su reserva:'
+      ],
+      en: [
+        'I found your reservation:',
+        'Perfect, I located your reservation:',
+        'Excellent, I found your reservation:',
+        'Very well, here is your reservation:',
+        'Perfect, here is your reservation:'
+      ],
+      de: [
+        'Ich habe Ihre Reservierung gefunden:',
+        'Perfekt, ich habe Ihre Reservierung gefunden:',
+        'Ausgezeichnet, ich habe Ihre Reservierung gefunden:',
+        'Sehr gut, hier ist Ihre Reservierung:',
+        'Perfekt, hier ist Ihre Reservierung:'
+      ],
+      it: [
+        'Ho trovato la sua prenotazione:',
+        'Perfetto, ho localizzato la sua prenotazione:',
+        'Eccellente, ho trovato la sua prenotazione:',
+        'Molto bene, ecco la sua prenotazione:',
+        'Perfetto, ecco la sua prenotazione:'
+      ],
+      fr: [
+        'J\'ai trouvé votre réservation:',
+        'Parfait, j\'ai localisé votre réservation:',
+        'Excellent, j\'ai trouvé votre réservation:',
+        'Très bien, voici votre réservation:',
+        'Parfait, voici votre réservation:'
+      ],
+      pt: [
+        'Encontrei sua reserva:',
+        'Perfeito, localizei sua reserva:',
+        'Excelente, encontrei sua reserva:',
+        'Muito bem, aqui está sua reserva:',
+        'Perfeito, aqui está sua reserva:'
+      ]
+    },
+    modify_show_multiple: {
+      es: [
+        'He encontrado varias reservas a su nombre:',
+        'Perfecto, he localizado múltiples reservas:',
+        'Excelente, he encontrado varias reservas:',
+        'Muy bien, aquí están sus reservas:',
+        'Perfecto, aquí tiene sus reservas:'
+      ],
+      en: [
+        'I found several reservations under your name:',
+        'Perfect, I located multiple reservations:',
+        'Excellent, I found several reservations:',
+        'Very well, here are your reservations:',
+        'Perfect, here are your reservations:'
+      ],
+      de: [
+        'Ich habe mehrere Reservierungen unter Ihrem Namen gefunden:',
+        'Perfekt, ich habe mehrere Reservierungen gefunden:',
+        'Ausgezeichnet, ich habe mehrere Reservierungen gefunden:',
+        'Sehr gut, hier sind Ihre Reservierungen:',
+        'Perfekt, hier sind Ihre Reservierungen:'
+      ],
+      it: [
+        'Ho trovato diverse prenotazioni a suo nome:',
+        'Perfetto, ho localizzato più prenotazioni:',
+        'Eccellente, ho trovato diverse prenotazioni:',
+        'Molto bene, ecco le sue prenotazioni:',
+        'Perfetto, ecco le sue prenotazioni:'
+      ],
+      fr: [
+        'J\'ai trouvé plusieurs réservations à votre nom:',
+        'Parfait, j\'ai localisé plusieurs réservations:',
+        'Excellent, j\'ai trouvé plusieurs réservations:',
+        'Très bien, voici vos réservations:',
+        'Parfait, voici vos réservations:'
+      ],
+      pt: [
+        'Encontrei várias reservas em seu nome:',
+        'Perfeito, localizei múltiplas reservas:',
+        'Excelente, encontrei várias reservas:',
+        'Muito bem, aqui estão suas reservas:',
+        'Perfeito, aqui estão suas reservas:'
+      ]
+    },
+    modify_choose_option: {
+      es: [
+        'Por favor, dígame qué opción desea modificar. Puede decir "opción 1", "opción 2", etc.',
+        '¿Cuál de estas reservas desea modificar? Diga el número de la opción.',
+        'Por favor, indique qué reserva quiere modificar. Diga "primera", "segunda", etc.',
+        '¿Qué opción desea modificar? Puede decir el número de la opción.',
+        'Por favor, elija qué reserva modificar. Diga el número correspondiente.'
+      ],
+      en: [
+        'Please tell me which option you want to modify. You can say "option 1", "option 2", etc.',
+        'Which of these reservations do you want to modify? Say the option number.',
+        'Please indicate which reservation you want to modify. Say "first", "second", etc.',
+        'Which option do you want to modify? You can say the option number.',
+        'Please choose which reservation to modify. Say the corresponding number.'
+      ],
+      de: [
+        'Bitte sagen Sie mir, welche Option Sie ändern möchten. Sie können "Option 1", "Option 2" usw. sagen.',
+        'Welche dieser Reservierungen möchten Sie ändern? Sagen Sie die Optionsnummer.',
+        'Bitte geben Sie an, welche Reservierung Sie ändern möchten. Sagen Sie "erste", "zweite" usw.',
+        'Welche Option möchten Sie ändern? Sie können die Optionsnummer sagen.',
+        'Bitte wählen Sie, welche Reservierung geändert werden soll. Sagen Sie die entsprechende Nummer.'
+      ],
+      it: [
+        'Per favore, dimmi quale opzione vuoi modificare. Puoi dire "opzione 1", "opzione 2", ecc.',
+        'Quale di queste prenotazioni vuoi modificare? Di\' il numero dell\'opzione.',
+        'Per favore, indica quale prenotazione vuoi modificare. Di\' "prima", "seconda", ecc.',
+        'Quale opzione vuoi modificare? Puoi dire il numero dell\'opzione.',
+        'Per favore, scegli quale prenotazione modificare. Di\' il numero corrispondente.'
+      ],
+      fr: [
+        'Veuillez me dire quelle option vous voulez modifier. Vous pouvez dire "option 1", "option 2", etc.',
+        'Laquelle de ces réservations voulez-vous modifier? Dites le numéro de l\'option.',
+        'Veuillez indiquer quelle réservation vous voulez modifier. Dites "première", "deuxième", etc.',
+        'Quelle option voulez-vous modifier? Vous pouvez dire le numéro de l\'option.',
+        'Veuillez choisir quelle réservation modifier. Dites le numéro correspondant.'
+      ],
+      pt: [
+        'Por favor, me diga qual opção você quer modificar. Você pode dizer "opção 1", "opção 2", etc.',
+        'Qual dessas reservas você quer modificar? Diga o número da opção.',
+        'Por favor, indique qual reserva você quer modificar. Diga "primeira", "segunda", etc.',
+        'Qual opção você quer modificar? Você pode dizer o número da opção.',
+        'Por favor, escolha qual reserva modificar. Diga o número correspondente.'
+      ]
+    },
+    modify_ask_field: {
+      es: [
+        '¿Qué desea modificar? Puede decir el nombre, la fecha, la hora o el número de personas.',
+        '¿Qué campo quiere cambiar? Nombre, fecha, hora o número de personas.',
+        'Por favor, indique qué quiere modificar: nombre, fecha, hora o personas.',
+        '¿Qué parte de la reserva desea cambiar? Puede elegir nombre, fecha, hora o personas.',
+        'Dígame qué quiere modificar: nombre, fecha, hora o número de personas.'
+      ],
+      en: [
+        'What do you want to modify? You can say name, date, time, or number of people.',
+        'What field do you want to change? Name, date, time, or number of people.',
+        'Please indicate what you want to modify: name, date, time, or people.',
+        'What part of the reservation do you want to change? You can choose name, date, time, or people.',
+        'Tell me what you want to modify: name, date, time, or number of people.'
+      ],
+      de: [
+        'Was möchten Sie ändern? Sie können Name, Datum, Uhrzeit oder Anzahl der Personen sagen.',
+        'Welches Feld möchten Sie ändern? Name, Datum, Uhrzeit oder Anzahl der Personen.',
+        'Bitte geben Sie an, was Sie ändern möchten: Name, Datum, Uhrzeit oder Personen.',
+        'Welchen Teil der Reservierung möchten Sie ändern? Sie können Name, Datum, Uhrzeit oder Personen wählen.',
+        'Sagen Sie mir, was Sie ändern möchten: Name, Datum, Uhrzeit oder Anzahl der Personen.'
+      ],
+      it: [
+        'Cosa vuole modificare? Può dire nome, data, ora o numero di persone.',
+        'Quale campo vuole cambiare? Nome, data, ora o numero di persone.',
+        'Per favore, indichi cosa vuole modificare: nome, data, ora o persone.',
+        'Quale parte della prenotazione vuole cambiare? Può scegliere nome, data, ora o persone.',
+        'Mi dica cosa vuole modificare: nome, data, ora o numero di persone.'
+      ],
+      fr: [
+        'Que souhaitez-vous modifier? Vous pouvez dire nom, date, heure ou nombre de personnes.',
+        'Quel champ voulez-vous changer? Nom, date, heure ou nombre de personnes.',
+        'Veuillez indiquer ce que vous voulez modifier: nom, date, heure ou personnes.',
+        'Quelle partie de la réservation voulez-vous changer? Vous pouvez choisir nom, date, heure ou personnes.',
+        'Dites-moi ce que vous voulez modifier: nom, date, heure ou nombre de personnes.'
+      ],
+      pt: [
+        'O que você quer modificar? Pode dizer nome, data, hora ou número de pessoas.',
+        'Qual campo você quer mudar? Nome, data, hora ou número de pessoas.',
+        'Por favor, indique o que quer modificar: nome, data, hora ou pessoas.',
+        'Qual parte da reserva você quer mudar? Pode escolher nome, data, hora ou pessoas.',
+        'Me diga o que quer modificar: nome, data, hora ou número de pessoas.'
+      ]
+    },
+    modify_unclear_field: {
+      es: [
+        'Disculpe, no entendí qué desea modificar. Por favor, diga nombre, fecha, hora o número de personas.',
+        'No entendí bien. ¿Qué campo quiere cambiar? Puede decir nombre, fecha, hora o personas.',
+        'Perdón, no capté bien. Por favor, indique qué quiere modificar: nombre, fecha, hora o personas.',
+        'No entendí. Por favor, diga claramente qué campo desea cambiar.',
+        'Disculpe, no entendí. ¿Quiere modificar el nombre, la fecha, la hora o el número de personas?'
+      ],
+      en: [
+        'Sorry, I didn\'t understand what you want to modify. Please say name, date, time, or number of people.',
+        'I didn\'t understand well. What field do you want to change? You can say name, date, time, or people.',
+        'Sorry, I didn\'t catch that. Please indicate what you want to modify: name, date, time, or people.',
+        'I didn\'t understand. Please say clearly what field you want to change.',
+        'Sorry, I didn\'t understand. Do you want to modify the name, date, time, or number of people?'
+      ],
+      de: [
+        'Entschuldigung, ich verstand nicht, was Sie ändern möchten. Bitte sagen Sie Name, Datum, Uhrzeit oder Anzahl der Personen.',
+        'Ich verstand nicht gut. Welches Feld möchten Sie ändern? Sie können Name, Datum, Uhrzeit oder Personen sagen.',
+        'Entschuldigung, ich habe das nicht verstanden. Bitte geben Sie an, was Sie ändern möchten: Name, Datum, Uhrzeit oder Personen.',
+        'Ich verstand nicht. Bitte sagen Sie deutlich, welches Feld Sie ändern möchten.',
+        'Entschuldigung, ich verstand nicht. Möchten Sie den Namen, das Datum, die Uhrzeit oder die Anzahl der Personen ändern?'
+      ],
+      it: [
+        'Scusi, non ho capito cosa vuole modificare. Per favore, dica nome, data, ora o numero di persone.',
+        'Non ho capito bene. Quale campo vuole cambiare? Può dire nome, data, ora o persone.',
+        'Scusi, non ho capito. Per favore, indichi cosa vuole modificare: nome, data, ora o persone.',
+        'Non ho capito. Per favore, dica chiaramente quale campo desidera cambiare.',
+        'Scusi, non ho capito. Vuole modificare il nome, la data, l\'ora o il numero di persone?'
+      ],
+      fr: [
+        'Désolé, je n\'ai pas compris ce que vous voulez modifier. Veuillez dire nom, date, heure ou nombre de personnes.',
+        'Je n\'ai pas bien compris. Quel champ voulez-vous changer? Vous pouvez dire nom, date, heure ou personnes.',
+        'Désolé, je n\'ai pas saisi. Veuillez indiquer ce que vous voulez modifier: nom, date, heure ou personnes.',
+        'Je n\'ai pas compris. Veuillez dire clairement quel champ vous voulez changer.',
+        'Désolé, je n\'ai pas compris. Voulez-vous modifier le nom, la date, l\'heure ou le nombre de personnes?'
+      ],
+      pt: [
+        'Desculpe, não entendi o que você quer modificar. Por favor, diga nome, data, hora ou número de pessoas.',
+        'Não entendi bem. Qual campo você quer mudar? Pode dizer nome, data, hora ou pessoas.',
+        'Desculpe, não entendi. Por favor, indique o que quer modificar: nome, data, hora ou pessoas.',
+        'Não entendi. Por favor, diga claramente qual campo deseja mudar.',
+        'Desculpe, não entendi. Quer modificar o nome, a data, a hora ou o número de pessoas?'
+      ]
+    },
+    modify_ask_value: {
+      es: [
+        'Perfecto. ¿Cuál es el nuevo valor que desea?',
+        'Excelente. ¿Qué nuevo valor prefiere?',
+        'Muy bien. ¿Cuál será el nuevo valor?',
+        'Perfecto. Por favor, indique el nuevo valor.',
+        'Excelente. ¿Qué valor quiere establecer?'
+      ],
+      en: [
+        'Perfect. What is the new value you want?',
+        'Excellent. What new value do you prefer?',
+        'Very well. What will be the new value?',
+        'Perfect. Please indicate the new value.',
+        'Excellent. What value do you want to set?'
+      ],
+      de: [
+        'Perfekt. Wie lautet der neue Wert, den Sie möchten?',
+        'Ausgezeichnet. Welchen neuen Wert bevorzugen Sie?',
+        'Sehr gut. Wie lautet der neue Wert?',
+        'Perfekt. Bitte geben Sie den neuen Wert an.',
+        'Ausgezeichnet. Welchen Wert möchten Sie festlegen?'
+      ],
+      it: [
+        'Perfetto. Qual è il nuovo valore che desidera?',
+        'Eccellente. Quale nuovo valore preferisce?',
+        'Molto bene. Quale sarà il nuovo valore?',
+        'Perfetto. Per favore, indichi il nuovo valore.',
+        'Eccellente. Quale valore vuole impostare?'
+      ],
+      fr: [
+        'Parfait. Quelle est la nouvelle valeur que vous voulez?',
+        'Excellent. Quelle nouvelle valeur préférez-vous?',
+        'Très bien. Quelle sera la nouvelle valeur?',
+        'Parfait. Veuillez indiquer la nouvelle valeur.',
+        'Excellent. Quelle valeur voulez-vous définir?'
+      ],
+      pt: [
+        'Perfeito. Qual é o novo valor que deseja?',
+        'Excelente. Qual novo valor você prefere?',
+        'Muito bem. Qual será o novo valor?',
+        'Perfeito. Por favor, indique o novo valor.',
+        'Excelente. Qual valor você quer definir?'
+      ]
+    },
+    modify_unclear_value: {
+      es: [
+        'Disculpe, no entendí el nuevo valor. Por favor, repítalo.',
+        'No entendí bien. ¿Puede indicar el nuevo valor de nuevo?',
+        'Perdón, no capté bien. Por favor, diga el nuevo valor claramente.',
+        'No entendí. Por favor, proporcione el nuevo valor.',
+        'Disculpe, no entendí. ¿Cuál es el nuevo valor que desea?'
+      ],
+      en: [
+        'Sorry, I didn\'t understand the new value. Please repeat it.',
+        'I didn\'t understand well. Can you indicate the new value again?',
+        'Sorry, I didn\'t catch that. Please say the new value clearly.',
+        'I didn\'t understand. Please provide the new value.',
+        'Sorry, I didn\'t understand. What is the new value you want?'
+      ],
+      de: [
+        'Entschuldigung, ich verstand den neuen Wert nicht. Bitte wiederholen Sie ihn.',
+        'Ich verstand nicht gut. Können Sie den neuen Wert noch einmal angeben?',
+        'Entschuldigung, ich habe das nicht verstanden. Bitte sagen Sie den neuen Wert deutlich.',
+        'Ich verstand nicht. Bitte geben Sie den neuen Wert an.',
+        'Entschuldigung, ich verstand nicht. Wie lautet der neue Wert, den Sie möchten?'
+      ],
+      it: [
+        'Scusi, non ho capito il nuovo valore. Per favore, lo ripeta.',
+        'Non ho capito bene. Può indicare il nuovo valore di nuovo?',
+        'Scusi, non ho capito. Per favore, dica il nuovo valore chiaramente.',
+        'Non ho capito. Per favore, fornisca il nuovo valore.',
+        'Scusi, non ho capito. Qual è il nuovo valore che desidera?'
+      ],
+      fr: [
+        'Désolé, je n\'ai pas compris la nouvelle valeur. Veuillez la répéter.',
+        'Je n\'ai pas bien compris. Pouvez-vous indiquer la nouvelle valeur à nouveau?',
+        'Désolé, je n\'ai pas saisi. Veuillez dire la nouvelle valeur clairement.',
+        'Je n\'ai pas compris. Veuillez fournir la nouvelle valeur.',
+        'Désolé, je n\'ai pas compris. Quelle est la nouvelle valeur que vous voulez?'
+      ],
+      pt: [
+        'Desculpe, não entendi o novo valor. Por favor, repita.',
+        'Não entendi bem. Pode indicar o novo valor novamente?',
+        'Desculpe, não entendi. Por favor, diga o novo valor claramente.',
+        'Não entendi. Por favor, forneça o novo valor.',
+        'Desculpe, não entendi. Qual é o novo valor que deseja?'
+      ]
+    },
+    modify_confirm: {
+      es: [
+        'Perfecto. Voy a cambiar el campo. ¿Está de acuerdo?',
+        'Excelente. Cambiaré el campo. ¿Confirma?',
+        'Muy bien. Modificaré el campo. ¿Le parece bien?',
+        'Perfecto. Actualizaré el campo. ¿Está de acuerdo?',
+        'Excelente. Cambiaré el campo. ¿Confirma esta modificación?'
+      ],
+      en: [
+        'Perfect. I will change the field. Do you agree?',
+        'Excellent. I will change the field. Do you confirm?',
+        'Very well. I will modify the field. Does that seem good?',
+        'Perfect. I will update the field. Do you agree?',
+        'Excellent. I will change the field. Do you confirm this modification?'
+      ],
+      de: [
+        'Perfekt. Ich werde das Feld ändern. Sind Sie einverstanden?',
+        'Ausgezeichnet. Ich werde das Feld ändern. Bestätigen Sie?',
+        'Sehr gut. Ich werde das Feld ändern. Scheint Ihnen das gut?',
+        'Perfekt. Ich werde das Feld aktualisieren. Sind Sie einverstanden?',
+        'Ausgezeichnet. Ich werde das Feld ändern. Bestätigen Sie diese Änderung?'
+      ],
+      it: [
+        'Perfetto. Cambierò il campo. È d\'accordo?',
+        'Eccellente. Cambierò il campo. Conferma?',
+        'Molto bene. Modificherò il campo. Le va bene?',
+        'Perfetto. Aggiornerò il campo. È d\'accordo?',
+        'Eccellente. Cambierò il campo. Conferma questa modifica?'
+      ],
+      fr: [
+        'Parfait. Je vais changer le champ. Êtes-vous d\'accord?',
+        'Excellent. Je vais changer le champ. Confirmez-vous?',
+        'Très bien. Je vais modifier le champ. Cela vous semble-t-il bien?',
+        'Parfait. Je vais mettre à jour le champ. Êtes-vous d\'accord?',
+        'Excellent. Je vais changer le champ. Confirmez-vous cette modification?'
+      ],
+      pt: [
+        'Perfeito. Vou mudar o campo. Está de acordo?',
+        'Excelente. Vou mudar o campo. Confirma?',
+        'Muito bem. Vou modificar o campo. Parece bom?',
+        'Perfeito. Vou atualizar o campo. Está de acordo?',
+        'Excelente. Vou mudar o campo. Confirma esta modificação?'
+      ]
+    },
+    modify_unclear_confirmation: {
+      es: [
+        'Disculpe, no entendí bien su respuesta. ¿Desea confirmar la modificación o no?',
+        'No entendí claramente. Por favor, diga "sí" para confirmar o "no" para cancelar la modificación.',
+        'Perdón, no capté bien. ¿Confirma que quiere realizar esta modificación?',
+        'No entendí. Por favor, responda claramente: ¿sí o no?',
+        'Disculpe, no entendí. ¿Quiere confirmar la modificación?'
+      ],
+      en: [
+        'Sorry, I didn\'t understand your response well. Do you want to confirm the modification or not?',
+        'I didn\'t understand clearly. Please say "yes" to confirm or "no" to cancel the modification.',
+        'Sorry, I didn\'t catch that. Do you confirm you want to make this modification?',
+        'I didn\'t understand. Please answer clearly: yes or no?',
+        'Sorry, I didn\'t understand. Do you want to confirm the modification?'
+      ],
+      de: [
+        'Entschuldigung, ich verstand Ihre Antwort nicht gut. Möchten Sie die Änderung bestätigen oder nicht?',
+        'Ich verstand nicht klar. Bitte sagen Sie "ja" zum Bestätigen oder "nein" zum Abbrechen der Änderung.',
+        'Entschuldigung, ich habe das nicht verstanden. Bestätigen Sie, dass Sie diese Änderung vornehmen möchten?',
+        'Ich verstand nicht. Bitte antworten Sie klar: ja oder nein?',
+        'Entschuldigung, ich verstand nicht. Möchten Sie die Änderung bestätigen?'
+      ],
+      it: [
+        'Scusi, non ho capito bene la sua risposta. Vuole confermare la modifica o no?',
+        'Non ho capito chiaramente. Per favore, dica "sì" per confermare o "no" per annullare la modifica.',
+        'Scusi, non ho capito. Conferma di voler fare questa modifica?',
+        'Non ho capito. Per favore, risponda chiaramente: sì o no?',
+        'Scusi, non ho capito. Vuole confermare la modifica?'
+      ],
+      fr: [
+        'Désolé, je n\'ai pas bien compris votre réponse. Voulez-vous confirmer la modification ou non?',
+        'Je n\'ai pas compris clairement. Veuillez dire "oui" pour confirmer ou "non" pour annuler la modification.',
+        'Désolé, je n\'ai pas saisi. Confirmez-vous que vous voulez faire cette modification?',
+        'Je n\'ai pas compris. Veuillez répondre clairement: oui ou non?',
+        'Désolé, je n\'ai pas compris. Voulez-vous confirmer la modification?'
+      ],
+      pt: [
+        'Desculpe, não entendi bem sua resposta. Quer confirmar a modificação ou não?',
+        'Não entendi claramente. Por favor, diga "sim" para confirmar ou "não" para cancelar a modificação.',
+        'Desculpe, não entendi. Confirma que quer fazer esta modificação?',
+        'Não entendi. Por favor, responda claramente: sim ou não?',
+        'Desculpe, não entendi. Quer confirmar a modificação?'
+      ]
+    },
+    modify_success: {
+      es: [
+        '¡Perfecto! Su reserva ha sido modificada exitosamente. Le esperamos. ¡Buen día!',
+        '¡Excelente! La modificación se ha completado. Les esperamos. ¡Que tengan buen día!',
+        '¡Muy bien! Reserva actualizada correctamente. Nos vemos pronto. ¡Hasta pronto!',
+        '¡Genial! Modificación realizada con éxito. Les esperamos. ¡Buen día!',
+        '¡Perfecto! Todo actualizado. Les esperamos. ¡Que disfruten!'
+      ],
+      en: [
+        'Perfect! Your reservation has been successfully modified. We look forward to seeing you. Good day!',
+        'Excellent! The modification has been completed. We look forward to seeing you. Have a good day!',
+        'Very well! Reservation updated correctly. See you soon. Goodbye!',
+        'Great! Modification completed successfully. We look forward to seeing you. Good day!',
+        'Perfect! Everything updated. We look forward to seeing you. Enjoy!'
+      ],
+      de: [
+        'Perfekt! Ihre Reservierung wurde erfolgreich geändert. Wir freuen uns auf Sie. Guten Tag!',
+        'Ausgezeichnet! Die Änderung wurde abgeschlossen. Wir freuen uns auf Sie. Haben Sie einen schönen Tag!',
+        'Sehr gut! Reservierung korrekt aktualisiert. Bis bald. Auf Wiedersehen!',
+        'Großartig! Änderung erfolgreich durchgeführt. Wir freuen uns auf Sie. Guten Tag!',
+        'Perfekt! Alles aktualisiert. Wir freuen uns auf Sie. Viel Spaß!'
+      ],
+      it: [
+        'Perfetto! La sua prenotazione è stata modificata con successo. La aspettiamo. Buona giornata!',
+        'Eccellente! La modifica è stata completata. La aspettiamo. Buona giornata!',
+        'Molto bene! Prenotazione aggiornata correttamente. A presto. Arrivederci!',
+        'Fantastico! Modifica completata con successo. La aspettiamo. Buona giornata!',
+        'Perfetto! Tutto aggiornato. La aspettiamo. Buon divertimento!'
+      ],
+      fr: [
+        'Parfait! Votre réservation a été modifiée avec succès. Nous avons hâte de vous voir. Bonne journée!',
+        'Excellent! La modification a été complétée. Nous avons hâte de vous voir. Bonne journée!',
+        'Très bien! Réservation mise à jour correctement. À bientôt. Au revoir!',
+        'Génial! Modification complétée avec succès. Nous avons hâte de vous voir. Bonne journée!',
+        'Parfait! Tout mis à jour. Nous avons hâte de vous voir. Profitez bien!'
+      ],
+      pt: [
+        'Perfeito! Sua reserva foi modificada com sucesso. Esperamos você. Bom dia!',
+        'Excelente! A modificação foi concluída. Esperamos você. Tenha um bom dia!',
+        'Muito bem! Reserva atualizada corretamente. Até logo. Tchau!',
+        'Ótimo! Modificação concluída com sucesso. Esperamos você. Bom dia!',
+        'Perfeito! Tudo atualizado. Esperamos você. Aproveite!'
+      ]
+    },
+    modify_error: {
+      es: [
+        'Disculpe, hubo un error al modificar su reserva. Por favor, intente de nuevo más tarde o contacte directamente al restaurante.',
+        'Lo siento, no se pudo completar la modificación. Por favor, intente nuevamente o llame al restaurante.',
+        'Perdón, ocurrió un problema al actualizar la reserva. Por favor, contacte directamente al restaurante.',
+        'Disculpe, hubo un error técnico. Por favor, intente de nuevo o contacte al restaurante.',
+        'Lo siento, no se pudo procesar la modificación. Por favor, contacte al restaurante directamente.'
+      ],
+      en: [
+        'Sorry, there was an error modifying your reservation. Please try again later or contact the restaurant directly.',
+        'I\'m sorry, the modification could not be completed. Please try again or call the restaurant.',
+        'Sorry, a problem occurred while updating the reservation. Please contact the restaurant directly.',
+        'Sorry, there was a technical error. Please try again or contact the restaurant.',
+        'I\'m sorry, the modification could not be processed. Please contact the restaurant directly.'
+      ],
+      de: [
+        'Entschuldigung, es gab einen Fehler beim Ändern Ihrer Reservierung. Bitte versuchen Sie es später erneut oder kontaktieren Sie das Restaurant direkt.',
+        'Es tut mir leid, die Änderung konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut oder rufen Sie das Restaurant an.',
+        'Entschuldigung, es trat ein Problem beim Aktualisieren der Reservierung auf. Bitte kontaktieren Sie das Restaurant direkt.',
+        'Entschuldigung, es gab einen technischen Fehler. Bitte versuchen Sie es erneut oder kontaktieren Sie das Restaurant.',
+        'Es tut mir leid, die Änderung konnte nicht verarbeitet werden. Bitte kontaktieren Sie das Restaurant direkt.'
+      ],
+      it: [
+        'Scusi, c\'è stato un errore nella modifica della sua prenotazione. Per favore, riprovi più tardi o contatti direttamente il ristorante.',
+        'Mi dispiace, la modifica non è stata completata. Per favore, riprovi o chiami il ristorante.',
+        'Scusi, si è verificato un problema nell\'aggiornamento della prenotazione. Per favore, contatti direttamente il ristorante.',
+        'Scusi, c\'è stato un errore tecnico. Per favore, riprovi o contatti il ristorante.',
+        'Mi dispiace, la modifica non è stata elaborata. Per favore, contatti direttamente il ristorante.'
+      ],
+      fr: [
+        'Désolé, une erreur s\'est produite lors de la modification de votre réservation. Veuillez réessayer plus tard ou contacter directement le restaurant.',
+        'Je suis désolé, la modification n\'a pas pu être complétée. Veuillez réessayer ou appeler le restaurant.',
+        'Désolé, un problème s\'est produit lors de la mise à jour de la réservation. Veuillez contacter directement le restaurant.',
+        'Désolé, une erreur technique s\'est produite. Veuillez réessayer ou contacter le restaurant.',
+        'Je suis désolé, la modification n\'a pas pu être traitée. Veuillez contacter directement le restaurant.'
+      ],
+      pt: [
+        'Desculpe, houve um erro ao modificar sua reserva. Por favor, tente novamente mais tarde ou entre em contato diretamente com o restaurante.',
+        'Sinto muito, a modificação não pôde ser concluída. Por favor, tente novamente ou ligue para o restaurante.',
+        'Desculpe, ocorreu um problema ao atualizar a reserva. Por favor, entre em contato diretamente com o restaurante.',
+        'Desculpe, houve um erro técnico. Por favor, tente novamente ou entre em contato com o restaurante.',
+        'Sinto muito, a modificação não pôde ser processada. Por favor, entre em contato diretamente com o restaurante.'
+      ]
+    },
+    modify_cancelled: {
+      es: [
+        'Perfecto, no modificaremos la reserva. ¿En qué más puedo ayudarle?',
+        'Entendido, mantendremos la reserva sin cambios. ¿Qué más necesita?',
+        'Muy bien, no procederemos con la modificación. ¿En qué puedo ayudarle?',
+        'Perfecto, la reserva se mantiene como está. ¿Qué más puedo hacer por usted?',
+        'Excelente, no modificaremos. ¿En qué puedo asistirle?'
+      ],
+      en: [
+        'Perfect, we won\'t modify the reservation. How else can I help you?',
+        'Understood, we\'ll keep the reservation unchanged. What else do you need?',
+        'Very well, we won\'t proceed with the modification. How can I help you?',
+        'Perfect, the reservation remains as is. What else can I do for you?',
+        'Excellent, we won\'t modify. How can I assist you?'
+      ],
+      de: [
+        'Perfekt, wir werden die Reservierung nicht ändern. Wie kann ich Ihnen sonst helfen?',
+        'Verstanden, wir behalten die Reservierung unverändert. Was brauchen Sie sonst?',
+        'Sehr gut, wir werden nicht mit der Änderung fortfahren. Wie kann ich Ihnen helfen?',
+        'Perfekt, die Reservierung bleibt wie sie ist. Was kann ich sonst für Sie tun?',
+        'Ausgezeichnet, wir werden nicht ändern. Wie kann ich Ihnen helfen?'
+      ],
+      it: [
+        'Perfetto, non modificheremo la prenotazione. Come altro posso aiutarti?',
+        'Capito, manterremo la prenotazione invariata. Cos\'altro ti serve?',
+        'Molto bene, non procederemo con la modifica. Come posso aiutarti?',
+        'Perfetto, la prenotazione rimane così com\'è. Cos\'altro posso fare per te?',
+        'Eccellente, non modificheremo. Come posso assisterti?'
+      ],
+      fr: [
+        'Parfait, nous ne modifierons pas la réservation. Comment puis-je vous aider d\'autre?',
+        'Compris, nous garderons la réservation inchangée. De quoi avez-vous besoin d\'autre?',
+        'Très bien, nous ne procéderons pas à la modification. Comment puis-je vous aider?',
+        'Parfait, la réservation reste telle quelle. Que puis-je faire d\'autre pour vous?',
+        'Excellent, nous ne modifierons pas. Comment puis-je vous assister?'
+      ],
+      pt: [
+        'Perfeito, não modificaremos a reserva. Como mais posso ajudá-lo?',
+        'Entendido, manteremos a reserva inalterada. O que mais você precisa?',
+        'Muito bem, não procederemos com a modificação. Como posso ajudá-lo?',
+        'Perfeito, a reserva permanece como está. O que mais posso fazer por você?',
+        'Excelente, não modificaremos. Como posso assisti-lo?'
+      ]
+    },
+    modify_no_reservations: {
+      es: [
+        'No encontré reservas activas con ese número de teléfono. ¿Desea hacer una nueva reserva?',
+        'No hay reservas registradas para ese número. ¿Quiere hacer una nueva reserva?',
+        'No localicé reservas con ese teléfono. ¿Desea hacer una nueva reserva?',
+        'No hay reservas activas para ese número. ¿Le gustaría reservar una mesa?',
+        'No encontré reservas con ese teléfono. ¿Quiere hacer una nueva reserva?'
+      ],
+      en: [
+        'I didn\'t find any active reservations with that phone number. Would you like to make a new reservation?',
+        'There are no reservations registered for that number. Do you want to make a new reservation?',
+        'I didn\'t locate reservations with that phone. Do you want to make a new reservation?',
+        'There are no active reservations for that number. Would you like to reserve a table?',
+        'I didn\'t find reservations with that phone. Do you want to make a new reservation?'
+      ],
+      de: [
+        'Ich habe keine aktiven Reservierungen mit dieser Telefonnummer gefunden. Möchten Sie eine neue Reservierung vornehmen?',
+        'Es gibt keine Reservierungen für diese Nummer. Möchten Sie eine neue Reservierung vornehmen?',
+        'Ich habe keine Reservierungen mit diesem Telefon gefunden. Möchten Sie eine neue Reservierung vornehmen?',
+        'Es gibt keine aktiven Reservierungen für diese Nummer. Möchten Sie einen Tisch reservieren?',
+        'Ich habe keine Reservierungen mit diesem Telefon gefunden. Möchten Sie eine neue Reservierung vornehmen?'
+      ],
+      it: [
+        'Non ho trovato prenotazioni attive con quel numero di telefono. Vorresti fare una nuova prenotazione?',
+        'Non ci sono prenotazioni registrate per quel numero. Vuoi fare una nuova prenotazione?',
+        'Non ho localizzato prenotazioni con quel telefono. Vuoi fare una nuova prenotazione?',
+        'Non ci sono prenotazioni attive per quel numero. Vorresti prenotare un tavolo?',
+        'Non ho trovato prenotazioni con quel telefono. Vuoi fare una nuova prenotazione?'
+      ],
+      fr: [
+        'Je n\'ai trouvé aucune réservation active avec ce numéro de téléphone. Souhaitez-vous faire une nouvelle réservation?',
+        'Il n\'y a pas de réservations enregistrées pour ce numéro. Voulez-vous faire une nouvelle réservation?',
+        'Je n\'ai pas localisé de réservations avec ce téléphone. Voulez-vous faire une nouvelle réservation?',
+        'Il n\'y a pas de réservations actives pour ce numéro. Souhaitez-vous réserver une table?',
+        'Je n\'ai pas trouvé de réservations avec ce téléphone. Voulez-vous faire une nouvelle réservation?'
+      ],
+      pt: [
+        'Não encontrei reservas ativas com esse número de telefone. Gostaria de fazer uma nova reserva?',
+        'Não há reservas registradas para esse número. Quer fazer uma nova reserva?',
+        'Não localizei reservas com esse telefone. Quer fazer uma nova reserva?',
+        'Não há reservas ativas para esse número. Gostaria de reservar uma mesa?',
+        'Não encontrei reservas com esse telefone. Quer fazer uma nova reserva?'
+      ]
+    },
+    modify_offer_new: {
+      es: [
+        '¿Le gustaría hacer una nueva reserva en su lugar?',
+        '¿Quiere hacer una nueva reserva?',
+        '¿Desea reservar una mesa?',
+        '¿Le gustaría hacer una reserva?',
+        '¿Quiere hacer una nueva reserva?'
+      ],
+      en: [
+        'Would you like to make a new reservation instead?',
+        'Do you want to make a new reservation?',
+        'Do you want to reserve a table?',
+        'Would you like to make a reservation?',
+        'Do you want to make a new reservation?'
+      ],
+      de: [
+        'Möchten Sie stattdessen eine neue Reservierung vornehmen?',
+        'Möchten Sie eine neue Reservierung vornehmen?',
+        'Möchten Sie einen Tisch reservieren?',
+        'Möchten Sie eine Reservierung vornehmen?',
+        'Möchten Sie eine neue Reservierung vornehmen?'
+      ],
+      it: [
+        'Vorresti fare una nuova prenotazione invece?',
+        'Vuoi fare una nuova prenotazione?',
+        'Vuoi prenotare un tavolo?',
+        'Vorresti fare una prenotazione?',
+        'Vuoi fare una nuova prenotazione?'
+      ],
+      fr: [
+        'Souhaitez-vous faire une nouvelle réservation à la place?',
+        'Voulez-vous faire une nouvelle réservation?',
+        'Voulez-vous réserver une table?',
+        'Souhaitez-vous faire une réservation?',
+        'Voulez-vous faire une nouvelle réservation?'
+      ],
+      pt: [
+        'Gostaria de fazer uma nova reserva em vez disso?',
+        'Quer fazer uma nova reserva?',
+        'Quer reservar uma mesa?',
+        'Gostaria de fazer uma reserva?',
+        'Quer fazer uma nova reserva?'
+      ]
+    },
+    modify_invalid_option: {
+      es: [
+        'Esa opción no es válida. Por favor, elija una de las opciones disponibles.',
+        'Esa opción no existe. Por favor, seleccione una opción válida.',
+        'Opción incorrecta. Por favor, elija entre las opciones mostradas.',
+        'Esa opción no está disponible. Por favor, seleccione una opción válida.',
+        'Opción no válida. Por favor, elija una de las opciones correctas.'
+      ],
+      en: [
+        'That option is not valid. Please choose one of the available options.',
+        'That option doesn\'t exist. Please select a valid option.',
+        'Incorrect option. Please choose from the options shown.',
+        'That option is not available. Please select a valid option.',
+        'Invalid option. Please choose one of the correct options.'
+      ],
+      de: [
+        'Diese Option ist nicht gültig. Bitte wählen Sie eine der verfügbaren Optionen.',
+        'Diese Option existiert nicht. Bitte wählen Sie eine gültige Option.',
+        'Falsche Option. Bitte wählen Sie aus den gezeigten Optionen.',
+        'Diese Option ist nicht verfügbar. Bitte wählen Sie eine gültige Option.',
+        'Ungültige Option. Bitte wählen Sie eine der korrekten Optionen.'
+      ],
+      it: [
+        'Quell\'opzione non è valida. Per favore, scegli una delle opzioni disponibili.',
+        'Quell\'opzione non esiste. Per favore, seleziona un\'opzione valida.',
+        'Opzione incorretta. Per favore, scegli tra le opzioni mostrate.',
+        'Quell\'opzione non è disponibile. Per favore, seleziona un\'opzione valida.',
+        'Opzione non valida. Per favore, scegli una delle opzioni corrette.'
+      ],
+      fr: [
+        'Cette option n\'est pas valide. Veuillez choisir une des options disponibles.',
+        'Cette option n\'existe pas. Veuillez sélectionner une option valide.',
+        'Option incorrecte. Veuillez choisir parmi les options affichées.',
+        'Cette option n\'est pas disponible. Veuillez sélectionner une option valide.',
+        'Option non valide. Veuillez choisir une des options correctes.'
+      ],
+      pt: [
+        'Essa opção não é válida. Por favor, escolha uma das opções disponíveis.',
+        'Essa opção não existe. Por favor, selecione uma opção válida.',
+        'Opção incorreta. Por favor, escolha entre as opções mostradas.',
+        'Essa opção não está disponível. Por favor, selecione uma opção válida.',
+        'Opção inválida. Por favor, escolha uma das opções corretas.'
+      ]
+    },
+    modify_unclear_option: {
+      es: [
+        'Disculpe, no entendí qué opción desea. Por favor, diga el número de la opción que quiere modificar.',
+        'No entendí bien. Por favor, indique el número de la opción que desea modificar.',
+        'Perdón, no capté bien. Por favor, diga "opción 1", "opción 2", etc.',
+        'No entendí. Por favor, repita el número de la opción que quiere modificar.',
+        'Disculpe, no entendí. Por favor, diga claramente el número de la opción.'
+      ],
+      en: [
+        'Sorry, I didn\'t understand which option you want. Please say the number of the option you want to modify.',
+        'I didn\'t understand well. Please indicate the number of the option you want to modify.',
+        'Sorry, I didn\'t catch that. Please say "option 1", "option 2", etc.',
+        'I didn\'t understand. Please repeat the number of the option you want to modify.',
+        'Sorry, I didn\'t understand. Please say the option number clearly.'
+      ],
+      de: [
+        'Entschuldigung, ich verstand nicht, welche Option Sie möchten. Bitte sagen Sie die Nummer der Option, die Sie ändern möchten.',
+        'Ich verstand nicht gut. Bitte geben Sie die Nummer der Option an, die Sie ändern möchten.',
+        'Entschuldigung, ich habe das nicht verstanden. Bitte sagen Sie "Option 1", "Option 2" usw.',
+        'Ich verstand nicht. Bitte wiederholen Sie die Nummer der Option, die Sie ändern möchten.',
+        'Entschuldigung, ich verstand nicht. Bitte sagen Sie die Optionsnummer deutlich.'
+      ],
+      it: [
+        'Scusi, non ho capito quale opzione vuole. Per favore, dica il numero dell\'opzione che vuole modificare.',
+        'Non ho capito bene. Per favore, indichi il numero dell\'opzione che vuole modificare.',
+        'Scusi, non ho capito. Per favore, dica "opzione 1", "opzione 2", ecc.',
+        'Non ho capito. Per favore, ripeta il numero dell\'opzione che vuole modificare.',
+        'Scusi, non ho capito. Per favore, dica chiaramente il numero dell\'opzione.'
+      ],
+      fr: [
+        'Désolé, je n\'ai pas compris quelle option vous voulez. Veuillez dire le numéro de l\'option que vous voulez modifier.',
+        'Je n\'ai pas bien compris. Veuillez indiquer le numéro de l\'option que vous voulez modifier.',
+        'Désolé, je n\'ai pas saisi. Veuillez dire "option 1", "option 2", etc.',
+        'Je n\'ai pas compris. Veuillez répéter le numéro de l\'option que vous voulez modifier.',
+        'Désolé, je n\'ai pas compris. Veuillez dire clairement le numéro de l\'option.'
+      ],
+      pt: [
+        'Desculpe, não entendi qual opção você quer. Por favor, diga o número da opção que quer modificar.',
+        'Não entendi bem. Por favor, indique o número da opção que quer modificar.',
+        'Desculpe, não entendi. Por favor, diga "opção 1", "opção 2", etc.',
+        'Não entendi. Por favor, repita o número da opção que quer modificar.',
+        'Desculpe, não entendi. Por favor, diga claramente o número da opção.'
+      ]
     }
   };
 
