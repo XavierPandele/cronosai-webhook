@@ -495,7 +495,7 @@ async function processConversationStep(state, userInput) {
            gather: false
          };
        } else if (confirmationResult.action === 'modify') {
-         return handleModificationRequest(state, confirmationResult.modification);
+         return handleModifyReservationField(state, confirmationResult.modification);
        } else if (confirmationResult.action === 'restart') {
          state.step = 'ask_people';
          state.data = {};
@@ -4225,7 +4225,11 @@ function detectLanguage(text) {
       'para comer', 'para jantar', 'para almoçar', 'para café da manhã',
       'sim', 'bom', 'perfeito', 'okay', 'claro', 'naturalmente', 'com prazer',
       'continuar', 'proceder', 'aceitar', 'confirmar', 'concordo',
-      'meu nome', 'como você se chama', 'me chamo'
+      'meu nome', 'como você se chama', 'me chamo',
+      // Palabras específicas de portugués que NO existen en español
+      'você', 'vocês', 'nós', 'a gente', 'gostaria de', 'queria',
+      'modificar uma', 'alterar uma', 'mudar uma', 'editar uma',
+      'modificar reserva', 'alterar reserva', 'mudar reserva', 'editar reserva'
     ],
     es: [
       'hola', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos',
@@ -4236,6 +4240,16 @@ function detectLanguage(text) {
       'si', 'sí', 'vale', 'bueno', 'perfecto', 'claro', 'por supuesto',
       'adelante', 'continúo', 'procedo', 'acepto', 'confirmo',
       'me llamo', 'como te llamas', 'mi nombre',
+      // Palabras EXCLUSIVAS de español que NO existen en portugués (prioridad alta)
+      'querría', 'querría modificar', 'querría cambiar', 'querría editar',
+      'quisiera modificar', 'quisiera cambiar', 'quisiera editar',
+      'podría modificar', 'podría cambiar', 'podría editar',
+      'me gustaría modificar', 'me gustaría cambiar', 'me gustaría editar',
+      'te', 'tú', 'ustedes', 'vosotros', 'vosotras',
+      'mi reserva', 'una reserva', 'la reserva', 'las reservas',
+      'modificar una reserva', 'cambiar una reserva', 'editar una reserva',
+      'modificar mi reserva', 'cambiar mi reserva', 'editar mi reserva',
+      'modificar la reserva', 'cambiar la reserva', 'editar la reserva',
       // Patrones específicos de español para evitar confusión con portugués
       'ya debo', 'debo cambiar', 'cambiar la fecha', 'fecha de mi',
       'modificar mi reserva', 'cambiar mi reserva', 'editar mi reserva',
@@ -4279,32 +4293,107 @@ function detectLanguage(text) {
     ]
   };
 
-  let maxMatches = 0;
-  let detectedLanguage = 'es'; // Por defecto español
+  // Sistema de pesos: patrones más específicos tienen mayor peso
+  const languageScores = {
+    es: 0,
+    en: 0,
+    de: 0,
+    it: 0,
+    fr: 0,
+    pt: 0
+  };
 
   console.log(`🔍 Detectando idioma para: "${text}"`);
 
+  // Palabras de alta prioridad (peso 3) - exclusivas de cada idioma
+  const highPriorityPatterns = {
+    es: ['querría', 'quisiera', 'podría', 'me gustaría', 'te', 'tú', 'ustedes', 'vosotros', 'vosotras', 'una reserva', 'la reserva', 'mi reserva'],
+    pt: ['você', 'vocês', 'nós', 'a gente', 'gostaria de', 'queria', 'uma reserva'],
+    en: ['i would like', 'i want to', 'i need to', 'would like to', 'book a table'],
+    de: ['ich möchte', 'ich würde', 'ich hätte', 'könnte ich', 'darf ich'],
+    it: ['vorrei', 'ho bisogno', 'mi chiamo', 'come ti chiami'],
+    fr: ['je voudrais', 'j\'ai besoin', 'je cherche', 'je m\'appelle']
+  };
+
+  // Palabras de prioridad media (peso 2)
+  const mediumPriorityPatterns = {
+    es: ['modificar una reserva', 'cambiar una reserva', 'editar una reserva', 'quiero modificar', 'necesito cambiar'],
+    pt: ['modificar uma', 'alterar uma', 'mudar uma', 'quero modificar', 'preciso mudar'],
+    en: ['modify reservation', 'change reservation', 'edit reservation'],
+    de: ['reservierung ändern', 'reservierung modifizieren'],
+    it: ['modificare prenotazione', 'cambiare prenotazione'],
+    fr: ['modifier réservation', 'changer réservation']
+  };
+
+  // Primero verificar patrones de alta prioridad
+  for (const [lang, patterns] of Object.entries(highPriorityPatterns)) {
+    for (const pattern of patterns) {
+      if (normalizedText.includes(pattern)) {
+        languageScores[lang] += 3;
+        console.log(`  ⭐ [ALTA PRIORIDAD] ${lang}: "${pattern}" encontrado (+3)`);
+      }
+    }
+  }
+
+  // Luego verificar patrones de prioridad media
+  for (const [lang, patterns] of Object.entries(mediumPriorityPatterns)) {
+    for (const pattern of patterns) {
+      if (normalizedText.includes(pattern)) {
+        languageScores[lang] += 2;
+        console.log(`  ⚡ [MEDIA PRIORIDAD] ${lang}: "${pattern}" encontrado (+2)`);
+      }
+    }
+  }
+
+  // Finalmente verificar todos los patrones (peso 1)
   for (const [lang, patterns] of Object.entries(languagePatterns)) {
     const matches = patterns.filter(pattern => normalizedText.includes(pattern)).length;
-    console.log(`  ${lang}: ${matches} coincidencias`);
-    
-    if (matches > maxMatches) {
-      maxMatches = matches;
-      detectedLanguage = lang;
-    }
+    languageScores[lang] += matches;
+    console.log(`  ${lang}: ${matches} coincidencias base (+${matches}), total: ${languageScores[lang]}`);
+  }
+
+  // Reglas especiales para evitar falsos positivos entre español y portugués
+  if (normalizedText.includes('querría') || normalizedText.includes('quisiera')) {
+    languageScores.es += 5; // Bonus muy alto para español
+    console.log(`  🔥 [ESPECIAL] Español detectado por "querría/quisiera" (+5)`);
+  }
+  
+  if (normalizedText.includes('você') || normalizedText.includes('gostaria de')) {
+    languageScores.pt += 5; // Bonus muy alto para portugués
+    console.log(`  🔥 [ESPECIAL] Portugués detectado por "você/gostaria" (+5)`);
   }
 
   // Detección especial para transcripciones malas de italiano
   if (normalizedText.includes('chau') || normalizedText.includes('borrey') || 
       normalizedText.includes('pre') || normalizedText.includes('notar')) {
     console.log(`🇮🇹 [DEBUG] Detectado patrón de transcripción italiana incorrecta`);
-    if (detectedLanguage === 'es' && maxMatches === 0) {
-      detectedLanguage = 'it';
-      maxMatches = 1;
+    languageScores.it += 3;
+  }
+
+  // Encontrar el idioma con mayor puntuación
+  let maxScore = 0;
+  let detectedLanguage = 'es'; // Por defecto español
+
+  for (const [lang, score] of Object.entries(languageScores)) {
+    if (score > maxScore) {
+      maxScore = score;
+      detectedLanguage = lang;
     }
   }
 
-  console.log(`✅ Idioma detectado: ${detectedLanguage} (${maxMatches} coincidencias)`);
+  // Si hay empate entre español y portugués, priorizar español si tiene palabras exclusivas
+  if (languageScores.es === languageScores.pt && languageScores.es > 0) {
+    if (normalizedText.includes('querría') || normalizedText.includes('quisiera') || 
+        normalizedText.includes('podría') || normalizedText.includes('me gustaría')) {
+      detectedLanguage = 'es';
+      console.log(`  ⚖️ [DESEMPATE] Español elegido por patrones exclusivos`);
+    } else if (normalizedText.includes('você') || normalizedText.includes('gostaria')) {
+      detectedLanguage = 'pt';
+      console.log(`  ⚖️ [DESEMPATE] Portugués elegido por patrones exclusivos`);
+    }
+  }
+
+  console.log(`✅ Idioma detectado: ${detectedLanguage} (puntuación: ${languageScores[detectedLanguage]})`);
   return detectedLanguage;
 }
 
@@ -4530,7 +4619,8 @@ function detectSpecificModifications(text) {
   return modifications;
 }
 
-function handleModificationRequest(state, modification) {
+// Función para modificar campos durante la creación de reserva (flujo diferente)
+function handleModifyReservationField(state, modification) {
   switch (modification) {
     case 'people':
       state.step = 'ask_people';
@@ -4568,8 +4658,9 @@ function handleModificationRequest(state, modification) {
       };
       
     default:
+      const fieldMessages = getMultilingualMessages('modify_ask_field', state.language);
       return {
-        message: '¿Qué específicamente quiere cambiar?',
+        message: getRandomMessage(fieldMessages),
         gather: true
       };
   }
