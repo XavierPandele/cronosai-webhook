@@ -888,7 +888,11 @@ async function handleModifyAskValue(state, userInput) {
 async function handleModifyConfirm(state, userInput) {
   console.log(`✅ [MODIFICACIÓN] Procesando confirmación: ${userInput}`);
   
-  if (isCancellationConfirmation(userInput)) {
+  // Usar detectCancellationConfirmation que retorna 'yes', 'no' o 'unclear'
+  // Nota: Aunque se llama detectCancellationConfirmation, funciona igual para cualquier confirmación
+  const confirmationResult = detectCancellationConfirmation(userInput);
+  
+  if (confirmationResult === 'yes') {
     // Confirmar modificación
     const success = await updateReservation(state.modificationData);
     
@@ -911,7 +915,7 @@ async function handleModifyConfirm(state, userInput) {
         gather: false // Terminar llamada
       };
     }
-  } else if (isCancellationDenial(userInput)) {
+  } else if (confirmationResult === 'no') {
     // Rechazar modificación
     console.log(`🔄 [MODIFICACIÓN] Modificación rechazada`);
     state.step = 'greeting'; // Volver al inicio
