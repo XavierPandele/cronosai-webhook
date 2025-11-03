@@ -5,46 +5,34 @@
 ```
 cronosai-webhook/
 ├── 📁 api/                          # Endpoints de la API
-│   ├── twilio-call-final.js         # Script original de Twilio
-│   ├── twilio-call-gemini-2.0.js    # Script con Gemini 2.0
-│   ├── twilio-call-gemini-enhanced.js # Script mejorado con logging
+│   ├── twilio-call-improved.js      # 🚀 Script principal mejorado
 │   ├── twilio-call.js               # Script básico
-│   └── webhook.js                   # Webhook principal
+│   └── webhook.js                   # Webhook secundario
 │
 ├── 📁 lib/                          # Librerías del sistema
-│   ├── database.js                  # Conexión a base de datos
-│   ├── logger.js                    # Sistema de logging
-│   └── utils.js                     # Utilidades
+│   ├── database.js                  # Conexión a base de datos MySQL
+│   └── utils.js                     # Utilidades generales
 │
 ├── 📁 scripts/                      # Scripts organizados
-│   ├── 📁 setup/                    # Scripts de configuración
-│   │   ├── configure_api_key.js     # Configuración de API
-│   │   ├── verify_config.js         # Verificación de config
-│   │   ├── setup_enhanced_system.js # Setup del sistema mejorado
-│   │   └── setup_gemini_2.0.js      # Setup de Gemini 2.0
-│   │
-│   ├── 📁 logging/                  # Scripts de logging
-│   │   ├── view_logs.js             # Visor de logs
-│   │   ├── analyze_logs.js          # Analizador de logs
-│   │   └── test_logging_system.js   # Generador de logs de prueba
-│   │
-│   ├── 📁 monitoring/               # Scripts de monitoreo
-│   │   └── monitor_system.js        # Monitoreo general
-│   │
+│   ├── create_reservation_intent.py # Scripts Python
+│   ├── list_intents.py              # Listar intents
+│   ├── monitoring/                  # Scripts de monitoreo
+│   │   ├── monitor_system.js        # Monitoreo general
+│   │   └── phone_test_monitor.js    # Monitor de pruebas
 │   └── README.md                    # Documentación de scripts
 │
 ├── 📁 tests/                        # Pruebas del sistema
-│   ├── test_enhanced_comprehension.js # Prueba del sistema mejorado
-│   ├── test_gemini_2.0_system.js    # Prueba de Gemini 2.0
-│   ├── test_simple_comprehension.js  # Prueba simple
-│   ├── test_twilio_enhanced.js      # Prueba de Twilio mejorado
-│   └── [otros archivos de prueba...]
+│   ├── test_*.js                    # Tests JavaScript
+│   └── test_*.py                    # Tests Python
 │
-├── 📁 docs/                         # Documentación
-│   ├── ENHANCED_COMPREHENSION_SYSTEM.md # Sistema de comprensión
-│   ├── LOGGING_SYSTEM.md            # Sistema de logging
-│   ├── GEMINI_2.0_SYSTEM.md         # Sistema Gemini 2.0
-│   └── [otra documentación...]
+├── 📁 docs/                         # Documentación completa
+│   ├── 📁 ventas/                   # Material de ventas
+│   ├── 📁 codigo/                   # Análisis de código
+│   ├── 📁 deploy/                   # Guías de despliegue
+│   ├── ARQUITECTURA_VISUAL.md
+│   ├── EJEMPLOS_CONVERSACIONES.md
+│   ├── GUIA_TWILIO.md
+│   └── [más documentación...]
 │
 ├── 📁 logs/                         # Logs del sistema
 │   └── detailed-YYYY-MM-DD.log      # Logs diarios
@@ -66,62 +54,64 @@ cronosai-webhook/
 
 ### Configuración Inicial
 ```bash
-# 1. Configurar API Key
-node scripts/setup/configure_api_key.js
+# 1. Instalar dependencias
+npm install
 
-# 2. Verificar configuración
-node scripts/setup/verify_config.js
+# 2. Configurar variables de entorno
+cp env.example .env
+# Editar .env con tus credenciales
 
-# 3. Configurar sistema mejorado
-node scripts/setup/setup_enhanced_system.js
+# 3. Verificar estado del sistema
+node scripts/monitoring/monitor_system.js
 ```
 
 ### Monitoreo y Análisis
 ```bash
-# Ver logs en tiempo real
-node scripts/logging/view_logs.js watch
+# Monitorear estado del sistema
+node scripts/monitoring/monitor_system.js
 
-# Analizar problemas
-node scripts/logging/analyze_logs.js
+# Monitor de pruebas telefónicas en tiempo real
+node scripts/monitoring/phone_test_monitor.js
 
-# Ver resumen de llamada
-node scripts/logging/view_logs.js summary +1234567890
+# Ver logs del sistema
+tail -f logs/detailed-*.log
 ```
 
 ### Pruebas
 ```bash
-# Probar sistema mejorado
-node tests/test_enhanced_comprehension.js
+# Ejecutar tests
+npm test
 
-# Generar logs de prueba
-node scripts/logging/test_logging_system.js
+# Test específico de Twilio
+node tests/test_twilio_endpoint.js
 ```
 
 ## 📋 Archivos Principales
 
 ### **API Endpoints**
-- `api/twilio-call-gemini-enhanced.js` - **Script principal mejorado**
-- `api/twilio-call-final.js` - Script original
-- `api/twilio-call-gemini-2.0.js` - Script con Gemini 2.0
+- `api/twilio-call-improved.js` - **Script principal mejorado**
+- `api/twilio-call.js` - Script básico
+- `api/webhook.js` - Webhook secundario
 
-### **Sistema de Logging**
-- `lib/logger.js` - Sistema de logging principal
-- `scripts/logging/view_logs.js` - Visor de logs
-- `scripts/logging/analyze_logs.js` - Analizador de logs
-
-### **Configuración**
-- `scripts/setup/configure_api_key.js` - Configuración de API
-- `scripts/setup/verify_config.js` - Verificación de config
+### **Utilidades**
+- `lib/database.js` - Gestión de base de datos MySQL
+- `lib/utils.js` - Funciones de utilidad generales
+- Scripts de monitoreo en `scripts/monitoring/`
 
 ## 🔧 Configuración
 
 ### Variables de Entorno (`.env`)
 ```bash
-GOOGLE_API_KEY=tu_api_key_aqui
-DB_HOST=localhost
-DB_USER=usuario
-DB_PASSWORD=password
-DB_NAME=reservas
+# Base de datos
+DB_HOST=tu_host
+DB_PORT=3306
+DB_USER=tu_usuario
+DB_PASS=tu_contraseña
+DB_NAME=tu_base_datos
+
+# Twilio (opcional)
+TWILIO_ACCOUNT_SID=tu_sid
+TWILIO_AUTH_TOKEN=tu_token
 ```
 
 ### Dependencias
@@ -131,26 +121,18 @@ npm install
 
 ## 📊 Monitoreo
 
-### Logs Disponibles
-- **CALL_START**: Inicio de llamadas
-- **LANGUAGE_DETECTION**: Detección de idioma
-- **GEMINI_REQUEST**: Solicitudes a Gemini
-- **GEMINI_RESPONSE**: Respuestas de Gemini
-- **INTENT_ANALYSIS**: Análisis de intenciones
-- **STEP_TRANSITION**: Cambios de paso
-- **FALLBACK_USAGE**: Uso de fallbacks
-- **METRICS**: Métricas de rendimiento
+Los logs se guardan automáticamente en `logs/` con el formato `detailed-YYYY-MM-DD.log`
 
 ### Comandos de Monitoreo
 ```bash
-# Ver archivos de log
-node scripts/logging/view_logs.js files
+# Monitorear sistema
+node scripts/monitoring/monitor_system.js
 
-# Monitorear llamada específica
-node scripts/logging/view_logs.js watch +1234567890
+# Ver logs en tiempo real
+tail -f logs/detailed-*.log
 
-# Generar reporte completo
-node scripts/logging/analyze_logs.js
+# Monitor de pruebas
+node scripts/monitoring/phone_test_monitor.js
 ```
 
 ## 🚨 Solución de Problemas
@@ -163,23 +145,23 @@ node scripts/logging/analyze_logs.js
 
 ### Diagnóstico
 ```bash
-# Verificar configuración
-node scripts/setup/verify_config.js
+# Verificar estado del sistema
+node scripts/monitoring/monitor_system.js
 
-# Analizar logs
-node scripts/logging/analyze_logs.js
+# Ver logs recientes
+ls -lh logs/
 
-# Generar logs de prueba
-node scripts/logging/test_logging_system.js
+# Monitor en tiempo real
+node scripts/monitoring/phone_test_monitor.js
 ```
 
 ## 📞 Soporte
 
 Para problemas:
-1. Revisar logs en `./logs/`
-2. Usar `analyze_logs.js` para diagnóstico
-3. Verificar configuración con `verify_config.js`
-4. Contactar soporte técnico
+1. Revisar logs en `logs/`
+2. Ejecutar `node scripts/monitoring/monitor_system.js`
+3. Ver documentación en `docs/`
+4. Consultar `docs/codigo/INCONGRUENCIAS_CODIGO.md` para bugs conocidos
 
 ---
 
