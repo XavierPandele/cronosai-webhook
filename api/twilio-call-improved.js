@@ -6589,6 +6589,7 @@ async function findReservationsByPhone(phoneNumber) {
       // Buscar reservas futuras (no canceladas) por teléfono
       // Buscar tanto con el número completo como solo con los últimos dígitos (sin prefijo)
       // Esto maneja casos donde el teléfono está guardado como "+3463254378" pero se busca como "63254378"
+      // Verificación de sincronización: commit 2024-12-19
       const searchPattern1 = `%${normalizedPhone}%`; // Buscar número completo
       const searchPattern2 = normalizedPhone.length >= 8 ? `%${normalizedPhone.slice(-8)}%` : null; // Últimos 8 dígitos
       
