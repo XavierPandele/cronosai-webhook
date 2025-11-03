@@ -87,17 +87,61 @@ async function processConversationStep(state, userInput) {
 
   console.log(`📋 Procesando paso: ${step}, Input: "${userInput}"`);
 
-  // Verificar si el usuario quiere cancelar la reserva (en cualquier paso)
-  if (userInput && userInput.trim() && isCancellationRequest(userInput)) {
-    console.log(`🚫 [CANCELACIÓN] Usuario quiere cancelar en paso: ${step}`);
+  // PASOS CRÍTICOS donde debemos ser más cuidadosos al detectar cancelación
+  // para evitar falsos positivos (por ejemplo, "15 de enero" contiene "no")
+  const criticalReservationSteps = ['ask_date', 'ask_time', 'ask_name', 'ask_phone', 'confirm'];
+  
+  // Verificar si el usuario quiere cancelar la reserva
+  if (userInput && userInput.trim()) {
+    let shouldCheckCancellation = true;
     
-    // Si ya está en proceso de cancelación, confirmar
-    if (step === 'cancelling') {
-      return await handleCancellationConfirmation(state, userInput);
+    // En pasos críticos de reserva, verificar primero si la respuesta es un dato válido
+    if (criticalReservationSteps.includes(step)) {
+      let isValidData = false;
+      
+      // Intentar parsear el dato esperado según el paso actual
+      switch (step) {
+        case 'ask_date':
+          isValidData = extractDate(text) !== null;
+          break;
+        case 'ask_time':
+          isValidData = extractTime(text) !== null;
+          break;
+        case 'ask_name':
+          isValidData = extractName(text) !== null;
+          break;
+        case 'ask_phone':
+          // Verificar si es afirmativo para usar mismo número, o si es un número válido
+          const affirmativeWords = ['este', 'mismo', 'si', 'sí', 'vale', 'ok', 'this', 'same', 'yes'];
+          isValidData = affirmativeWords.some(word => text.includes(word)) || extractPhoneNumber(text) !== null;
+          break;
+        case 'confirm':
+          // Las confirmaciones usan handleConfirmationResponse
+          // Consideramos válido si NO es 'clarify' (confirm, modify, restart son válidos)
+          const confirmResult = handleConfirmationResponse(text);
+          isValidData = confirmResult.action !== 'clarify';
+          break;
+      }
+      
+      // Si se detectó un dato válido, NO buscar cancelación
+      if (isValidData) {
+        console.log(`✅ [PASO CRÍTICO] Se detectó dato válido en paso ${step}, saltando verificación de cancelación`);
+        shouldCheckCancellation = false;
+      }
     }
     
-    // Iniciar proceso de cancelación
-    return await handleCancellationRequest(state, userInput);
+    // Verificar cancelación solo si es apropiado
+    if (shouldCheckCancellation && isCancellationRequest(userInput)) {
+      console.log(`🚫 [CANCELACIÓN] Usuario quiere cancelar en paso: ${step}`);
+      
+      // Si ya está en proceso de cancelación, confirmar
+      if (step === 'cancelling') {
+        return await handleCancellationConfirmation(state, userInput);
+      }
+      
+      // Iniciar proceso de cancelación
+      return await handleCancellationRequest(state, userInput);
+    }
   }
 
   // Detectar idioma solo en pasos específicos para evitar cambios inesperados
