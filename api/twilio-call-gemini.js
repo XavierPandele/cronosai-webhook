@@ -491,8 +491,8 @@ async function processConversationStep(state, userInput) {
     }
     
     // Verificar cancelación solo si es apropiado
-    // EXCLUIR 'greeting' porque usa detectIntentionWithGemini que es más preciso
-    if (shouldCheckCancellation && step !== 'greeting' && isCancellationRequest(userInput)) {
+    // EXCLUIR 'greeting' y 'ask_intention' porque usan detectIntentionWithGemini que es más preciso
+    if (shouldCheckCancellation && step !== 'greeting' && step !== 'ask_intention' && isCancellationRequest(userInput)) {
       console.log(`🚫 [CANCELACIÓN] Usuario quiere cancelar en paso: ${step}`);
       
       // Si ya está en proceso de cancelación, confirmar
