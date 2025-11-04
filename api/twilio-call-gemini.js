@@ -2054,7 +2054,7 @@ function generateTwiML(response, language = 'es') {
 <Response>
   <Gather 
     input="speech" 
-    action="/api/twilio-call-improved" 
+    action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
     speechTimeout="3"
@@ -2062,7 +2062,7 @@ function generateTwiML(response, language = 'es') {
     <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">${getRandomMessage(['No escuché respuesta. ¿Sigue ahí?', 'Disculpe, no escuché. ¿Sigue ahí?', '¿Está ahí? No escuché nada.', '¿Sigue en la línea? No escuché respuesta.', 'Disculpe, ¿podría repetir? No escuché bien.'])}</Say>
-  <Redirect>/api/twilio-call-improved</Redirect>
+  <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
   } else {
     // Solo decir el mensaje y colgar
