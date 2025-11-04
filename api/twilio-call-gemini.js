@@ -551,14 +551,18 @@ async function processConversationStep(state, userInput) {
             console.log(`📊 [GEMINI] Campos faltantes: ${missing.join(', ') || 'ninguno'}`);
             
             // Si tenemos todo lo esencial, usar teléfono de la llamada directamente y confirmar
-            if (missing.length === 0 && state.data.NumeroReserva && state.data.FechaReserva && 
-                state.data.HoraReserva && state.data.NomReserva) {
-              // Usar teléfono de la llamada directamente
-              state.data.TelefonReserva = state.phone;
+            if (missing.length === 0) {
+              // Asegurar que tenemos teléfono (usar el de la llamada)
+              if (!state.data.TelefonReserva) {
+                state.data.TelefonReserva = state.phone;
+              }
+              
+              // Ir directamente a confirmación con mensaje completo
               state.step = 'confirm';
-              const confirmMessages = getMultilingualMessages('confirm', state.language);
+              const confirmMessage = getConfirmationMessage(state.data, state.language);
+              console.log(`✅ [GEMINI] Información completa extraída en greeting, mostrando confirmación`);
               return {
-                message: getRandomMessage(confirmMessages),
+                message: confirmMessage,
                 gather: true
               };
             } else {
