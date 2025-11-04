@@ -634,12 +634,47 @@ async function processConversationStep(state, userInput) {
        const intentionResult = await detectIntentionWithGemini(text);
        
        if (intentionResult.action === 'reservation') {
-         state.step = 'ask_people';
-         const reservationMessages = getMultilingualMessages('reservation', state.language);
-         return {
-           message: getRandomMessage(reservationMessages),
-           gather: true
-         };
+         // Usuario quiere hacer una reserva - intentar extraer TODA la información de una vez
+         console.log(`📝 [RESERVA] Intentando extraer información completa de: "${text}"`);
+         const analysis = await analyzeReservationWithGemini(text);
+         
+         if (analysis) {
+           // Aplicar la información extraída al estado
+           applyGeminiAnalysisToState(analysis, state);
+           
+           // Determinar qué campos faltan
+           const missingFields = determineMissingFields(analysis, state.data);
+           
+           console.log(`📊 [RESERVA] Campos faltantes:`, missingFields);
+           
+           // Si no falta nada, ir directamente a confirmación
+           if (missingFields.length === 0) {
+             state.step = 'confirm';
+             const confirmMessage = getConfirmationMessage(state.data, state.language);
+             return {
+               message: confirmMessage,
+               gather: true
+             };
+           }
+           
+           // Si falta información, preguntar por el primer campo faltante
+           const nextField = missingFields[0];
+           state.step = `ask_${nextField}`;
+           
+           const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+           return {
+             message: getRandomMessage(fieldMessages),
+             gather: true
+           };
+         } else {
+           // Si Gemini no pudo extraer información, preguntar por personas
+           state.step = 'ask_people';
+           const reservationMessages = getMultilingualMessages('reservation', state.language);
+           return {
+             message: getRandomMessage(reservationMessages),
+             gather: true
+           };
+         }
       } else if (intentionResult.action === 'modify') {
         // Usuario quiere modificar una reserva existente
         return await handleModificationRequest(state, userInput);
