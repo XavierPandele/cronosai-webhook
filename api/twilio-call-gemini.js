@@ -144,8 +144,8 @@ module.exports = async function handler(req, res) {
       setTimeout(() => conversationStates.delete(CallSid), 60000); // Limpiar después de 1 minuto
     }
 
-    // Generar TwiML response
-    const twiml = generateTwiML(response, state.language);
+    // Generar TwiML response (pasar processingMessage si existe)
+    const twiml = generateTwiML(response, state.language, response.processingMessage || null);
     
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
@@ -565,11 +565,10 @@ async function processConversationStep(state, userInput) {
               state.step = 'confirm';
               const confirmMessage = getConfirmationMessage(state.data, state.language);
               console.log(`✅ [GEMINI] Información completa extraída en greeting, mostrando confirmación`);
-              // Añadir mensaje de procesando al inicio
-              const fullConfirmMessage = `${processingMessage} ${confirmMessage}`;
               return {
-                message: fullConfirmMessage,
-                gather: true
+                message: confirmMessage,
+                gather: true,
+                processingMessage: processingMessage
               };
             } else {
               // Falta información, confirmar lo que tenemos y preguntar por lo que falta
@@ -578,9 +577,6 @@ async function processConversationStep(state, userInput) {
               try {
                 // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
                 const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
-                
-                // Añadir mensaje de procesando al inicio
-                const fullMessage = `${processingMessage} ${partialMessage}`;
                 
                 if (nextField === 'people') {
                   state.step = 'ask_people';
@@ -593,8 +589,9 @@ async function processConversationStep(state, userInput) {
                 }
                 
                 return {
-                  message: fullMessage,
-                  gather: true
+                  message: partialMessage,
+                  gather: true,
+                  processingMessage: processingMessage
                 };
               } catch (error) {
                 console.error('❌ [ERROR] Error generando mensaje parcial de confirmación:', error);
@@ -681,11 +678,10 @@ async function processConversationStep(state, userInput) {
            if (missingFields.length === 0) {
              state.step = 'confirm';
              const confirmMessage = getConfirmationMessage(state.data, state.language);
-             // Añadir mensaje de procesando al inicio
-             const fullConfirmMessage = `${processingMsg} ${confirmMessage}`;
              return {
-               message: fullConfirmMessage,
-               gather: true
+               message: confirmMessage,
+               gather: true,
+               processingMessage: processingMsg
              };
            }
            
@@ -697,12 +693,10 @@ async function processConversationStep(state, userInput) {
              // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
              const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
              
-             // Añadir mensaje de procesando al inicio
-             const fullPartialMessage = `${processingMsg} ${partialMessage}`;
-             
              return {
-               message: fullPartialMessage,
-               gather: true
+               message: partialMessage,
+               gather: true,
+               processingMessage: processingMsg
              };
            } catch (error) {
              console.error('❌ [ERROR] Error generando mensaje parcial de confirmación en ask_intention:', error);
@@ -843,9 +837,30 @@ async function processConversationStep(state, userInput) {
        }
 
      case 'ask_time':
+       // Detectar respuestas parciales como "a las" sin hora completa
+       const partialTimePatterns = /^a\s+las?$/i;
+       if (partialTimePatterns.test(userInput.trim())) {
+         // Es una respuesta parcial, pedir que complete
+         const errorResponse = handleUnclearResponse(text, 'time', state.language);
+         return {
+           message: errorResponse,
+           gather: true
+         };
+       }
+       
        // Usar Gemini para extraer información de la respuesta del usuario
        const timeAnalysis = await analyzeReservationWithGemini(userInput);
        if (timeAnalysis) {
+         // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
+         // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
+         if (timeAnalysis.intencion === 'clarify' && !timeAnalysis.hora) {
+           // No hay hora detectada, pedir que repita
+           const errorResponse = handleUnclearResponse(text, 'time', state.language);
+           return {
+             message: errorResponse,
+             gather: true
+           };
+         }
          applyGeminiAnalysisToState(timeAnalysis, state);
        }
        
@@ -909,10 +924,11 @@ async function processConversationStep(state, userInput) {
          const nameMessage = getRandomMessage(nameMessages);
          // Ir directamente a confirmación con todos los datos
          const confirmMessage = getConfirmationMessage(state.data, state.language);
-         const fullMessage = `${processingNameMsg} ${nameMessage} ${confirmMessage}`;
+         const fullMessage = `${nameMessage} ${confirmMessage}`;
          return {
            message: fullMessage,
-           gather: true
+           gather: true,
+           processingMessage: processingNameMsg
          };
        } else {
          const errorResponse = handleUnclearResponse(text, 'name', state.language);
@@ -1942,11 +1958,12 @@ async function handleCancelNoReservations(state, userInput) {
   };
 }
 
-function generateTwiML(response, language = 'es') {
+function generateTwiML(response, language = 'es', processingMessage = null) {
   const { message, gather = true } = response;
 
   console.log(`🎤 [DEBUG] generateTwiML - Idioma recibido: ${language}`);
   console.log(`🎤 [DEBUG] generateTwiML - Mensaje: "${message}"`);
+  console.log(`🎤 [DEBUG] generateTwiML - ProcessingMessage: ${processingMessage ? '"' + processingMessage + '"' : 'null'}`);
 
   // Configuración de voz por idioma - Google Neural cuando esté disponible
   const voiceConfig = {
@@ -1962,9 +1979,15 @@ function generateTwiML(response, language = 'es') {
   console.log(`🎤 [DEBUG] Configuración de voz seleccionada:`, config);
 
   if (gather) {
+    // Si hay mensaje de procesando, incluirlo primero con una pausa
+    const processingSay = processingMessage 
+      ? `<Say voice="${config.voice}" language="${config.language}">${escapeXml(processingMessage)}</Say><Pause length="1"/>`
+      : '';
+    
     // Usar Gather para capturar la respuesta del usuario
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  ${processingSay}
   <Gather 
     input="speech" 
     action="/api/twilio-call-gemini" 
