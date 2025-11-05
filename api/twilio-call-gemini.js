@@ -107,6 +107,12 @@ module.exports = async function handler(req, res) {
       conversationHistory: [],
       language: 'es' // Detectar idioma por defecto
     };
+    
+    // Asegurar que state.data existe y es un objeto
+    if (!state.data || typeof state.data !== 'object') {
+      console.warn('⚠️ [WARNING] state.data no es válido, inicializando...');
+      state.data = {};
+    }
 
     // Guardar entrada del usuario si existe
     const userInput = SpeechResult || Digits || '';
@@ -569,23 +575,47 @@ async function processConversationStep(state, userInput) {
               // Falta información, confirmar lo que tenemos y preguntar por lo que falta
               const nextField = missing[0];
               
-              // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
-              const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
-              
-              if (nextField === 'people') {
-                state.step = 'ask_people';
-              } else if (nextField === 'date') {
-                state.step = 'ask_date';
-              } else if (nextField === 'time') {
-                state.step = 'ask_time';
-              } else if (nextField === 'name') {
-                state.step = 'ask_name';
+              try {
+                // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
+                const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+                
+                if (nextField === 'people') {
+                  state.step = 'ask_people';
+                } else if (nextField === 'date') {
+                  state.step = 'ask_date';
+                } else if (nextField === 'time') {
+                  state.step = 'ask_time';
+                } else if (nextField === 'name') {
+                  state.step = 'ask_name';
+                }
+                
+                return {
+                  message: partialMessage,
+                  gather: true
+                };
+              } catch (error) {
+                console.error('❌ [ERROR] Error generando mensaje parcial de confirmación:', error);
+                console.error('❌ [ERROR] State.data:', JSON.stringify(state.data));
+                console.error('❌ [ERROR] NextField:', nextField);
+                console.error('❌ [ERROR] Language:', state.language);
+                
+                // Fallback: usar mensaje simple
+                const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+                if (nextField === 'people') {
+                  state.step = 'ask_people';
+                } else if (nextField === 'date') {
+                  state.step = 'ask_date';
+                } else if (nextField === 'time') {
+                  state.step = 'ask_time';
+                } else if (nextField === 'name') {
+                  state.step = 'ask_name';
+                }
+                
+                return {
+                  message: getRandomMessage(fieldMessages),
+                  gather: true
+                };
               }
-              
-              return {
-                message: partialMessage,
-                gather: true
-              };
             }
           }
           
@@ -653,13 +683,25 @@ async function processConversationStep(state, userInput) {
            const nextField = missingFields[0];
            state.step = `ask_${nextField}`;
            
-           // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
-           const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
-           
-           return {
-             message: partialMessage,
-             gather: true
-           };
+           try {
+             // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
+             const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+             
+             return {
+               message: partialMessage,
+               gather: true
+             };
+           } catch (error) {
+             console.error('❌ [ERROR] Error generando mensaje parcial de confirmación en ask_intention:', error);
+             console.error('❌ [ERROR] State.data:', JSON.stringify(state.data));
+             
+             // Fallback: usar mensaje simple
+             const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+             return {
+               message: getRandomMessage(fieldMessages),
+               gather: true
+             };
+           }
          } else {
            // Si Gemini no pudo extraer información, preguntar por personas
            state.step = 'ask_people';
@@ -814,12 +856,20 @@ async function processConversationStep(state, userInput) {
          if (nextField === 'name') {
            state.step = 'ask_name';
            // Confirmar hora capturada y preguntar por nombre
-           const timeFormatted = formatTimeForSpeech(time, state.language);
-           const partialMessage = getPartialConfirmationMessage(state.data, 'name', state.language);
-           return {
-             message: partialMessage,
-             gather: true
-           };
+           try {
+             const partialMessage = getPartialConfirmationMessage(state.data, 'name', state.language);
+             return {
+               message: partialMessage,
+               gather: true
+             };
+           } catch (error) {
+             console.error('❌ [ERROR] Error generando mensaje parcial en ask_time:', error);
+             const nameMessages = getMultilingualMessages('name', state.language);
+             return {
+               message: getRandomMessage(nameMessages),
+               gather: true
+             };
+           }
          } else {
            // Tiene todo, ir a confirmación
            state.step = 'confirm';
@@ -7067,6 +7117,12 @@ function getConfirmationMessage(data, language = 'es') {
  * Ejemplo: "Perfecto, mesa para 4 el día 7 de noviembre. ¿A qué hora desean la reserva?"
  */
 function getPartialConfirmationMessage(data, missingField, language = 'es') {
+  // Validar que data existe y es un objeto
+  if (!data || typeof data !== 'object') {
+    console.error('❌ [ERROR] getPartialConfirmationMessage: data no es válido', data);
+    data = {};
+  }
+  
   const parts = [];
   
   // Formatear según el idioma
@@ -7112,35 +7168,52 @@ function getPartialConfirmationMessage(data, missingField, language = 'es') {
   const formatter = formatFunctions[language] || formatFunctions['es'];
   
   // Construir la parte de confirmación con lo que tenemos
-  if (data.NumeroReserva) {
-    parts.push(formatter.people(data.NumeroReserva));
-  }
-  if (data.FechaReserva) {
-    const dateStr = formatter.date(data.FechaReserva);
-    const datePrefix = {
-      es: 'el día',
-      en: 'on',
-      de: 'am',
-      it: 'il',
-      fr: 'le',
-      pt: 'no dia'
-    };
-    parts.push(`${datePrefix[language] || datePrefix['es']} ${dateStr}`);
-  }
-  if (data.HoraReserva) {
-    const timeStr = formatter.time(data.HoraReserva);
-    const timePrefix = {
-      es: 'a las',
-      en: 'at',
-      de: 'um',
-      it: 'alle',
-      fr: 'à',
-      pt: 'às'
-    };
-    parts.push(`${timePrefix[language] || timePrefix['es']} ${timeStr}`);
-  }
-  if (data.NomReserva) {
-    parts.push(formatter.name(data.NomReserva));
+  try {
+    if (data.NumeroReserva && typeof data.NumeroReserva === 'number') {
+      parts.push(formatter.people(data.NumeroReserva));
+    }
+    if (data.FechaReserva && typeof data.FechaReserva === 'string') {
+      try {
+        const dateStr = formatter.date(data.FechaReserva);
+        if (dateStr) {
+          const datePrefix = {
+            es: 'el día',
+            en: 'on',
+            de: 'am',
+            it: 'il',
+            fr: 'le',
+            pt: 'no dia'
+          };
+          parts.push(`${datePrefix[language] || datePrefix['es']} ${dateStr}`);
+        }
+      } catch (error) {
+        console.error('❌ [ERROR] Error formateando fecha:', error, data.FechaReserva);
+      }
+    }
+    if (data.HoraReserva && typeof data.HoraReserva === 'string') {
+      try {
+        const timeStr = formatter.time(data.HoraReserva);
+        if (timeStr) {
+          const timePrefix = {
+            es: 'a las',
+            en: 'at',
+            de: 'um',
+            it: 'alle',
+            fr: 'à',
+            pt: 'às'
+          };
+          parts.push(`${timePrefix[language] || timePrefix['es']} ${timeStr}`);
+        }
+      } catch (error) {
+        console.error('❌ [ERROR] Error formateando hora:', error, data.HoraReserva);
+      }
+    }
+    if (data.NomReserva && typeof data.NomReserva === 'string' && data.NomReserva.trim()) {
+      parts.push(formatter.name(data.NomReserva.trim()));
+    }
+  } catch (error) {
+    console.error('❌ [ERROR] Error en getPartialConfirmationMessage al construir partes:', error);
+    console.error('❌ [ERROR] Data recibida:', JSON.stringify(data));
   }
   
   // Mensajes según el idioma
