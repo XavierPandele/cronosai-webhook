@@ -193,61 +193,37 @@ async function analyzeReservationWithGemini(userInput) {
     const dayAfterTomorrow = getDayAfterTomorrowDate();
     const hours = getRestaurantHours();
     
-    // Prompt optimizado para extracción máxima de información
-    const prompt = `## MISIÓN
-Eres un experto analizador de texto especializado en extraer información de reservas de restaurante.
-Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas de ella.
+    // Prompt optimizado para velocidad y extracción máxima de información
+    const prompt = `Analiza este texto de reserva de restaurante. Extrae TODO lo que puedas. Responde SOLO con JSON válido.
 
-## CONTEXTO ACTUAL
-- Fecha y hora actual: ${currentDateTime}
-- Fecha de mañana: ${tomorrow}
-- Fecha de pasado mañana: ${dayAfterTomorrow}
-- Horario del restaurante:
-  - Comida: ${hours.lunch[0]} - ${hours.lunch[1]}
-  - Cena: ${hours.dinner[0]} - ${hours.dinner[1]}
+Contexto: Hoy ${currentDateTime}, Mañana ${tomorrow}, Horario: ${hours.lunch[0]}-${hours.lunch[1]} / ${hours.dinner[0]}-${hours.dinner[1]}
 
-## TEXTO A ANALIZAR
-"${userInput}"
+Texto: "${userInput}"
 
-## REGLAS CRÍTICAS
-1. NO INVENTES información. Si no está en el texto, devuelve null.
-2. Si NO estás seguro, usa porcentaje de credibilidad bajo (0% o 50%).
-3. Si estás muy seguro, usa 100%.
-4. Valida la hora contra el horario del restaurante. Si está fuera de horario, marca enhorario:false.
-5. Convierte todo a formato estándar:
-   - Comensales: número (1-20)
-   - Fecha: YYYY-MM-DD
-   - Hora: HH:MM (formato 24h)
-   - Intolerancias: "true" o "false"
-   - Movilidad: "true" o "false"
-   - Nombre: texto o null
+Reglas:
+- NO inventes. Si no está, devuelve null.
+- Credibilidad: 0% (no seguro), 50% (medio), 100% (seguro)
+- Formatos: comensales (número 1-20), fecha (YYYY-MM-DD), hora (HH:MM 24h), nombre (texto o null)
+- Valida hora contra horario. Si fuera, enhorario:false.
 
-## FORMATO DE SALIDA (SOLO JSON, sin explicaciones)
+JSON SOLO (sin explicaciones):
 {
-  "intencion": "reservation" | "modify" | "cancel" | "clarify",
-  "comensales": null o "número",
-  "comensales_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "fecha": null o "YYYY-MM-DD",
-  "fecha_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "hora": null o "HH:MM",
-  "enhorario": "true" | "false",
-  "hora_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "intolerancias": "true" | "false",
-  "intolerancias_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "movilidad": "true" | "false",
-  "movilidad_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "nombre": null o "texto",
-  "nombre_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "idioma_detectado": "es" | "en" | "de" | "fr" | "it" | "pt"
-}
-
-NOTA SOBRE INTENCIÓN:
-- "reservation": El usuario quiere hacer una nueva reserva
-- "modify": El usuario quiere modificar una reserva existente
-- "cancel": El usuario quiere cancelar una reserva existente
-- "clarify": El texto es ambiguo o no indica una intención clara
-
-IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
+  "intencion": "reservation|modify|cancel|clarify",
+  "comensales": null|"número",
+  "comensales_porcentaje_credivilidad": "0%|50%|100%",
+  "fecha": null|"YYYY-MM-DD",
+  "fecha_porcentaje_credivilidad": "0%|50%|100%",
+  "hora": null|"HH:MM",
+  "enhorario": "true|false",
+  "hora_porcentaje_credivilidad": "0%|50%|100%",
+  "intolerancias": "true|false",
+  "intolerancias_porcentaje_credivilidad": "0%|50%|100%",
+  "movilidad": "true|false",
+  "movilidad_porcentaje_credivilidad": "0%|50%|100%",
+  "nombre": null|"texto",
+  "nombre_porcentaje_credivilidad": "0%|50%|100%",
+  "idioma_detectado": "es|en|de|fr|it|pt"
+}`;
 
     console.log('🤖 [GEMINI] Analizando con Gemini 2.5 Flash...');
     console.log('📝 [GEMINI] Input:', userInput);
@@ -290,16 +266,11 @@ async function detectIntentionWithGemini(text) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
-    const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
-Responde SOLO con una de estas opciones:
-- "reservation": Quiere hacer una nueva reserva (reservar mesa, hacer reserva, etc.)
-- "modify": Quiere modificar una reserva existente (cambiar fecha, hora, personas, etc.)
-- "cancel": Quiere cancelar una reserva existente (cancelar, anular, etc.)
-- "clarify": El texto es ambiguo o no indica una intención clara
+    const prompt = `Intención del texto: "reservation|modify|cancel|clarify"
 
 Texto: "${text}"
 
-Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explicaciones.`;
+Responde SOLO con una palabra: reservation, modify, cancel o clarify.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -330,17 +301,11 @@ async function detectLanguageWithGemini(text) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
-    const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
-- "es" para español
-- "en" para inglés
-- "de" para alemán
-- "fr" para francés
-- "it" para italiano
-- "pt" para portugués
+    const prompt = `Idioma del texto: es|en|de|fr|it|pt
 
 Texto: "${text}"
 
-Responde SOLO con el código de 2 letras, sin explicaciones.`;
+Responde SOLO con código de 2 letras.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -511,22 +476,10 @@ async function processConversationStep(state, userInput) {
     }
   }
 
-  // Detectar idioma solo en pasos específicos para evitar cambios inesperados
-  if (userInput && userInput.trim()) {
-    // Solo detectar idioma en greeting - NO durante cancelación para evitar cambios
-    if (step === 'greeting') {
-      const detectedLanguage = await detectLanguageWithGemini(userInput);
-      console.log(`🔍 [DEBUG] Detectando idioma para: "${userInput}"`);
-      console.log(`🌍 [DEBUG] Idioma detectado: ${detectedLanguage}`);
-      console.log(`🌍 [DEBUG] Idioma actual del estado: ${state.language}`);
-      
-      // Actualizar idioma solo si es necesario
-      if (detectedLanguage !== 'es' && detectedLanguage !== state.language) {
-        console.log(`🔄 [DEBUG] Cambiando idioma de ${state.language} a ${detectedLanguage}`);
-        state.language = detectedLanguage;
-      }
-    }
-    
+  // El idioma se detecta ahora dentro de analyzeReservationWithGemini para evitar llamadas redundantes
+  // Solo actualizar si no se detectó en el análisis
+  if (userInput && userInput.trim() && step === 'greeting') {
+    // El idioma se detectará en analyzeReservationWithGemini, no necesitamos llamada separada
     console.log(`📝 [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
   }
 
@@ -535,19 +488,26 @@ async function processConversationStep(state, userInput) {
       // Primera interacción - saludo general
       console.log(`🎯 [DEBUG] GREETING: language=${state.language}, userInput="${userInput}"`);
       
-      // Si hay input del usuario, detectar intención con Gemini
+      // Si hay input del usuario, analizar directamente con Gemini (ya detecta intención e idioma)
       if (userInput && userInput.trim()) {
-        console.log(`🔍 [GEMINI] Detectando intención en saludo: "${userInput}"`);
-        const intentionResult = await detectIntentionWithGemini(userInput);
-        console.log(`🎯 [GEMINI] Intención detectada:`, intentionResult);
+        console.log(`🔍 [GEMINI] Analizando directamente con Gemini (detecta intención + datos): "${userInput}"`);
         
-        if (intentionResult.action === 'reservation') {
-          console.log(`🚀 [GEMINI] Intención de reserva detectada, analizando con Gemini...`);
+        // Usar Gemini para extraer TODO de la primera frase (incluye intención e idioma)
+        const analysis = await analyzeReservationWithGemini(userInput);
+        
+        if (analysis) {
+          // Actualizar idioma si se detectó
+          if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
+            state.language = analysis.idioma_detectado;
+            console.log(`✅ [GEMINI] Idioma actualizado a: ${analysis.idioma_detectado}`);
+          }
           
-          // Usar Gemini para extraer TODO de la primera frase
-          const analysis = await analyzeReservationWithGemini(userInput);
+          // Verificar intención
+          const intention = analysis.intencion || 'reservation';
+          console.log(`🎯 [GEMINI] Intención detectada: ${intention}`);
           
-          if (analysis) {
+          if (intention === 'reservation') {
+          
             // Aplicar los datos extraídos al estado
             applyGeminiAnalysisToState(analysis, state);
             
@@ -617,28 +577,24 @@ async function processConversationStep(state, userInput) {
                 };
               }
             }
+          } else if (intention === 'modify') {
+            console.log(`✏️ [DEBUG] Intención de modificación detectada en saludo`);
+            const result = await handleModificationRequest(state, userInput);
+            return result;
+          } else if (intention === 'cancel') {
+            console.log(`🚫 [DEBUG] Intención de cancelación detectada en saludo`);
+            return await handleCancellationRequest(state, userInput);
           }
-          
-          // Fallback: si Gemini falla, usar flujo normal
-          console.log(`⚠️ [GEMINI] Gemini falló o no disponible, usando flujo normal`);
-          state.step = 'ask_people';
-          const reservationMessages = getMultilingualMessages('reservation', state.language);
-          return {
-            message: getRandomMessage(reservationMessages),
-            gather: true
-          };
-        } else if (intentionResult.action === 'modify') {
-          console.log(`✏️ [DEBUG] Intención de modificación detectada en saludo`);
-          console.log(`✏️ [DEBUG] Llamando a handleModificationRequest con input: "${userInput}"`);
-          console.log(`✏️ [DEBUG] Estado antes de llamar a handleModificationRequest: step=${state.step}, language=${state.language}`);
-          const result = await handleModificationRequest(state, userInput);
-          console.log(`✏️ [DEBUG] Resultado de handleModificationRequest:`, result);
-          console.log(`✏️ [DEBUG] Estado después de llamar a handleModificationRequest: step=${state.step}, language=${state.language}`);
-          return result;
-        } else if (intentionResult.action === 'cancel') {
-          console.log(`🚫 [DEBUG] Intención de cancelación detectada en saludo`);
-          return await handleCancellationRequest(state, userInput);
         }
+        
+        // Si Gemini falló o no devolvió análisis válido, usar flujo normal
+        console.log(`⚠️ [GEMINI] Gemini falló o no disponible, usando flujo normal`);
+        state.step = 'ask_people';
+        const reservationMessages = getMultilingualMessages('reservation', state.language);
+        return {
+          message: getRandomMessage(reservationMessages),
+          gather: true
+        };
       }
       
       // Si no hay input o no se detectó intención, hacer saludo normal
@@ -652,15 +608,20 @@ async function processConversationStep(state, userInput) {
        };
 
      case 'ask_intention':
-       // Confirmar que quiere hacer una reserva o cancelar - usar Gemini
-       const intentionResult = await detectIntentionWithGemini(text);
+       // Analizar directamente con Gemini (ya detecta intención + datos en una sola llamada)
+       console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${text}"`);
+       const analysis = await analyzeReservationWithGemini(text);
        
-       if (intentionResult.action === 'reservation') {
-         // Usuario quiere hacer una reserva - intentar extraer TODA la información de una vez
-         console.log(`📝 [RESERVA] Intentando extraer información completa de: "${text}"`);
-         const analysis = await analyzeReservationWithGemini(text);
+       if (analysis) {
+         // Actualizar idioma si se detectó
+         if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
+           state.language = analysis.idioma_detectado;
+         }
          
-         if (analysis) {
+         const intention = analysis.intencion || 'reservation';
+         
+         if (intention === 'reservation') {
+         
            // Aplicar la información extraída al estado
            applyGeminiAnalysisToState(analysis, state);
            
@@ -702,33 +663,22 @@ async function processConversationStep(state, userInput) {
                gather: true
              };
            }
-         } else {
-           // Si Gemini no pudo extraer información, preguntar por personas
-           state.step = 'ask_people';
-           const reservationMessages = getMultilingualMessages('reservation', state.language);
-           return {
-             message: getRandomMessage(reservationMessages),
-             gather: true
-           };
+         } else if (intention === 'modify') {
+           // Usuario quiere modificar una reserva existente
+           return await handleModificationRequest(state, userInput);
+         } else if (intention === 'cancel') {
+           // Usuario quiere cancelar una reserva existente
+           return await handleCancellationRequest(state, userInput);
          }
-      } else if (intentionResult.action === 'modify') {
-        // Usuario quiere modificar una reserva existente
-        return await handleModificationRequest(state, userInput);
-      } else if (intentionResult.action === 'cancel') {
-        // Usuario quiere cancelar una reserva existente
-        return await handleCancellationRequest(state, userInput);
-       } else if (intentionResult.action === 'clarify') {
-         return {
-           message: intentionResult.message,
-           gather: true
-         };
-       } else {
-         const clarifyMessages = getMultilingualMessages('clarify', state.language);
-         return {
-           message: getRandomMessage(clarifyMessages),
-           gather: true
-         };
        }
+       
+       // Si Gemini falló o no devolvió análisis válido
+       state.step = 'ask_people';
+       const reservationMessages = getMultilingualMessages('reservation', state.language);
+       return {
+         message: getRandomMessage(reservationMessages),
+         gather: true
+       };
 
      // ===== NUEVOS CASOS PARA MODIFICACIÓN DE RESERVAS =====
     case 'modify_ask_phone_choice':
@@ -2142,8 +2092,8 @@ function generateTwiML(response, language = 'es') {
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="3"
-    timeout="8">
+    speechTimeout="1"
+    timeout="4">
     <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">${getRandomMessage(['No escuché respuesta. ¿Sigue ahí?', 'Disculpe, no escuché. ¿Sigue ahí?', '¿Está ahí? No escuché nada.', '¿Sigue en la línea? No escuché respuesta.', 'Disculpe, ¿podría repetir? No escuché bien.'])}</Say>
