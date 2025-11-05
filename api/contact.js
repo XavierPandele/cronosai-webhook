@@ -49,10 +49,41 @@ module.exports = async function handler(req, res) {
         });
 
     } catch (error) {
-        console.error('Error procesando contacto:', error);
-        return res.status(500).json({
+        console.error('❌ Error procesando contacto:', error);
+        console.error('❌ Error stack:', error.stack);
+        
+        // Log detallado del error
+        if (error.response) {
+            console.error('❌ Error response:', JSON.stringify(error.response.body, null, 2));
+        }
+        
+        // Determinar el tipo de error
+        let errorMessage = 'No se pudo enviar el mensaje. Por favor, inténtalo de nuevo más tarde.';
+        let statusCode = 500;
+        
+        if (error.response) {
+            const errorBody = error.response.body;
+            if (errorBody && errorBody.errors) {
+                const firstError = errorBody.errors[0];
+                console.error('❌ SendGrid error details:', firstError);
+                
+                // Rate limiting
+                if (firstError.message && firstError.message.includes('rate limit')) {
+                    errorMessage = 'Límite de envío alcanzado. Por favor, intenta de nuevo en unos minutos.';
+                    statusCode = 429;
+                }
+                // Invalid email
+                else if (firstError.field === 'from' || firstError.field === 'to') {
+                    errorMessage = 'Error en la dirección de email. Por favor, verifica los datos.';
+                    statusCode = 400;
+                }
+            }
+        }
+        
+        return res.status(statusCode).json({
             error: 'Error del servidor',
-            message: 'No se pudo enviar el mensaje. Por favor, inténtalo de nuevo más tarde.'
+            message: errorMessage,
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 }
@@ -192,21 +223,50 @@ This message was sent from the Cronos AI landing page.
     };
 
     try {
-        console.log('Sending email via SendGrid:', {
+        console.log('📧 Sending email via SendGrid:', {
             from: `${msg.from.name} <${msg.from.email}>`,
             to: msg.to,
             replyTo: `${msg.replyTo.name} <${msg.replyTo.email}>`,
-            subject: msg.subject
+            subject: msg.subject,
+            timestamp: new Date().toISOString()
         });
         
         const response = await sgMail.send(msg);
-        console.log('✅ Email sent via SendGrid successfully. Message ID:', response[0]?.headers?.['x-message-id'] || 'N/A');
+        const messageId = response[0]?.headers?.['x-message-id'] || 'N/A';
+        
+        console.log('✅ Email sent via SendGrid successfully:', {
+            messageId: messageId,
+            statusCode: response[0]?.statusCode,
+            timestamp: new Date().toISOString()
+        });
+        
         return response;
     } catch (error) {
-        console.error('❌ SendGrid error:', error.message);
+        console.error('❌ SendGrid error occurred:', {
+            message: error.message,
+            code: error.code,
+            timestamp: new Date().toISOString()
+        });
+        
         if (error.response) {
-            console.error('SendGrid error details:', JSON.stringify(error.response.body, null, 2));
+            const errorBody = error.response.body;
+            console.error('❌ SendGrid error response:', {
+                statusCode: error.response.statusCode,
+                body: JSON.stringify(errorBody, null, 2)
+            });
+            
+            // Log específico para rate limiting
+            if (errorBody && errorBody.errors) {
+                errorBody.errors.forEach((err, index) => {
+                    console.error(`❌ SendGrid error ${index + 1}:`, {
+                        field: err.field,
+                        message: err.message,
+                        help: err.help
+                    });
+                });
+            }
         }
+        
         throw error;
     }
 }
