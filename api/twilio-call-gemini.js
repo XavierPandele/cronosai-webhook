@@ -772,9 +772,19 @@ async function processConversationStep(state, userInput) {
        }
        
        if (state.data.NumeroReserva) {
-         const people = state.data.NumeroReserva;
          // Determinar siguiente paso según qué falta
          const missing = determineMissingFields(null, state.data);
+         
+         if (missing.length === 0) {
+           // Tiene todo, ir a confirmación
+           state.step = 'confirm';
+           const confirmMessage = getConfirmationMessage(state.data, state.language);
+           return {
+             message: confirmMessage,
+             gather: true
+           };
+         }
+         
          const nextField = missing[0];
          
          if (nextField === 'date') {
@@ -783,16 +793,25 @@ async function processConversationStep(state, userInput) {
            state.step = 'ask_time';
          } else if (nextField === 'name') {
            state.step = 'ask_name';
-         } else {
-           // Tiene todo, ir a confirmación
-           state.step = 'confirm';
          }
          
-         const peopleMessages = getMultilingualMessages('people', state.language, { people });
-         return {
-           message: getRandomMessage(peopleMessages),
-           gather: true
-         };
+         // Usar confirmación parcial para mostrar todo lo capturado y preguntar por lo faltante
+         try {
+           const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+           return {
+             message: partialMessage,
+             gather: true
+           };
+         } catch (error) {
+           console.error('❌ [ERROR] Error generando mensaje parcial en ask_people:', error);
+           // Fallback: usar mensaje simple
+           const people = state.data.NumeroReserva;
+           const peopleMessages = getMultilingualMessages('people', state.language, { people });
+           return {
+             message: getRandomMessage(peopleMessages),
+             gather: true
+           };
+         }
        } else {
          const errorResponse = handleUnclearResponse(text, 'people', state.language);
          return {
@@ -809,25 +828,44 @@ async function processConversationStep(state, userInput) {
        }
        
        if (state.data.FechaReserva) {
-         const date = state.data.FechaReserva;
          // Determinar siguiente paso según qué falta
          const missing = determineMissingFields(null, state.data);
+         
+         if (missing.length === 0) {
+           // Tiene todo, ir a confirmación
+           state.step = 'confirm';
+           const confirmMessage = getConfirmationMessage(state.data, state.language);
+           return {
+             message: confirmMessage,
+             gather: true
+           };
+         }
+         
          const nextField = missing[0];
          
          if (nextField === 'time') {
            state.step = 'ask_time';
          } else if (nextField === 'name') {
            state.step = 'ask_name';
-         } else {
-           // Tiene todo, ir a confirmación
-           state.step = 'confirm';
          }
          
-         const dateMessages = getMultilingualMessages('date', state.language, { date });
-         return {
-           message: getRandomMessage(dateMessages),
-           gather: true
-         };
+         // Usar confirmación parcial para mostrar todo lo capturado y preguntar por lo faltante
+         try {
+           const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+           return {
+             message: partialMessage,
+             gather: true
+           };
+         } catch (error) {
+           console.error('❌ [ERROR] Error generando mensaje parcial en ask_date:', error);
+           // Fallback: usar mensaje simple
+           const date = state.data.FechaReserva;
+           const dateMessages = getMultilingualMessages('date', state.language, { date });
+           return {
+             message: getRandomMessage(dateMessages),
+             gather: true
+           };
+         }
        } else {
          const errorResponse = handleUnclearResponse(text, 'date', state.language);
          return {
@@ -865,34 +903,41 @@ async function processConversationStep(state, userInput) {
        }
        
        if (state.data.HoraReserva) {
-         const time = state.data.HoraReserva;
          // Determinar siguiente paso según qué falta
          const missing = determineMissingFields(null, state.data);
-         const nextField = missing[0];
          
-         if (nextField === 'name') {
-           state.step = 'ask_name';
-           // Confirmar hora capturada y preguntar por nombre
-           try {
-             const partialMessage = getPartialConfirmationMessage(state.data, 'name', state.language);
-             return {
-               message: partialMessage,
-               gather: true
-             };
-           } catch (error) {
-             console.error('❌ [ERROR] Error generando mensaje parcial en ask_time:', error);
-             const nameMessages = getMultilingualMessages('name', state.language);
-             return {
-               message: getRandomMessage(nameMessages),
-               gather: true
-             };
-           }
-         } else {
+         if (missing.length === 0) {
            // Tiene todo, ir a confirmación
            state.step = 'confirm';
            const confirmMessage = getConfirmationMessage(state.data, state.language);
            return {
              message: confirmMessage,
+             gather: true
+           };
+         }
+         
+         const nextField = missing[0];
+         
+         if (nextField === 'name') {
+           state.step = 'ask_name';
+         } else if (nextField === 'date') {
+           state.step = 'ask_date';
+         }
+         
+         // Usar confirmación parcial para mostrar todo lo capturado y preguntar por lo faltante
+         try {
+           const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+           return {
+             message: partialMessage,
+             gather: true
+           };
+         } catch (error) {
+           console.error('❌ [ERROR] Error generando mensaje parcial en ask_time:', error);
+           // Fallback: usar mensaje simple
+           const time = state.data.HoraReserva;
+           const timeMessages = getMultilingualMessages('time', state.language, { time });
+           return {
+             message: getRandomMessage(timeMessages),
              gather: true
            };
          }
