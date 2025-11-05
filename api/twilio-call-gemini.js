@@ -142,8 +142,10 @@ module.exports = async function handler(req, res) {
         conversationStates.set(CallSid, state);
         
         // Generar TwiML con mensaje de procesando y redirect
+        // Pausa de 2 segundos antes del mensaje para simular tiempo de "pensamiento"
         const processingTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Pause length="2"/>
   <Say voice="${config.voice}" language="${config.language}">${escapeXml(processingMessage)}</Say>
   <Pause length="1"/>
   <Redirect method="POST">/api/twilio-call-gemini?process=true</Redirect>
