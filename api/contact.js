@@ -133,22 +133,30 @@ async function sendEmailWithSendGrid(name, email, message) {
     console.log('SendGrid configuration:', {
         from: fromEmail,
         to: toEmail,
+        replyTo: email,
         subject: `Demo Request from ${name}`,
         hasApiKey: !!process.env.SENDGRID_API_KEY
     });
 
     const msg = {
         to: toEmail,
-        from: fromEmail,
+        from: fromEmail, // Debe ser el email verificado en SendGrid
+        replyTo: email, // El email del usuario para que las respuestas vayan directamente a él
         subject: `Demo Request from ${name}`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2 style="color: #800020;">New Demo Request</h2>
-                <p><strong>From:</strong> ${name}</p>
-                <p><strong>Email:</strong> ${email}</p>
+                <div style="background: #f0f8ff; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+                    <p style="margin: 0;"><strong>From:</strong> ${name}</p>
+                    <p style="margin: 5px 0 0 0;"><strong>Email:</strong> <a href="mailto:${email}" style="color: #800020;">${email}</a></p>
+                </div>
                 <hr style="border: 1px solid #ddd; margin: 20px 0;">
                 <h3 style="color: #800020;">Message:</h3>
                 <p style="background: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap;">${message}</p>
+                <hr style="border: 1px solid #ddd; margin: 20px 0;">
+                <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                    <strong>Note:</strong> To reply to this request, simply reply to this email. Your response will be sent directly to ${email}.
+                </p>
             </div>
         `,
         text: `
@@ -159,6 +167,9 @@ Email: ${email}
 
 Message:
 ${message}
+
+---
+Note: To reply to this request, simply reply to this email. Your response will be sent directly to ${email}.
         `
     };
 
