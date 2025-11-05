@@ -415,13 +415,10 @@ function applyGeminiAnalysisToState(analysis, state) {
     console.log(`✅ [GEMINI] Fecha aplicada: ${analysis.fecha}`);
   }
   
-  // Hora (solo si está en horario válido)
-  if (analysis.hora && analysis.enhorario === 'true' && 
-      applyIfConfident(analysis.hora, analysis.hora_porcentaje_credivilidad)) {
+  // Hora (aceptar cualquier hora, sin validación de horario por ahora)
+  if (analysis.hora && applyIfConfident(analysis.hora, analysis.hora_porcentaje_credivilidad)) {
     state.data.HoraReserva = analysis.hora;
     console.log(`✅ [GEMINI] Hora aplicada: ${analysis.hora}`);
-  } else if (analysis.hora && analysis.enhorario === 'false') {
-    console.log(`⚠️ [GEMINI] Hora fuera de horario, no se aplica: ${analysis.hora}`);
   }
   
   // Nombre
@@ -676,6 +673,10 @@ async function processConversationStep(state, userInput) {
            
            // Si no falta nada, ir directamente a confirmación
            if (missingFields.length === 0) {
+             // Asegurar que tenemos teléfono (usar el de la llamada)
+             if (!state.data.TelefonReserva) {
+               state.data.TelefonReserva = state.phone;
+             }
              state.step = 'confirm';
              const confirmMessage = getConfirmationMessage(state.data, state.language);
              return {
@@ -776,7 +777,10 @@ async function processConversationStep(state, userInput) {
          const missing = determineMissingFields(null, state.data);
          
          if (missing.length === 0) {
-           // Tiene todo, ir a confirmación
+           // Tiene todo, asegurar teléfono y ir a confirmación
+           if (!state.data.TelefonReserva) {
+             state.data.TelefonReserva = state.phone;
+           }
            state.step = 'confirm';
            const confirmMessage = getConfirmationMessage(state.data, state.language);
            return {
@@ -832,7 +836,10 @@ async function processConversationStep(state, userInput) {
          const missing = determineMissingFields(null, state.data);
          
          if (missing.length === 0) {
-           // Tiene todo, ir a confirmación
+           // Tiene todo, asegurar teléfono y ir a confirmación
+           if (!state.data.TelefonReserva) {
+             state.data.TelefonReserva = state.phone;
+           }
            state.step = 'confirm';
            const confirmMessage = getConfirmationMessage(state.data, state.language);
            return {
@@ -907,7 +914,10 @@ async function processConversationStep(state, userInput) {
          const missing = determineMissingFields(null, state.data);
          
          if (missing.length === 0) {
-           // Tiene todo, ir a confirmación
+           // Tiene todo, asegurar teléfono y ir a confirmación
+           if (!state.data.TelefonReserva) {
+             state.data.TelefonReserva = state.phone;
+           }
            state.step = 'confirm';
            const confirmMessage = getConfirmationMessage(state.data, state.language);
            return {
@@ -7270,6 +7280,12 @@ function formatTimeForSpeech(timeStr, language = 'es') {
 }
 
 function formatPhoneForSpeech(phone, language = 'es') {
+  // Manejar valores undefined/null
+  if (!phone) {
+    console.warn('⚠️ [WARN] formatPhoneForSpeech recibió valor vacío/undefined');
+    return '';
+  }
+  
   // Limpiar el teléfono de caracteres no numéricos
   const cleanPhone = phone.replace(/\D/g, '');
   
