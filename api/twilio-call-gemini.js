@@ -116,16 +116,69 @@ module.exports = async function handler(req, res) {
 
     // Guardar entrada del usuario si existe
     const userInput = SpeechResult || Digits || '';
-    if (userInput) {
+    
+    // Si hay un parámetro ?process=true, significa que ya mostramos el mensaje de procesando
+    // y ahora necesitamos procesar con Gemini
+    const needsProcessing = req.query?.process === 'true';
+    
+    if (!needsProcessing && userInput) {
+      // Verificar si necesitamos procesar con Gemini ANTES de guardar el input
+      const stepsThatNeedGemini = ['greeting', 'ask_intention', 'ask_people', 'ask_date', 'ask_time', 'ask_name'];
+      if (stepsThatNeedGemini.includes(state.step)) {
+        // Generar mensaje de procesando y redirigir
+        const processingMessage = getProcessingMessage(state.language);
+        const voiceConfig = {
+          es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
+          en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
+          de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
+          it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
+          fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
+          pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+        };
+        const config = voiceConfig[state.language] || voiceConfig.es;
+        
+        // Guardar el input del usuario en el estado antes de redirigir
+        state.pendingInput = userInput;
+        conversationStates.set(CallSid, state);
+        
+        // Generar TwiML con mensaje de procesando y redirect
+        const processingTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${config.voice}" language="${config.language}">${escapeXml(processingMessage)}</Say>
+  <Pause length="1"/>
+  <Redirect method="POST">/api/twilio-call-gemini?process=true</Redirect>
+</Response>`;
+        
+        res.setHeader('Content-Type', 'text/xml');
+        return res.status(200).send(processingTwiml);
+      }
+    }
+    
+    // Si estamos procesando, usar el input pendiente
+    const inputToProcess = needsProcessing ? (state.pendingInput || userInput) : userInput;
+    
+    if (inputToProcess && !needsProcessing) {
       state.conversationHistory.push({
         role: 'user',
-        message: userInput,
+        message: inputToProcess,
         timestamp: new Date().toISOString()
       });
     }
+    
+    // Si estamos en modo procesamiento, limpiar el input pendiente
+    if (needsProcessing && state.pendingInput) {
+      if (!state.conversationHistory.some(h => h.message === state.pendingInput && h.role === 'user')) {
+        state.conversationHistory.push({
+          role: 'user',
+          message: state.pendingInput,
+          timestamp: new Date().toISOString()
+        });
+      }
+      delete state.pendingInput;
+    }
 
     // Procesar según el paso actual
-    const response = await processConversationStep(state, userInput);
+    const response = await processConversationStep(state, inputToProcess);
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -144,8 +197,8 @@ module.exports = async function handler(req, res) {
       setTimeout(() => conversationStates.delete(CallSid), 60000); // Limpiar después de 1 minuto
     }
 
-    // Generar TwiML response (pasar processingMessage si existe)
-    const twiml = generateTwiML(response, state.language, response.processingMessage || null);
+    // Generar TwiML response
+    const twiml = generateTwiML(response, state.language);
     
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
@@ -524,9 +577,6 @@ async function processConversationStep(state, userInput) {
       if (userInput && userInput.trim()) {
         console.log(`🔍 [GEMINI] Analizando directamente con Gemini (detecta intención + datos): "${userInput}"`);
         
-        // Mostrar mensaje de procesando mientras analizamos
-        const processingMessage = getProcessingMessage(state.language);
-        
         // Usar Gemini para extraer TODO de la primera frase (incluye intención e idioma)
         const analysis = await analyzeReservationWithGemini(userInput);
         
@@ -564,8 +614,7 @@ async function processConversationStep(state, userInput) {
               console.log(`✅ [GEMINI] Información completa extraída en greeting, mostrando confirmación`);
               return {
                 message: confirmMessage,
-                gather: true,
-                processingMessage: processingMessage
+                gather: true
               };
             } else {
               // Falta información, confirmar lo que tenemos y preguntar por lo que falta
@@ -587,8 +636,7 @@ async function processConversationStep(state, userInput) {
                 
                 return {
                   message: partialMessage,
-                  gather: true,
-                  processingMessage: processingMessage
+                  gather: true
                 };
               } catch (error) {
                 console.error('❌ [ERROR] Error generando mensaje parcial de confirmación:', error);
@@ -648,9 +696,6 @@ async function processConversationStep(state, userInput) {
        // Analizar directamente con Gemini (ya detecta intención + datos en una sola llamada)
        console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${text}"`);
        
-       // Mostrar mensaje de procesando mientras analizamos
-       const processingMsg = getProcessingMessage(state.language);
-       
        const analysis = await analyzeReservationWithGemini(text);
        
        if (analysis) {
@@ -681,8 +726,7 @@ async function processConversationStep(state, userInput) {
              const confirmMessage = getConfirmationMessage(state.data, state.language);
              return {
                message: confirmMessage,
-               gather: true,
-               processingMessage: processingMsg
+               gather: true
              };
            }
            
@@ -696,8 +740,7 @@ async function processConversationStep(state, userInput) {
              
              return {
                message: partialMessage,
-               gather: true,
-               processingMessage: processingMsg
+               gather: true
              };
            } catch (error) {
              console.error('❌ [ERROR] Error generando mensaje parcial de confirmación en ask_intention:', error);
@@ -960,9 +1003,6 @@ async function processConversationStep(state, userInput) {
        }
 
      case 'ask_name':
-       // Mostrar mensaje de procesando mientras analizamos
-       const processingNameMsg = getProcessingMessage(state.language);
-       
        // Usar Gemini para extraer información de la respuesta del usuario
        const nameAnalysis = await analyzeReservationWithGemini(userInput);
        if (nameAnalysis) {
@@ -982,8 +1022,7 @@ async function processConversationStep(state, userInput) {
          const fullMessage = `${nameMessage} ${confirmMessage}`;
          return {
            message: fullMessage,
-           gather: true,
-           processingMessage: processingNameMsg
+           gather: true
          };
        } else {
          const errorResponse = handleUnclearResponse(text, 'name', state.language);
@@ -2034,15 +2073,10 @@ function generateTwiML(response, language = 'es', processingMessage = null) {
   console.log(`🎤 [DEBUG] Configuración de voz seleccionada:`, config);
 
   if (gather) {
-    // Si hay mensaje de procesando, incluirlo primero con una pausa
-    const processingSay = processingMessage 
-      ? `<Say voice="${config.voice}" language="${config.language}">${escapeXml(processingMessage)}</Say><Pause length="1"/>`
-      : '';
-    
+    // Ya no incluimos processingMessage aquí porque se maneja antes con redirect
     // Usar Gather para capturar la respuesta del usuario
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${processingSay}
   <Gather 
     input="speech" 
     action="/api/twilio-call-gemini" 
