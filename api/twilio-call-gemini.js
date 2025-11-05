@@ -527,6 +527,9 @@ async function processConversationStep(state, userInput) {
       if (userInput && userInput.trim()) {
         console.log(`🔍 [GEMINI] Analizando directamente con Gemini (detecta intención + datos): "${userInput}"`);
         
+        // Mostrar mensaje de procesando mientras analizamos
+        const processingMessage = getProcessingMessage(state.language);
+        
         // Usar Gemini para extraer TODO de la primera frase (incluye intención e idioma)
         const analysis = await analyzeReservationWithGemini(userInput);
         
@@ -562,8 +565,10 @@ async function processConversationStep(state, userInput) {
               state.step = 'confirm';
               const confirmMessage = getConfirmationMessage(state.data, state.language);
               console.log(`✅ [GEMINI] Información completa extraída en greeting, mostrando confirmación`);
+              // Añadir mensaje de procesando al inicio
+              const fullConfirmMessage = `${processingMessage} ${confirmMessage}`;
               return {
-                message: confirmMessage,
+                message: fullConfirmMessage,
                 gather: true
               };
             } else {
@@ -573,6 +578,9 @@ async function processConversationStep(state, userInput) {
               try {
                 // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
                 const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+                
+                // Añadir mensaje de procesando al inicio
+                const fullMessage = `${processingMessage} ${partialMessage}`;
                 
                 if (nextField === 'people') {
                   state.step = 'ask_people';
@@ -585,7 +593,7 @@ async function processConversationStep(state, userInput) {
                 }
                 
                 return {
-                  message: partialMessage,
+                  message: fullMessage,
                   gather: true
                 };
               } catch (error) {
@@ -645,6 +653,10 @@ async function processConversationStep(state, userInput) {
      case 'ask_intention':
        // Analizar directamente con Gemini (ya detecta intención + datos en una sola llamada)
        console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${text}"`);
+       
+       // Mostrar mensaje de procesando mientras analizamos
+       const processingMsg = getProcessingMessage(state.language);
+       
        const analysis = await analyzeReservationWithGemini(text);
        
        if (analysis) {
@@ -669,8 +681,10 @@ async function processConversationStep(state, userInput) {
            if (missingFields.length === 0) {
              state.step = 'confirm';
              const confirmMessage = getConfirmationMessage(state.data, state.language);
+             // Añadir mensaje de procesando al inicio
+             const fullConfirmMessage = `${processingMsg} ${confirmMessage}`;
              return {
-               message: confirmMessage,
+               message: fullConfirmMessage,
                gather: true
              };
            }
@@ -683,8 +697,11 @@ async function processConversationStep(state, userInput) {
              // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
              const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
              
+             // Añadir mensaje de procesando al inicio
+             const fullPartialMessage = `${processingMsg} ${partialMessage}`;
+             
              return {
-               message: partialMessage,
+               message: fullPartialMessage,
                gather: true
              };
            } catch (error) {
@@ -873,6 +890,9 @@ async function processConversationStep(state, userInput) {
        }
 
      case 'ask_name':
+       // Mostrar mensaje de procesando mientras analizamos
+       const processingNameMsg = getProcessingMessage(state.language);
+       
        // Usar Gemini para extraer información de la respuesta del usuario
        const nameAnalysis = await analyzeReservationWithGemini(userInput);
        if (nameAnalysis) {
@@ -886,8 +906,12 @@ async function processConversationStep(state, userInput) {
          state.step = 'confirm';
          
          const nameMessages = getMultilingualMessages('name', state.language, { name });
+         const nameMessage = getRandomMessage(nameMessages);
+         // Ir directamente a confirmación con todos los datos
+         const confirmMessage = getConfirmationMessage(state.data, state.language);
+         const fullMessage = `${processingNameMsg} ${nameMessage} ${confirmMessage}`;
          return {
-           message: getRandomMessage(nameMessages),
+           message: fullMessage,
            gather: true
          };
        } else {
@@ -898,187 +922,6 @@ async function processConversationStep(state, userInput) {
          };
        }
 
-    case 'ask_phone':
-      // Verificar si quiere usar el número actual o dar otro - MULTILINGÜE
-      const affirmativeWords = [
-        // Español
-        'este', 'mismo', 'si', 'sí', 'vale', 'ok', 'bueno', 'perfecto',
-        // Inglés
-        'this', 'same', 'yes', 'okay', 'ok', 'good', 'perfect', 'sure',
-        'this number', 'same number', 'use this', 'keep this',
-        // Alemán
-        'dieser', 'gleiche', 'ja', 'gut', 'perfekt', 'diese nummer',
-        'diese telefonnummer', 'diese handynummer', 'diese mobilnummer',
-        'gleiche nummer', 'selbe nummer', 'dieselbe nummer', 'gleiche telefonnummer',
-        'selbe telefonnummer', 'dieselbe telefonnummer', 'gleiche handynummer',
-        'selbe handynummer', 'dieselbe handynummer', 'gleiche mobilnummer',
-        'selbe mobilnummer', 'dieselbe mobilnummer', 'diese', 'gleiche', 'selbe',
-        'dieselbe', 'ja', 'gut', 'perfekt', 'ausgezeichnet', 'wunderbar',
-        'prima', 'super', 'toll', 'fantastisch', 'okay', 'klar', 'natürlich',
-        'gerne', 'sehr gerne', 'sehr gern', 'mit freuden', 'mit vergnügen',
-        'selbstverständlich', 'logisch', 'verständlich', 'das passt',
-        'das gefällt mir', 'das ist gut', 'das ist perfekt', 'so ist es richtig',
-        'so stimmt es', 'so ist es korrekt', 'alles richtig', 'alles korrekt',
-        'alles stimmt', 'alles perfekt', 'ich bin einverstanden', 'ich stimme zu',
-        'ich akzeptiere', 'ich nehme an', 'ich befürworte', 'ich unterstütze',
-        'fortfahren', 'fortsetzen', 'weiter', 'weitergehen', 'procedieren',
-        'los gehts', 'los geht es', 'auf gehts', 'auf geht es', 'machen wir',
-        'machen wir es', 'lassen wir es so', 'so bleibt es', 'so lassen wir es',
-        'so ist es gut', 'das reicht', 'das genügt', 'das ist ausreichend',
-        'mehr brauche ich nicht', 'mehr will ich nicht', 'mehr ist nicht nötig',
-        'fertig', 'abgeschlossen', 'erledigt', 'vollständig', 'komplett',
-        'ganz', 'total', 'völlig', 'absolut', 'verwenden', 'benutzen',
-        'nutzen', 'verwende', 'benutze', 'nutze', 'verwende ich', 'benutze ich',
-        'nutze ich', 'ich verwende', 'ich benutze', 'ich nutze', 'ich verwende diese',
-        'ich benutze diese', 'ich nutze diese', 'ich verwende diese nummer',
-        'ich benutze diese nummer', 'ich nutze diese nummer', 'ich verwende diese telefonnummer',
-        'ich benutze diese telefonnummer', 'ich nutze diese telefonnummer',
-        'ich verwende diese handynummer', 'ich benutze diese handynummer',
-        'ich nutze diese handynummer', 'ich verwende diese mobilnummer',
-        'ich benutze diese mobilnummer', 'ich nutze diese mobilnummer',
-        'ich verwende die gleiche', 'ich benutze die gleiche', 'ich nutze die gleiche',
-        'ich verwende die selbe', 'ich benutze die selbe', 'ich nutze die selbe',
-        'ich verwende die dieselbe', 'ich benutze die dieselbe', 'ich nutze die dieselbe',
-        'ich verwende die gleiche nummer', 'ich benutze die gleiche nummer',
-        'ich nutze die gleiche nummer', 'ich verwende die selbe nummer',
-        'ich benutze die selbe nummer', 'ich nutze die selbe nummer',
-        'ich verwende die dieselbe nummer', 'ich benutze die dieselbe nummer',
-        'ich nutze die dieselbe nummer', 'ich verwende die gleiche telefonnummer',
-        'ich benutze die gleiche telefonnummer', 'ich nutze die gleiche telefonnummer',
-        'ich verwende die selbe telefonnummer', 'ich benutze die selbe telefonnummer',
-        'ich nutze die selbe telefonnummer', 'ich verwende die dieselbe telefonnummer',
-        'ich benutze die dieselbe telefonnummer', 'ich nutze die dieselbe telefonnummer',
-        'ich verwende die gleiche handynummer', 'ich benutze die gleiche handynummer',
-        'ich nutze die gleiche handynummer', 'ich verwende die selbe handynummer',
-        'ich benutze die selbe handynummer', 'ich nutze die selbe handynummer',
-        'ich verwende die dieselbe handynummer', 'ich benutze die dieselbe handynummer',
-        'ich nutze die dieselbe handynummer', 'ich verwende die gleiche mobilnummer',
-        'ich benutze die gleiche mobilnummer', 'ich nutze die gleiche mobilnummer',
-        'ich verwende die selbe mobilnummer', 'ich benutze die selbe mobilnummer',
-        'ich nutze die selbe mobilnummer', 'ich verwende die dieselbe mobilnummer',
-        'ich benutze die dieselbe mobilnummer', 'ich nutze die dieselbe mobilnummer',
-        'behalten', 'behalte', 'behalte ich', 'ich behalte', 'ich behalte diese',
-        'ich behalte diese nummer', 'ich behalte diese telefonnummer',
-        'ich behalte diese handynummer', 'ich behalte diese mobilnummer',
-        'ich behalte die gleiche', 'ich behalte die selbe', 'ich behalte die dieselbe',
-        'ich behalte die gleiche nummer', 'ich behalte die selbe nummer',
-        'ich behalte die dieselbe nummer', 'ich behalte die gleiche telefonnummer',
-        'ich behalte die selbe telefonnummer', 'ich behalte die dieselbe telefonnummer',
-        'ich behalte die gleiche handynummer', 'ich behalte die selbe handynummer',
-        'ich behalte die dieselbe handynummer', 'ich behalte die gleiche mobilnummer',
-        'ich behalte die selbe mobilnummer', 'ich behalte die dieselbe mobilnummer',
-        // Italiano
-        'questo', 'stesso', 'sì', 'si', 'va bene', 'perfetto', 'questo numero',
-        'questo telefono', 'stesso numero', 'stesso telefono', 'va bene questo',
-        'perfetto', 'ottimo', 'bene', 'giusto', 'esatto', 'corretto',
-        'confermo', 'accetto', 'procedo', 'continua', 'avanti',
-        'tutto bene', 'tutto ok', 'tutto perfetto', 'va tutto bene',
-        'conferma', 'confermare', 'accettare', 'procedere',
-        // Francés
-        'ce', 'meme', 'oui', 'bon', 'parfait', 'ce numero',
-        // Portugués
-        'este', 'mesmo', 'sim', 'bom', 'perfeito', 'este número'
-      ];
-      
-      const negativeWords = [
-        // Español
-        'otro', 'diferente', 'no', 'cambiar', 'nuevo',
-        // Inglés
-        'other', 'different', 'no', 'change', 'new', 'another',
-        'different number', 'other number', 'new number',
-        // Alemán
-        'anderer', 'verschieden', 'nein', 'ändern', 'neue',
-        'andere nummer', 'andere telefonnummer', 'andere handynummer', 'andere mobilnummer',
-        'neue nummer', 'neue telefonnummer', 'neue handynummer', 'neue mobilnummer',
-        'verschiedene nummer', 'verschiedene telefonnummer', 'verschiedene handynummer',
-        'verschiedene mobilnummer', 'andere', 'neue', 'verschiedene', 'anderer',
-        'neuer', 'verschiedener', 'andere', 'neue', 'verschiedene', 'anderer',
-        'neuer', 'verschiedener', 'nicht diese', 'nicht diese nummer',
-        'nicht diese telefonnummer', 'nicht diese handynummer', 'nicht diese mobilnummer',
-        'nicht die gleiche', 'nicht die selbe', 'nicht die dieselbe',
-        'nicht die gleiche nummer', 'nicht die selbe nummer', 'nicht die dieselbe nummer',
-        'nicht die gleiche telefonnummer', 'nicht die selbe telefonnummer',
-        'nicht die dieselbe telefonnummer', 'nicht die gleiche handynummer',
-        'nicht die selbe handynummer', 'nicht die dieselbe handynummer',
-        'nicht die gleiche mobilnummer', 'nicht die selbe mobilnummer',
-        'nicht die dieselbe mobilnummer', 'ändern', 'korrigieren', 'modifizieren',
-        'anpassen', 'verbessern', 'berichtigen', 'korrektur', 'berichtigung',
-        'änderung', 'modifikation', 'anpassung', 'ich möchte ändern',
-        'ich möchte korrigieren', 'ich möchte modifizieren', 'ich möchte anpassen',
-        'ich möchte verbessern', 'ich möchte berichtigen', 'das muss geändert werden',
-        'das muss korrigiert werden', 'das muss modifiziert werden',
-        'das muss angepasst werden', 'das ist nicht das was ich wollte',
-        'das ist nicht was ich wollte', 'das ist nicht richtig',
-        'das ist nicht korrekt', 'das ist nicht stimmt', 'nicht das', 'nicht so',
-        'nicht richtig', 'nicht korrekt', 'anders', 'differenz', 'unterschiedlich',
-        'verschieden', 'abweichend', 'nicht gewünscht', 'nicht erwünscht',
-        'nicht gewollt', 'nicht gewünscht', 'abbrechen', 'stornieren', 'löschen',
-        'entfernen', 'aufheben', 'nicht mehr', 'nicht weiter', 'nicht fortfahren',
-        'nicht fortsetzen', 'stopp', 'halt', 'aufhören', 'beenden', 'terminieren',
-        // Italiano
-        'altro', 'diverso', 'no', 'cambiare', 'nuovo',
-        'altro numero', 'numero diverso', 'numero nuovo', 'telefono diverso',
-        'telefono nuovo', 'cambiare numero', 'modificare numero',
-        'non questo', 'non va bene', 'non mi piace', 'non accetto',
-        'sbagliato', 'errato', 'non corretto', 'non è giusto',
-        // Francés
-        'autre', 'différent', 'non', 'changer', 'nouveau',
-        // Portugués
-        'outro', 'diferente', 'não', 'mudar', 'novo'
-      ];
-      
-      if (affirmativeWords.some(word => text.toLowerCase().includes(word))) {
-        // Usa el número de la llamada
-        state.data.TelefonReserva = state.phone;
-        state.step = 'confirm';
-        return {
-          message: getConfirmationMessage(state.data, state.language),
-          gather: true
-        };
-      } else if (negativeWords.some(word => text.toLowerCase().includes(word))) {
-        // Preguntar por otro número
-        state.step = 'ask_phone_number';
-        const phoneMessages = getMultilingualMessages('ask_phone', state.language);
-        return {
-          message: getRandomMessage(phoneMessages),
-          gather: true
-        };
-      } else {
-        // Intentar extraer un número directamente
-        const phoneMatch = text.match(/\d{9,}/);
-        if (phoneMatch) {
-          state.data.TelefonReserva = phoneMatch[0];
-          state.step = 'confirm';
-          return {
-            message: getConfirmationMessage(state.data, state.language),
-            gather: true
-          };
-        } else {
-          const phoneChoiceMessages = getMultilingualMessages('phone_choice', state.language);
-          return {
-            message: getRandomMessage(phoneChoiceMessages),
-            gather: true
-          };
-        }
-      }
-
-     case 'ask_phone_number':
-       // Extraer el número de teléfono (puede estar en dígitos o palabras)
-       const extractedPhone = extractPhoneNumber(text);
-       if (extractedPhone && extractedPhone.length >= 9) {
-         state.data.TelefonReserva = extractedPhone;
-         state.step = 'confirm';
-         return {
-           message: getConfirmationMessage(state.data, state.language),
-           gather: true
-         };
-       } else {
-         const errorResponse = handleUnclearResponse(text, 'phone', state.language);
-         return {
-           message: errorResponse,
-           gather: true
-         };
-       }
 
      case 'confirm':
        const confirmationResult = handleConfirmationResponse(text);
@@ -2228,51 +2071,96 @@ function getRandomMessage(messages) {
   return messages[randomIndex];
 }
 
+// Función para obtener mensajes de "procesando" multilingües
+function getProcessingMessage(language = 'es') {
+  const messages = {
+    es: [
+      'Un momento por favor.',
+      'Un instante.',
+      'Déjeme verificar.',
+      'Procesando información.'
+    ],
+    en: [
+      'One moment please.',
+      'Just a moment.',
+      'Let me check.',
+      'Processing information.'
+    ],
+    de: [
+      'Einen Moment bitte.',
+      'Einen Augenblick.',
+      'Lassen Sie mich überprüfen.',
+      'Informationen werden verarbeitet.'
+    ],
+    it: [
+      'Un momento per favore.',
+      'Un attimo.',
+      'Fammi controllare.',
+      'Elaborazione delle informazioni.'
+    ],
+    fr: [
+      'Un instant s\'il vous plaît.',
+      'Un moment.',
+      'Laissez-moi vérifier.',
+      'Traitement des informations.'
+    ],
+    pt: [
+      'Um momento por favor.',
+      'Um instante.',
+      'Deixe-me verificar.',
+      'Processando informações.'
+    ]
+  };
+  
+  const langMessages = messages[language] || messages.es;
+  return getRandomMessage(langMessages);
+}
+
 // Función para obtener mensajes multilingües
 function getMultilingualMessages(type, language = 'es', variables = {}) {
   const messages = {
     greeting: {
       es: [
-        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle? Puede hacer una nueva reserva, modificar una existente o cancelar una reserva.',
-        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy? Puede reservar una mesa, modificar una reserva existente o cancelar una reserva.',
-        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle? Puedo ayudarle con una nueva reserva, modificar una existente o cancelar una reserva.',
-        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita? Puede hacer una reserva, modificar una existente o cancelar una reserva.',
-        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle? Puede reservar, modificar o cancelar una reserva.'
+        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?',
+        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy?',
+        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle?',
+        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita?',
+        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle?'
       ],
       en: [
-        'Hello! Welcome to our restaurant. How can I help you? You can make a new reservation, modify an existing one, or cancel a reservation.',
-        'Good morning! Welcome. How can I assist you today? You can book a table, modify an existing reservation, or cancel a reservation.',
-        'Hello! Thank you for calling. How can I help you? I can help you with a new reservation, modify an existing one, or cancel a reservation.',
-        'Good afternoon! Welcome to the restaurant. What do you need? You can make a reservation, modify an existing one, or cancel a reservation.',
-        'Hello! Delighted to serve you. How can I help you? You can book, modify, or cancel a reservation.'
+        'Hello! Welcome to our restaurant. How can I help you?',
+        'Good morning! Welcome. How can I assist you today?',
+        'Hello! Thank you for calling. How can I help you?',
+        'Good afternoon! Welcome to the restaurant. What do you need?',
+        'Hello! Delighted to serve you. How can I help you?'
       ],
       de: [
-        'Hallo! Willkommen in unserem Restaurant. Wie kann ich Ihnen helfen? Sie können eine neue Reservierung vornehmen oder eine bestehende stornieren.',
-        'Guten Morgen! Willkommen. Wie kann ich Ihnen heute helfen? Sie können einen Tisch reservieren oder eine bestehende Reservierung stornieren.',
-        'Hallo! Vielen Dank für Ihren Anruf. Wie kann ich Ihnen helfen? Ich kann Ihnen bei einer neuen Reservierung helfen oder eine bestehende stornieren.',
-        'Guten Tag! Willkommen im Restaurant. Was benötigen Sie? Sie können eine Reservierung vornehmen oder eine bestehende stornieren.',
-        'Hallo! Freue mich, Ihnen zu dienen. Wie kann ich Ihnen helfen? Sie können reservieren oder eine Reservierung stornieren.'
+        'Hallo! Willkommen in unserem Restaurant. Wie kann ich Ihnen helfen?',
+        'Guten Morgen! Willkommen. Wie kann ich Ihnen heute helfen?',
+        'Hallo! Vielen Dank für Ihren Anruf. Wie kann ich Ihnen helfen?',
+        'Guten Tag! Willkommen im Restaurant. Was benötigen Sie?',
+        'Hallo! Freue mich, Ihnen zu dienen. Wie kann ich Ihnen helfen?'
       ],
       it: [
-        'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarti? Puoi fare una nuova prenotazione o cancellare una esistente.',
-        'Buongiorno! Benvenuto. Come posso assisterti oggi? Puoi prenotare un tavolo o cancellare una prenotazione esistente.',
-        'Ciao! Grazie per la chiamata. Come posso aiutarti? Posso aiutarti con una nuova prenotazione o cancellare una esistente.',
-        'Buon pomeriggio! Benvenuto nel ristorante. Di cosa hai bisogno? Puoi fare una prenotazione o cancellare una esistente.',
-        'Ciao! Felice di servirti. Come posso aiutarti? Puoi prenotare o cancellare una prenotazione.'
+        'Ciao! Benvenuto nel nostro ristorante. Come posso aiutarti?',
+        'Buongiorno! Benvenuto. Come posso assisterti oggi?',
+        'Ciao! Grazie per la chiamata. Come posso aiutarti?',
+        'Buon pomeriggio! Benvenuto nel ristorante. Di cosa hai bisogno?',
+        'Ciao! Felice di servirti. Come posso aiutarti?'
       ],
       fr: [
-        'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider? Vous pouvez faire une nouvelle réservation ou annuler une existante.',
-        'Bonjour! Bienvenue. Comment puis-je vous assister aujourd\'hui? Vous pouvez réserver une table ou annuler une réservation existante.',
-        'Bonjour! Merci d\'avoir appelé. Comment puis-je vous aider? Je peux vous aider avec une nouvelle réservation ou annuler une existante.',
-        'Bonjour! Bienvenue au restaurant. De quoi avez-vous besoin? Vous pouvez faire une réservation ou annuler une existante.',
-        'Bonjour! Ravi de vous servir. Comment puis-je vous aider? Vous pouvez réserver ou annuler une réservation.'
+        'Bonjour! Bienvenue dans notre restaurant. Comment puis-je vous aider?',
+        'Bonjour! Bienvenue. Comment puis-je vous assister aujourd\'hui?',
+        'Bonjour! Merci d\'avoir appelé. Comment puis-je vous aider?',
+        'Bonjour! Bienvenue au restaurant. De quoi avez-vous besoin?',
+        'Bonjour! Ravi de vous servir. Comment puis-je vous aider?'
       ],
       pt: [
-        'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo? Você pode fazer uma nova reserva ou cancelar uma existente.',
-        'Bom dia! Bem-vindo. Como posso ajudá-lo hoje? Você pode reservar uma mesa ou cancelar uma reserva existente.',
-        'Olá! Obrigado por ligar. Como posso ajudá-lo? Posso ajudá-lo com uma nova reserva ou cancelar uma existente.',
-        'Boa tarde! Bem-vindo ao restaurante. O que você precisa? Você pode fazer uma reserva ou cancelar uma existente.',
-        'Olá! Prazer em atendê-lo. Como posso ajudá-lo? Você pode reservar ou cancelar uma reserva.'
+        'Olá! Bem-vindo ao nosso restaurante. Como posso ajudá-lo?',
+        'Bom dia! Bem-vindo. Como posso ajudá-lo hoje?',
+        'Olá! Obrigado por ligar. Como posso ajudá-lo?',
+        'Boa tarde! Bem-vindo ao restaurante. O que você precisa?',
+        'Olá! Prazer em atendê-lo. Como posso ajudá-lo?'
       ]
     },
     reservation: {
@@ -2512,46 +2400,46 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     name: {
       es: [
-        `Perfecto, ${variables.name}. ¿Desea usar este número de teléfono para la reserva, o prefiere indicar otro?`,
-        `Excelente, ${variables.name}. ¿Usa este número o prefiere dar otro?`,
-        `Muy bien, ${variables.name}. ¿Este teléfono está bien o quiere otro?`,
-        `Perfecto, ${variables.name}. ¿Le sirve este número o prefiere uno diferente?`,
-        `Genial, ${variables.name}. ¿Usa este número o necesita otro?`
+        `Perfecto, ${variables.name}.`,
+        `Excelente, ${variables.name}.`,
+        `Muy bien, ${variables.name}.`,
+        `Perfecto, ${variables.name}.`,
+        `Genial, ${variables.name}.`
       ],
       en: [
-        `Perfect, ${variables.name}. Do you want to use this phone number for the reservation, or do you prefer to provide another one?`,
-        `Excellent, ${variables.name}. Do you use this number or do you prefer to give another one?`,
-        `Great, ${variables.name}. Is this phone number okay or do you want another one?`,
-        `Perfect, ${variables.name}. Does this number work for you or do you prefer a different one?`,
-        `Great, ${variables.name}. Do you use this number or do you need another one?`
+        `Perfect, ${variables.name}.`,
+        `Excellent, ${variables.name}.`,
+        `Great, ${variables.name}.`,
+        `Perfect, ${variables.name}.`,
+        `Great, ${variables.name}.`
       ],
       de: [
-        `Perfekt, ${variables.name}. Möchten Sie diese Telefonnummer für die Reservierung verwenden, oder bevorzugen Sie eine andere?`,
-        `Ausgezeichnet, ${variables.name}. Verwenden Sie diese Nummer oder bevorzugen Sie eine andere?`,
-        `Sehr gut, ${variables.name}. Ist diese Telefonnummer in Ordnung oder möchten Sie eine andere?`,
-        `Perfekt, ${variables.name}. Funktioniert diese Nummer für Sie oder bevorzugen Sie eine andere?`,
-        `Großartig, ${variables.name}. Verwenden Sie diese Nummer oder benötigen Sie eine andere?`
+        `Perfekt, ${variables.name}.`,
+        `Ausgezeichnet, ${variables.name}.`,
+        `Sehr gut, ${variables.name}.`,
+        `Perfekt, ${variables.name}.`,
+        `Großartig, ${variables.name}.`
       ],
       it: [
-        `Perfetto, ${variables.name}. Vuoi usare questo numero di telefono per la prenotazione, o preferisci indicarne un altro?`,
-        `Eccellente, ${variables.name}. Usi questo numero o preferisci darne un altro?`,
-        `Molto bene, ${variables.name}. Questo telefono va bene o vuoi un altro?`,
-        `Perfetto, ${variables.name}. Ti serve questo numero o preferisci uno diverso?`,
-        `Fantastico, ${variables.name}. Usi questo numero o hai bisogno di un altro?`
+        `Perfetto, ${variables.name}.`,
+        `Eccellente, ${variables.name}.`,
+        `Molto bene, ${variables.name}.`,
+        `Perfetto, ${variables.name}.`,
+        `Fantastico, ${variables.name}.`
       ],
       fr: [
-        `Parfait, ${variables.name}. Souhaitez-vous utiliser ce numéro de téléphone pour la réservation, ou préférez-vous en indiquer un autre?`,
-        `Excellent, ${variables.name}. Utilisez-vous ce numéro ou préférez-vous en donner un autre?`,
-        `Très bien, ${variables.name}. Ce téléphone convient-il ou voulez-vous un autre?`,
-        `Parfait, ${variables.name}. Ce numéro vous convient-il ou préférez-vous un différent?`,
-        `Génial, ${variables.name}. Utilisez-vous ce numéro ou avez-vous besoin d'un autre?`
+        `Parfait, ${variables.name}.`,
+        `Excellent, ${variables.name}.`,
+        `Très bien, ${variables.name}.`,
+        `Parfait, ${variables.name}.`,
+        `Génial, ${variables.name}.`
       ],
       pt: [
-        `Perfeito, ${variables.name}. Quer usar este número de telefone para a reserva, ou prefere indicar outro?`,
-        `Excelente, ${variables.name}. Usa este número ou prefere dar outro?`,
-        `Muito bem, ${variables.name}. Este telefone está bem ou quer outro?`,
-        `Perfeito, ${variables.name}. Este número te serve ou prefere um diferente?`,
-        `Ótimo, ${variables.name}. Usa este número ou precisa de outro?`
+        `Perfeito, ${variables.name}.`,
+        `Excelente, ${variables.name}.`,
+        `Muito bem, ${variables.name}.`,
+        `Perfeito, ${variables.name}.`,
+        `Ótimo, ${variables.name}.`
       ]
     },
     ask_phone: {
