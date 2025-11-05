@@ -130,56 +130,83 @@ async function sendEmailWithSendGrid(name, email, message) {
     const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'contact@usecronos.com';
     const toEmail = 'contact@usecronos.com';
     
-    console.log('SendGrid configuration:', {
-        from: fromEmail,
-        to: toEmail,
-        replyTo: email,
-        subject: `Demo Request from ${name}`,
-        hasApiKey: !!process.env.SENDGRID_API_KEY
-    });
-
     const msg = {
         to: toEmail,
-        from: fromEmail, // Debe ser el email verificado en SendGrid
-        replyTo: email, // El email del usuario para que las respuestas vayan directamente a él
-        subject: `Demo Request from ${name}`,
+        from: {
+            email: fromEmail, // Debe ser el email verificado
+            name: `${name} (via Cronos AI)` // Nombre visible en el cliente de email
+        },
+        replyTo: {
+            email: email, // Email del usuario
+            name: name // Nombre del usuario
+        },
+        subject: `[Demo Request] ${name} - ${email}`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #800020;">New Demo Request</h2>
-                <div style="background: #f0f8ff; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-                    <p style="margin: 0;"><strong>From:</strong> ${name}</p>
-                    <p style="margin: 5px 0 0 0;"><strong>Email:</strong> <a href="mailto:${email}" style="color: #800020;">${email}</a></p>
+                <div style="background: linear-gradient(135deg, #800020 0%, #5C0017 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0; text-align: center;">
+                    <h1 style="margin: 0; font-size: 24px;">New Demo Request</h1>
                 </div>
-                <hr style="border: 1px solid #ddd; margin: 20px 0;">
-                <h3 style="color: #800020;">Message:</h3>
-                <p style="background: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap;">${message}</p>
-                <hr style="border: 1px solid #ddd; margin: 20px 0;">
-                <p style="color: #666; font-size: 12px; margin-top: 20px;">
-                    <strong>Note:</strong> To reply to this request, simply reply to this email. Your response will be sent directly to ${email}.
-                </p>
+                <div style="padding: 20px; background: #fafafa;">
+                    <div style="background: white; border: 2px solid #800020; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <h3 style="color: #800020; margin-top: 0; border-bottom: 2px solid #FFD700; padding-bottom: 10px;">Contact Information</h3>
+                        <p style="font-size: 16px; margin: 10px 0;"><strong>👤 Name:</strong> ${name}</p>
+                        <p style="font-size: 16px; margin: 10px 0;"><strong>📧 Email:</strong> <a href="mailto:${email}" style="color: #800020; text-decoration: none; font-weight: bold;">${email}</a></p>
+                    </div>
+                    
+                    <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px;">
+                        <h3 style="color: #800020; margin-top: 0; border-bottom: 2px solid #FFD700; padding-bottom: 10px;">Message</h3>
+                        <p style="background: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap; line-height: 1.6; font-size: 14px;">${message}</p>
+                    </div>
+                    
+                    <div style="background: #fff3cd; border-left: 4px solid #FFD700; padding: 15px; margin-top: 20px; border-radius: 4px;">
+                        <p style="margin: 0; color: #856404; font-size: 13px;">
+                            <strong>💡 Tip:</strong> Click "Reply" to respond directly to <strong>${email}</strong>
+                        </p>
+                    </div>
+                </div>
+                <div style="background: #f5f5f5; padding: 15px; text-align: center; border-radius: 0 0 10px 10px; font-size: 12px; color: #666;">
+                    <p style="margin: 0;">This message was sent from the Cronos AI landing page</p>
+                </div>
             </div>
         `,
         text: `
-New Demo Request
+═══════════════════════════════════════════════════════
+  NEW DEMO REQUEST - CRONOS AI
+═══════════════════════════════════════════════════════
 
-From: ${name}
-Email: ${email}
+CONTACT INFORMATION:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 Name: ${name}
+📧 Email: ${email}
 
-Message:
+MESSAGE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${message}
 
----
-Note: To reply to this request, simply reply to this email. Your response will be sent directly to ${email}.
+═══════════════════════════════════════════════════════
+💡 Tip: Reply to this email to respond directly to ${email}
+═══════════════════════════════════════════════════════
+
+This message was sent from the Cronos AI landing page.
         `
     };
 
     try {
+        console.log('Sending email via SendGrid:', {
+            from: `${msg.from.name} <${msg.from.email}>`,
+            to: msg.to,
+            replyTo: `${msg.replyTo.name} <${msg.replyTo.email}>`,
+            subject: msg.subject
+        });
+        
         const response = await sgMail.send(msg);
-        console.log('Email sent via SendGrid successfully. Response:', JSON.stringify(response[0], null, 2));
+        console.log('✅ Email sent via SendGrid successfully. Message ID:', response[0]?.headers?.['x-message-id'] || 'N/A');
         return response;
     } catch (error) {
-        console.error('SendGrid error:', error);
-        console.error('SendGrid error details:', error.response?.body);
+        console.error('❌ SendGrid error:', error.message);
+        if (error.response) {
+            console.error('SendGrid error details:', JSON.stringify(error.response.body, null, 2));
+        }
         throw error;
     }
 }
