@@ -193,37 +193,61 @@ async function analyzeReservationWithGemini(userInput) {
     const dayAfterTomorrow = getDayAfterTomorrowDate();
     const hours = getRestaurantHours();
     
-    // Prompt optimizado para velocidad y extracción máxima de información
-    const prompt = `Analiza este texto de reserva de restaurante. Extrae TODO lo que puedas. Responde SOLO con JSON válido.
+    // Prompt optimizado para extracción máxima de información
+    const prompt = `## MISIÓN
+Eres un experto analizador de texto especializado en extraer información de reservas de restaurante.
+Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas de ella.
 
-Contexto: Hoy ${currentDateTime}, Mañana ${tomorrow}, Horario: ${hours.lunch[0]}-${hours.lunch[1]} / ${hours.dinner[0]}-${hours.dinner[1]}
+## CONTEXTO ACTUAL
+- Fecha y hora actual: ${currentDateTime}
+- Fecha de mañana: ${tomorrow}
+- Fecha de pasado mañana: ${dayAfterTomorrow}
+- Horario del restaurante:
+  - Comida: ${hours.lunch[0]} - ${hours.lunch[1]}
+  - Cena: ${hours.dinner[0]} - ${hours.dinner[1]}
 
-Texto: "${userInput}"
+## TEXTO A ANALIZAR
+"${userInput}"
 
-Reglas:
-- NO inventes. Si no está, devuelve null.
-- Credibilidad: 0% (no seguro), 50% (medio), 100% (seguro)
-- Formatos: comensales (número 1-20), fecha (YYYY-MM-DD), hora (HH:MM 24h), nombre (texto o null)
-- Valida hora contra horario. Si fuera, enhorario:false.
+## REGLAS CRÍTICAS
+1. NO INVENTES información. Si no está en el texto, devuelve null.
+2. Si NO estás seguro, usa porcentaje de credibilidad bajo (0% o 50%).
+3. Si estás muy seguro, usa 100%.
+4. Valida la hora contra el horario del restaurante. Si está fuera de horario, marca enhorario:false.
+5. Convierte todo a formato estándar:
+   - Comensales: número (1-20)
+   - Fecha: YYYY-MM-DD
+   - Hora: HH:MM (formato 24h)
+   - Intolerancias: "true" o "false"
+   - Movilidad: "true" o "false"
+   - Nombre: texto o null
 
-JSON SOLO (sin explicaciones):
+## FORMATO DE SALIDA (SOLO JSON, sin explicaciones)
 {
-  "intencion": "reservation|modify|cancel|clarify",
-  "comensales": null|"número",
-  "comensales_porcentaje_credivilidad": "0%|50%|100%",
-  "fecha": null|"YYYY-MM-DD",
-  "fecha_porcentaje_credivilidad": "0%|50%|100%",
-  "hora": null|"HH:MM",
-  "enhorario": "true|false",
-  "hora_porcentaje_credivilidad": "0%|50%|100%",
-  "intolerancias": "true|false",
-  "intolerancias_porcentaje_credivilidad": "0%|50%|100%",
-  "movilidad": "true|false",
-  "movilidad_porcentaje_credivilidad": "0%|50%|100%",
-  "nombre": null|"texto",
-  "nombre_porcentaje_credivilidad": "0%|50%|100%",
-  "idioma_detectado": "es|en|de|fr|it|pt"
-}`;
+  "intencion": "reservation" | "modify" | "cancel" | "clarify",
+  "comensales": null o "número",
+  "comensales_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "fecha": null o "YYYY-MM-DD",
+  "fecha_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "hora": null o "HH:MM",
+  "enhorario": "true" | "false",
+  "hora_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "intolerancias": "true" | "false",
+  "intolerancias_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "movilidad": "true" | "false",
+  "movilidad_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "nombre": null o "texto",
+  "nombre_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "idioma_detectado": "es" | "en" | "de" | "fr" | "it" | "pt"
+}
+
+NOTA SOBRE INTENCIÓN:
+- "reservation": El usuario quiere hacer una nueva reserva
+- "modify": El usuario quiere modificar una reserva existente
+- "cancel": El usuario quiere cancelar una reserva existente
+- "clarify": El texto es ambiguo o no indica una intención clara
+
+IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
 
     console.log('🤖 [GEMINI] Analizando con Gemini 2.5 Flash...');
     console.log('📝 [GEMINI] Input:', userInput);
@@ -266,11 +290,16 @@ async function detectIntentionWithGemini(text) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
-    const prompt = `Intención del texto: "reservation|modify|cancel|clarify"
+    const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
+Responde SOLO con una de estas opciones:
+- "reservation": Quiere hacer una nueva reserva (reservar mesa, hacer reserva, etc.)
+- "modify": Quiere modificar una reserva existente (cambiar fecha, hora, personas, etc.)
+- "cancel": Quiere cancelar una reserva existente (cancelar, anular, etc.)
+- "clarify": El texto es ambiguo o no indica una intención clara
 
 Texto: "${text}"
 
-Responde SOLO con una palabra: reservation, modify, cancel o clarify.`;
+Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explicaciones.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -301,11 +330,17 @@ async function detectLanguageWithGemini(text) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
-    const prompt = `Idioma del texto: es|en|de|fr|it|pt
+    const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
+- "es" para español
+- "en" para inglés
+- "de" para alemán
+- "fr" para francés
+- "it" para italiano
+- "pt" para portugués
 
 Texto: "${text}"
 
-Responde SOLO con código de 2 letras.`;
+Responde SOLO con el código de 2 letras, sin explicaciones.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
