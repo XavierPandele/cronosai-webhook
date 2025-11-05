@@ -566,38 +566,26 @@ async function processConversationStep(state, userInput) {
                 gather: true
               };
             } else {
-              // Falta información, preguntar por el primer campo faltante
+              // Falta información, confirmar lo que tenemos y preguntar por lo que falta
               const nextField = missing[0];
+              
+              // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
+              const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
               
               if (nextField === 'people') {
                 state.step = 'ask_people';
-                const peopleMessages = getMultilingualMessages('people', state.language);
-                return {
-                  message: getRandomMessage(peopleMessages),
-                  gather: true
-                };
               } else if (nextField === 'date') {
                 state.step = 'ask_date';
-                const dateMessages = getMultilingualMessages('date', state.language);
-                return {
-                  message: getRandomMessage(dateMessages),
-                  gather: true
-                };
               } else if (nextField === 'time') {
                 state.step = 'ask_time';
-                const timeMessages = getMultilingualMessages('time', state.language);
-                return {
-                  message: getRandomMessage(timeMessages),
-                  gather: true
-                };
               } else if (nextField === 'name') {
                 state.step = 'ask_name';
-                const nameMessages = getMultilingualMessages('name', state.language);
-                return {
-                  message: getRandomMessage(nameMessages),
-                  gather: true
-                };
               }
+              
+              return {
+                message: partialMessage,
+                gather: true
+              };
             }
           }
           
@@ -661,13 +649,15 @@ async function processConversationStep(state, userInput) {
              };
            }
            
-           // Si falta información, preguntar por el primer campo faltante
+           // Si falta información, confirmar lo que tenemos y preguntar por lo que falta
            const nextField = missingFields[0];
            state.step = `ask_${nextField}`;
            
-           const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+           // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
+           const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+           
            return {
-             message: getRandomMessage(fieldMessages),
+             message: partialMessage,
              gather: true
            };
          } else {
@@ -823,16 +813,22 @@ async function processConversationStep(state, userInput) {
          
          if (nextField === 'name') {
            state.step = 'ask_name';
+           // Confirmar hora capturada y preguntar por nombre
+           const timeFormatted = formatTimeForSpeech(time, state.language);
+           const partialMessage = getPartialConfirmationMessage(state.data, 'name', state.language);
+           return {
+             message: partialMessage,
+             gather: true
+           };
          } else {
            // Tiene todo, ir a confirmación
            state.step = 'confirm';
+           const confirmMessage = getConfirmationMessage(state.data, state.language);
+           return {
+             message: confirmMessage,
+             gather: true
+           };
          }
-         
-         const timeMessages = getMultilingualMessages('time', state.language, { time });
-         return {
-           message: getRandomMessage(timeMessages),
-           gather: true
-         };
        } else {
          const errorResponse = handleUnclearResponse(text, 'time', state.language);
          return {
@@ -7064,6 +7060,199 @@ function getConfirmationMessage(data, language = 'es') {
   };
   
   return confirmations[language] || confirmations['es'];
+}
+
+/**
+ * Genera un mensaje de confirmación parcial que muestra lo que se capturó y pregunta por lo que falta
+ * Ejemplo: "Perfecto, mesa para 4 el día 7 de noviembre. ¿A qué hora desean la reserva?"
+ */
+function getPartialConfirmationMessage(data, missingField, language = 'es') {
+  const parts = [];
+  
+  // Formatear según el idioma
+  const formatFunctions = {
+    es: {
+      date: (dateStr) => formatDateSpanish(dateStr),
+      time: (timeStr) => formatTimeForSpeech(timeStr, 'es'),
+      people: (num) => `mesa para ${num} ${num === 1 ? 'persona' : 'personas'}`,
+      name: (name) => `a nombre de ${name}`
+    },
+    en: {
+      date: (dateStr) => formatDateEnglish(dateStr),
+      time: (timeStr) => formatTimeForSpeech(timeStr, 'en'),
+      people: (num) => `table for ${num} ${num === 1 ? 'person' : 'people'}`,
+      name: (name) => `under the name of ${name}`
+    },
+    de: {
+      date: (dateStr) => formatDateGerman(dateStr),
+      time: (timeStr) => formatTimeForSpeech(timeStr, 'de'),
+      people: (num) => `Tisch für ${num} ${num === 1 ? 'Person' : 'Personen'}`,
+      name: (name) => `unter dem Namen ${name}`
+    },
+    it: {
+      date: (dateStr) => formatDateItalian(dateStr),
+      time: (timeStr) => formatTimeForSpeech(timeStr, 'it'),
+      people: (num) => `tavolo per ${num} ${num === 1 ? 'persona' : 'persone'}`,
+      name: (name) => `a nome di ${name}`
+    },
+    fr: {
+      date: (dateStr) => formatDateFrench(dateStr),
+      time: (timeStr) => formatTimeForSpeech(timeStr, 'fr'),
+      people: (num) => `table pour ${num} ${num === 1 ? 'personne' : 'personnes'}`,
+      name: (name) => `au nom de ${name}`
+    },
+    pt: {
+      date: (dateStr) => formatDatePortuguese(dateStr),
+      time: (timeStr) => formatTimeForSpeech(timeStr, 'pt'),
+      people: (num) => `mesa para ${num} ${num === 1 ? 'pessoa' : 'pessoas'}`,
+      name: (name) => `em nome de ${name}`
+    }
+  };
+  
+  const formatter = formatFunctions[language] || formatFunctions['es'];
+  
+  // Construir la parte de confirmación con lo que tenemos
+  if (data.NumeroReserva) {
+    parts.push(formatter.people(data.NumeroReserva));
+  }
+  if (data.FechaReserva) {
+    const dateStr = formatter.date(data.FechaReserva);
+    const datePrefix = {
+      es: 'el día',
+      en: 'on',
+      de: 'am',
+      it: 'il',
+      fr: 'le',
+      pt: 'no dia'
+    };
+    parts.push(`${datePrefix[language] || datePrefix['es']} ${dateStr}`);
+  }
+  if (data.HoraReserva) {
+    const timeStr = formatter.time(data.HoraReserva);
+    const timePrefix = {
+      es: 'a las',
+      en: 'at',
+      de: 'um',
+      it: 'alle',
+      fr: 'à',
+      pt: 'às'
+    };
+    parts.push(`${timePrefix[language] || timePrefix['es']} ${timeStr}`);
+  }
+  if (data.NomReserva) {
+    parts.push(formatter.name(data.NomReserva));
+  }
+  
+  // Mensajes según el idioma
+  const messages = {
+    es: {
+      prefix: parts.length > 0 ? `Perfecto, ${parts.join(', ')}.` : 'Perfecto.',
+      time: '¿A qué hora desean la reserva?',
+      date: '¿Para qué día desean la reserva?',
+      people: '¿Para cuántas personas desean la reserva?',
+      name: '¿A nombre de quién será la reserva?'
+    },
+    en: {
+      prefix: parts.length > 0 ? `Perfect, ${parts.join(', ')}.` : 'Perfect.',
+      time: 'What time would you like the reservation?',
+      date: 'What day would you like the reservation?',
+      people: 'How many people will the reservation be for?',
+      name: 'Under whose name will the reservation be?'
+    },
+    de: {
+      prefix: parts.length > 0 ? `Perfekt, ${parts.join(', ')}.` : 'Perfekt.',
+      time: 'Zu welcher Uhrzeit möchten Sie die Reservierung?',
+      date: 'Für welchen Tag möchten Sie die Reservierung?',
+      people: 'Für wie viele Personen ist die Reservierung?',
+      name: 'Unter welchem Namen soll die Reservierung sein?'
+    },
+    it: {
+      prefix: parts.length > 0 ? `Perfetto, ${parts.join(', ')}.` : 'Perfetto.',
+      time: 'A che ora desiderate la prenotazione?',
+      date: 'Per quale giorno desiderate la prenotazione?',
+      people: 'Per quante persone è la prenotazione?',
+      name: 'A nome di chi sarà la prenotazione?'
+    },
+    fr: {
+      prefix: parts.length > 0 ? `Parfait, ${parts.join(', ')}.` : 'Parfait.',
+      time: 'À quelle heure souhaitez-vous la réservation?',
+      date: 'Pour quel jour souhaitez-vous la réservation?',
+      people: 'Pour combien de personnes est la réservation?',
+      name: 'Au nom de qui sera la réservation?'
+    },
+    pt: {
+      prefix: parts.length > 0 ? `Perfeito, ${parts.join(', ')}.` : 'Perfeito.',
+      time: 'A que horas desejam a reserva?',
+      date: 'Para que dia desejam a reserva?',
+      people: 'Para quantas pessoas é a reserva?',
+      name: 'Em nome de quem será a reserva?'
+    }
+  };
+  
+  const msg = messages[language] || messages['es'];
+  const questionMap = {
+    'time': msg.time,
+    'date': msg.date,
+    'people': msg.people,
+    'name': msg.name
+  };
+  
+  return `${msg.prefix} ${questionMap[missingField] || ''}`;
+}
+
+/**
+ * Formatea la hora en formato amigable para el habla
+ * Ejemplo: "20:00" -> "8 de la noche" o "las 8 de la noche"
+ */
+function formatTimeForSpeech(timeStr, language = 'es') {
+  if (!timeStr) return '';
+  
+  // Parsear hora (formato HH:MM)
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const hour24 = hours;
+  
+  const formats = {
+    es: () => {
+      if (hour24 >= 13 && hour24 < 20) {
+        // Tarde: 13:00 - 19:59
+        return `las ${hour24 === 13 ? '1' : hour24 - 12}${minutes > 0 ? ` y ${minutes}` : ''} de la tarde`;
+      } else if (hour24 >= 20 || hour24 < 6) {
+        // Noche: 20:00 - 05:59
+        const nightHour = hour24 >= 20 ? hour24 - 12 : hour24 === 0 ? 12 : hour24;
+        return `las ${nightHour}${minutes > 0 ? ` y ${minutes}` : ''} de la noche`;
+      } else {
+        // Mañana: 06:00 - 12:59
+        return `las ${hour24}${minutes > 0 ? ` y ${minutes}` : ''} de la mañana`;
+      }
+    },
+    en: () => {
+      const period = hour24 >= 12 ? 'PM' : 'AM';
+      const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+      return `${hour12}${minutes > 0 ? `:${minutes.toString().padStart(2, '0')}` : ''} ${period}`;
+    },
+    de: () => {
+      return `${hour24}${minutes > 0 ? `:${minutes.toString().padStart(2, '0')}` : ''} Uhr`;
+    },
+    it: () => {
+      return `le ${hour24}${minutes > 0 ? ` e ${minutes}` : ''}`;
+    },
+    fr: () => {
+      return `${hour24}h${minutes > 0 ? minutes.toString().padStart(2, '0') : ''}`;
+    },
+    pt: () => {
+      if (hour24 >= 13 && hour24 < 20) {
+        return `às ${hour24 === 13 ? '1' : hour24 - 12}${minutes > 0 ? ` e ${minutes}` : ''} da tarde`;
+      } else if (hour24 >= 20 || hour24 < 6) {
+        const nightHour = hour24 >= 20 ? hour24 - 12 : hour24 === 0 ? 12 : hour24;
+        return `às ${nightHour}${minutes > 0 ? ` e ${minutes}` : ''} da noite`;
+      } else {
+        return `às ${hour24}${minutes > 0 ? ` e ${minutes}` : ''} da manhã`;
+      }
+    }
+  };
+  
+  const formatter = formats[language] || formats['es'];
+  return formatter();
 }
 
 function formatPhoneForSpeech(phone, language = 'es') {
