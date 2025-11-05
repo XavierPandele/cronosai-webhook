@@ -58,57 +58,51 @@ module.exports = async function handler(req, res) {
 }
 
 async function sendEmail(name, email, message) {
-    // Usar nodemailer si está configurado, o usar un servicio de email
-    // Para producción, se recomienda usar SendGrid, Mailgun, o configurar SMTP
-    
-    const nodemailer = require('nodemailer');
-    
-    // Configuración del transporter
-    // Nota: En producción, configura estas variables en Vercel Environment Variables
-    const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: false, // true para 465, false para otros puertos
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS
-        }
-    });
-
-    // Si no hay configuración SMTP, usar un servicio alternativo
-    if (!process.env.SMTP_USER) {
-        // Opción 1: Usar SendGrid (recomendado para producción)
-        if (process.env.SENDGRID_API_KEY) {
-            return sendEmailWithSendGrid(name, email, message);
-        }
-        
-        // Opción 2: Usar Mailgun
-        if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
-            return sendEmailWithMailgun(name, email, message);
-        }
-        
-        // Si no hay configuración, lanzar error informativo
-        throw new Error('Email service not configured. Please set up SMTP or email service credentials.');
+    // Priorizar SendGrid si está configurado
+    if (process.env.SENDGRID_API_KEY) {
+        console.log('Using SendGrid for email delivery');
+        return sendEmailWithSendGrid(name, email, message);
     }
-
-    // Preparar el contenido del email
-    const mailOptions = {
-        from: process.env.SMTP_USER,
-        to: 'contact@usecronos.com',
-        subject: `Demo Request from ${name}`,
-        html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #800020;">New Demo Request</h2>
-                <p><strong>From:</strong> ${name}</p>
-                <p><strong>Email:</strong> ${email}</p>
-                <hr style="border: 1px solid #ddd; margin: 20px 0;">
-                <h3 style="color: #800020;">Message:</h3>
-                <p style="background: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap;">${message}</p>
-                <hr style="border: 1px solid #ddd; margin: 20px 0;">
-                <p style="color: #666; font-size: 12px;">This message was sent from the Cronos AI landing page.</p>
-            </div>
-        `,
-        text: `
+    
+    // Si no hay SendGrid, intentar Mailgun
+    if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
+        console.log('Using Mailgun for email delivery');
+        return sendEmailWithMailgun(name, email, message);
+    }
+    
+    // Si no hay servicios de email configurados, intentar SMTP
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        console.log('Using SMTP for email delivery');
+        const nodemailer = require('nodemailer');
+        
+        const transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST || 'smtp.gmail.com',
+            port: parseInt(process.env.SMTP_PORT || '587'),
+            secure: false, // true para 465, false para otros puertos
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS
+            }
+        });
+        
+        // Preparar el contenido del email
+        const mailOptions = {
+            from: process.env.SMTP_USER,
+            to: 'contact@usecronos.com',
+            subject: `Demo Request from ${name}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #800020;">New Demo Request</h2>
+                    <p><strong>From:</strong> ${name}</p>
+                    <p><strong>Email:</strong> ${email}</p>
+                    <hr style="border: 1px solid #ddd; margin: 20px 0;">
+                    <h3 style="color: #800020;">Message:</h3>
+                    <p style="background: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap;">${message}</p>
+                    <hr style="border: 1px solid #ddd; margin: 20px 0;">
+                    <p style="color: #666; font-size: 12px;">This message was sent from the Cronos AI landing page.</p>
+                </div>
+            `,
+            text: `
 New Demo Request
 
 From: ${name}
@@ -116,12 +110,16 @@ Email: ${email}
 
 Message:
 ${message}
-        `
-    };
+            `
+        };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
-    return info;
+        const info = await transporter.sendMail(mailOptions);
+        console.log('Email sent via SMTP:', info.messageId);
+        return info;
+    }
+    
+    // Si no hay ninguna configuración, lanzar error
+    throw new Error('Email service not configured. Please set up SENDGRID_API_KEY, MAILGUN credentials, or SMTP credentials.');
 }
 
 // Función alternativa usando SendGrid
@@ -154,8 +152,15 @@ ${message}
         `
     };
 
-    await sgMail.send(msg);
-    console.log('Email sent via SendGrid');
+    try {
+        const response = await sgMail.send(msg);
+        console.log('Email sent via SendGrid successfully. Response:', JSON.stringify(response[0], null, 2));
+        return response;
+    } catch (error) {
+        console.error('SendGrid error:', error);
+        console.error('SendGrid error details:', error.response?.body);
+        throw error;
+    }
 }
 
 // Función alternativa usando Mailgun
