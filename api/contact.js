@@ -127,9 +127,19 @@ async function sendEmailWithSendGrid(name, email, message) {
     const sgMail = require('@sendgrid/mail');
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'contact@usecronos.com';
+    const toEmail = 'contact@usecronos.com';
+    
+    console.log('SendGrid configuration:', {
+        from: fromEmail,
+        to: toEmail,
+        subject: `Demo Request from ${name}`,
+        hasApiKey: !!process.env.SENDGRID_API_KEY
+    });
+
     const msg = {
-        to: 'contact@usecronos.com',
-        from: process.env.SENDGRID_FROM_EMAIL || 'contact@usecronos.com',
+        to: toEmail,
+        from: fromEmail,
         subject: `Demo Request from ${name}`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
