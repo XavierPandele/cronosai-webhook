@@ -131,7 +131,7 @@ async function sendEmailWithSendGrid(name, email, message) {
 
     const msg = {
         to: 'contact@usecronos.com',
-        from: process.env.SENDGRID_FROM_EMAIL || 'noreply@usecronos.com',
+        from: process.env.SENDGRID_FROM_EMAIL || 'contact@usecronos.com',
         subject: `Demo Request from ${name}`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
