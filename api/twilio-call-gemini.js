@@ -1,6 +1,10 @@
 const { executeQuery, createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva, generarConversacionCompleta } = require('../lib/utils');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getRestaurantConfig, getRestaurantHours } = require('../config/restaurant-config');
+const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservation } = require('../lib/capacity');
+const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
+const logger = require('../lib/logging');
 
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
@@ -20,18 +24,7 @@ function getGeminiClient() {
 }
 
 // ===== FUNCIÓN: Obtener horario del restaurante =====
-function getRestaurantHours() {
-  // Puedes configurar esto en variables de entorno
-  const lunchStart = process.env.RESTAURANT_LUNCH_START || '13:00';
-  const lunchEnd = process.env.RESTAURANT_LUNCH_END || '15:00';
-  const dinnerStart = process.env.RESTAURANT_DINNER_START || '19:00';
-  const dinnerEnd = process.env.RESTAURANT_DINNER_END || '23:00';
-  
-  return {
-    lunch: [lunchStart, lunchEnd],
-    dinner: [dinnerStart, dinnerEnd]
-  };
-}
+// Ahora se usa getRestaurantHours() desde config/restaurant-config.js
 
 // ===== FUNCIONES AUXILIARES PARA FECHAS =====
 function getTomorrowDate() {
@@ -194,7 +187,46 @@ module.exports = async function handler(req, res) {
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
-      await saveReservation(state);
+      const saved = await saveReservation(state);
+      
+      // Si no se pudo guardar por falta de disponibilidad, manejar el error
+      if (!saved && state.availabilityError) {
+        logger.warn('Reserva no guardada por falta de disponibilidad', { error: state.availabilityError });
+        
+        // Obtener alternativas si no las tenemos
+        if (!state.availabilityError.alternativas || state.availabilityError.alternativas.length === 0) {
+          const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+          const alternativas = await getAlternativeTimeSlots(dataCombinada, state.data.NumeroReserva, 3);
+          state.availabilityError.alternativas = alternativas.map(alt => alt.fechaHora);
+        }
+        
+        // Generar mensaje de no disponibilidad con alternativas
+        const noAvailabilityMessages = getMultilingualMessages('no_availability', state.language);
+        let message = getRandomMessage(noAvailabilityMessages);
+        
+        // Si hay alternativas, sugerir la primera
+        if (state.availabilityError.alternativas && state.availabilityError.alternativas.length > 0) {
+          const altFechaHora = state.availabilityError.alternativas[0];
+          const altFecha = new Date(altFechaHora);
+          const altHora = `${String(altFecha.getHours()).padStart(2, '0')}:${String(altFecha.getMinutes()).padStart(2, '0')}`;
+          
+          const suggestMessages = getMultilingualMessages('suggest_alternative', state.language);
+          const suggestMessage = getRandomMessage(suggestMessages).replace('{time}', altHora);
+          message += ` ${suggestMessage}`;
+          
+          // Guardar alternativa sugerida en el estado
+          state.suggestedAlternative = altFechaHora;
+        }
+        
+        // Volver al paso de confirmación para que el usuario pueda aceptar alternativa
+        state.step = 'confirm';
+        state.data.originalFechaHora = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+        
+        const twiml = generateTwiML({ message, gather: true }, state.language);
+        res.setHeader('Content-Type', 'text/xml');
+        return res.status(200).send(twiml);
+      }
+      
       // Limpiar el estado después de guardar
       setTimeout(() => conversationStates.delete(CallSid), 60000); // Limpiar después de 1 minuto
     }
@@ -246,7 +278,7 @@ async function analyzeReservationWithGemini(userInput) {
     const currentDateTime = now.toISOString().replace('T', ' ').substring(0, 19);
     const tomorrow = getTomorrowDate();
     const dayAfterTomorrow = getDayAfterTomorrowDate();
-    const hours = getRestaurantHours();
+    const hours = await getRestaurantHours();
     
     // Prompt optimizado para extracción máxima de información
     const prompt = `## MISIÓN
@@ -1039,6 +1071,47 @@ async function processConversationStep(state, userInput) {
        const confirmationResult = handleConfirmationResponse(text);
        
        if (confirmationResult.action === 'confirm') {
+         // Verificar disponibilidad antes de confirmar
+         const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+         const disponibilidad = await validarDisponibilidad(dataCombinada, state.data.NumeroReserva);
+         
+         if (!disponibilidad.disponible) {
+           logger.capacity('No hay disponibilidad al confirmar', {
+             fechaHora: dataCombinada,
+             numPersonas: state.data.NumeroReserva
+           });
+           
+           // Obtener alternativas
+           const alternativas = await getAlternativeTimeSlots(dataCombinada, state.data.NumeroReserva, 3);
+           
+           // Generar mensaje de no disponibilidad
+           const noAvailabilityMessages = getMultilingualMessages('no_availability', state.language);
+           let message = getRandomMessage(noAvailabilityMessages);
+           
+           // Si hay alternativas, sugerir la primera
+           if (alternativas && alternativas.length > 0) {
+             const altFechaHora = alternativas[0].fechaHora;
+             const altFecha = new Date(altFechaHora);
+             const altHora = `${String(altFecha.getHours()).padStart(2, '0')}:${String(altFecha.getMinutes()).padStart(2, '0')}`;
+             
+             const suggestMessages = getMultilingualMessages('suggest_alternative', state.language);
+             const suggestMessage = getRandomMessage(suggestMessages).replace('{time}', altHora);
+             message += ` ${suggestMessage}`;
+             
+             // Guardar alternativa sugerida
+             state.suggestedAlternative = altFechaHora;
+             state.availabilityError = {
+               alternativas: alternativas.map(alt => alt.fechaHora)
+             };
+           }
+           
+           return {
+             message,
+             gather: true
+           };
+         }
+         
+         // Si hay disponibilidad, proceder con la confirmación
          state.step = 'complete';
          const confirmMessages = getMultilingualMessages('confirm', state.language);
          return {
@@ -2104,22 +2177,52 @@ function generateTwiML(response, language = 'es', processingMessage = null) {
 
 async function saveReservation(state) {
   try {
-    console.log('💾 Guardando reserva en base de datos...');
+    logger.reservation('Guardando reserva en base de datos...', { data: state.data });
     
     const data = state.data;
     
-    // Validar datos
+    // Validar datos básicos
     const validacion = validarReserva(data);
     if (!validacion.valido) {
-      console.error('❌ Validación fallida:', validacion.errores);
+      logger.error('Validación básica fallida', { errores: validacion.errores });
       return false;
     }
 
-    // Preparar conversación completa en formato Markdown
-    const conversacionCompleta = generateMarkdownConversation(state);
+    // Validar datos completos (incluye horarios, antelación, etc.)
+    const validacionCompleta = await validarReservaCompleta(data);
+    if (!validacionCompleta.valido) {
+      logger.error('Validación completa fallida', { errores: validacionCompleta.errores });
+      return false;
+    }
 
     // Combinar fecha y hora
     const dataCombinada = combinarFechaHora(data.FechaReserva, data.HoraReserva);
+
+    // Validar disponibilidad ANTES de guardar
+    const disponibilidad = await validarDisponibilidad(dataCombinada, data.NumeroReserva);
+    if (!disponibilidad.disponible) {
+      logger.capacity('No hay disponibilidad para la reserva', {
+        fechaHora: dataCombinada,
+        numPersonas: data.NumeroReserva,
+        detalles: disponibilidad.detalles
+      });
+      // Guardar información de disponibilidad en el estado para mostrar mensaje
+      state.availabilityError = {
+        mensaje: disponibilidad.mensaje,
+        alternativas: disponibilidad.alternativas || []
+      };
+      return false;
+    }
+
+    logger.capacity('Disponibilidad confirmada', {
+      fechaHora: dataCombinada,
+      numPersonas: data.NumeroReserva,
+      personasOcupadas: disponibilidad.detalles.personasOcupadas,
+      capacidad: disponibilidad.detalles.capacidad
+    });
+
+    // Preparar conversación completa en formato Markdown
+    const conversacionCompleta = generateMarkdownConversation(state);
 
     // Conectar a base de datos
     const connection = await createConnection();
@@ -2141,7 +2244,7 @@ async function saveReservation(state) {
         data.TelefonReserva
       ]);
 
-      console.log('✅ Cliente insertado/actualizado');
+      logger.reservation('Cliente insertado/actualizado');
 
       // 2. Insertar reserva
       const reservaQuery = `
@@ -2160,7 +2263,7 @@ async function saveReservation(state) {
       ]);
 
       const idReserva = result.insertId;
-      console.log('✅ Reserva guardada con ID:', idReserva);
+      logger.reservation('Reserva guardada exitosamente', { idReserva, dataCombinada, numPersonas: data.NumeroReserva });
 
       await connection.commit();
       return true;
@@ -2173,7 +2276,7 @@ async function saveReservation(state) {
     }
 
   } catch (error) {
-    console.error('❌ Error guardando reserva:', error);
+    logger.error('Error guardando reserva', { error: error.message, stack: error.stack });
     return false;
   }
 }
@@ -4778,6 +4881,94 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Desculpe, não entendi. Por favor, diga "opção 1", "opção 2", etc.',
         'Não entendi. Por favor, repita o número da opção que quer modificar.',
         'Desculpe, não entendi. Por favor, diga claramente o número da opção.'
+      ]
+    },
+    no_availability: {
+      es: [
+        'Disculpe, no hay disponibilidad para esa fecha y hora. ¿Le gustaría que le sugiera otros horarios disponibles?',
+        'Lo siento, estamos completos en ese horario. ¿Puedo ofrecerle otras opciones?',
+        'No tenemos disponibilidad en ese momento. ¿Quiere que le proponga horarios alternativos?',
+        'Ese horario está completo. ¿Le parece bien otro horario?',
+        'No hay mesas disponibles en ese momento. ¿Puedo sugerirle otras horas?'
+      ],
+      en: [
+        'Sorry, there is no availability for that date and time. Would you like me to suggest other available times?',
+        'I\'m sorry, we are full at that time. Can I offer you other options?',
+        'We don\'t have availability at that time. Would you like me to propose alternative times?',
+        'That time slot is full. Would another time work for you?',
+        'No tables available at that time. Can I suggest other times?'
+      ],
+      de: [
+        'Entschuldigung, es gibt keine Verfügbarkeit für dieses Datum und diese Uhrzeit. Möchten Sie, dass ich andere verfügbare Zeiten vorschlage?',
+        'Es tut mir leid, wir sind zu dieser Zeit voll. Kann ich Ihnen andere Optionen anbieten?',
+        'Wir haben zu dieser Zeit keine Verfügbarkeit. Möchten Sie, dass ich alternative Zeiten vorschlage?',
+        'Dieser Zeitraum ist voll. Würde eine andere Zeit für Sie funktionieren?',
+        'Keine Tische zu dieser Zeit verfügbar. Kann ich andere Zeiten vorschlagen?'
+      ],
+      it: [
+        'Scusi, non c\'è disponibilità per quella data e ora. Vuole che le suggerisca altri orari disponibili?',
+        'Mi dispiace, siamo pieni a quell\'ora. Posso offrirle altre opzioni?',
+        'Non abbiamo disponibilità a quell\'ora. Vuole che le proponga orari alternativi?',
+        'Quell\'orario è completo. Le va bene un altro orario?',
+        'Nessun tavolo disponibile a quell\'ora. Posso suggerirle altri orari?'
+      ],
+      fr: [
+        'Désolé, il n\'y a pas de disponibilité pour cette date et cette heure. Souhaitez-vous que je vous suggère d\'autres heures disponibles?',
+        'Je suis désolé, nous sommes complets à cette heure. Puis-je vous proposer d\'autres options?',
+        'Nous n\'avons pas de disponibilité à cette heure. Souhaitez-vous que je vous propose des heures alternatives?',
+        'Ce créneau horaire est complet. Une autre heure vous conviendrait-elle?',
+        'Aucune table disponible à cette heure. Puis-je vous suggérer d\'autres heures?'
+      ],
+      pt: [
+        'Desculpe, não há disponibilidade para essa data e hora. Gostaria que eu sugerisse outros horários disponíveis?',
+        'Sinto muito, estamos lotados nesse horário. Posso oferecer outras opções?',
+        'Não temos disponibilidade nesse horário. Quer que eu proponha horários alternativos?',
+        'Esse horário está completo. Outro horário estaria bem?',
+        'Nenhuma mesa disponível nesse horário. Posso sugerir outros horários?'
+      ]
+    },
+    suggest_alternative: {
+      es: [
+        '¿Le parece bien a las {time}?',
+        '¿Qué tal a las {time}?',
+        'Tenemos disponibilidad a las {time}. ¿Le conviene?',
+        'Podemos ofrecerle las {time}. ¿Le va bien?',
+        '¿Le funciona a las {time}?'
+      ],
+      en: [
+        'Would {time} work for you?',
+        'How about {time}?',
+        'We have availability at {time}. Does that work for you?',
+        'We can offer you {time}. Is that okay?',
+        'Does {time} work for you?'
+      ],
+      de: [
+        'Würde {time} für Sie funktionieren?',
+        'Wie wäre es mit {time}?',
+        'Wir haben Verfügbarkeit um {time}. Funktioniert das für Sie?',
+        'Wir können Ihnen {time} anbieten. Ist das in Ordnung?',
+        'Funktioniert {time} für Sie?'
+      ],
+      it: [
+        'Le va bene alle {time}?',
+        'Che ne dice delle {time}?',
+        'Abbiamo disponibilità alle {time}. Le va bene?',
+        'Possiamo offrirle le {time}. Le sta bene?',
+        'Le funziona alle {time}?'
+      ],
+      fr: [
+        'Est-ce que {time} vous conviendrait?',
+        'Que diriez-vous de {time}?',
+        'Nous avons de la disponibilité à {time}. Est-ce que cela vous convient?',
+        'Nous pouvons vous proposer {time}. Est-ce que cela vous va?',
+        'Est-ce que {time} vous convient?'
+      ],
+      pt: [
+        'As {time} estariam bem?',
+        'Que tal às {time}?',
+        'Temos disponibilidade às {time}. Está bem?',
+        'Podemos oferecer às {time}. Está bom?',
+        'As {time} funcionam para você?'
       ]
     }
   };
