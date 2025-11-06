@@ -114,6 +114,13 @@ module.exports = async function handler(req, res) {
     // y ahora necesitamos procesar con Gemini
     const needsProcessing = req.query?.process === 'true';
     
+    // Si hay pendingInput de un redirect anterior, usarlo
+    if (needsProcessing && state.pendingInput) {
+      userInput = state.pendingInput;
+      delete state.pendingInput; // Limpiar después de usar
+      console.log(`📝 [DEBUG] Usando pendingInput: "${userInput}"`);
+    }
+    
     if (!needsProcessing && userInput) {
       // Verificar si necesitamos procesar con Gemini ANTES de guardar el input
       const stepsThatNeedGemini = ['greeting', 'ask_intention', 'ask_people', 'ask_date', 'ask_time', 'ask_name'];
@@ -632,6 +639,18 @@ async function processConversationStep(state, userInput) {
     }
   }
 
+  // NO resetear el estado si estamos en un paso de reserva y el input es muy corto
+  // Esto previene que el sistema vuelva a greeting cuando no debería
+  if (step !== 'greeting' && step !== 'ask_intention' && (!userInput || userInput.trim().length < 2)) {
+    console.log(`⚠️ [WARNING] Input muy corto en paso ${step}, manteniendo paso actual`);
+    // Mantener el paso actual y pedir clarificación
+    const unclearMessages = getMultilingualMessages('unclear', state.language);
+    return {
+      message: getRandomMessage(unclearMessages || ['No capté bien. ¿Podría repetirlo?']),
+      gather: true
+    };
+  }
+  
   // El idioma se detecta ahora dentro de analyzeReservationWithGemini para evitar llamadas redundantes
   // Solo actualizar si no se detectó en el análisis
   if (userInput && userInput.trim() && step === 'greeting') {
@@ -904,6 +923,15 @@ async function processConversationStep(state, userInput) {
        return await handleCancelNoReservations(state, userInput);
 
      case 'ask_people':
+       // Validar que el input no sea muy corto o ambiguo
+       if (!userInput || userInput.trim().length < 2) {
+         const unclearMessages = getMultilingualMessages('people_unclear', state.language);
+         return {
+           message: getRandomMessage(unclearMessages || ['No capté bien. ¿Cuántas personas van a venir?']),
+           gather: true
+         };
+       }
+       
        // Usar Gemini para extraer información de la respuesta del usuario
        const peopleAnalysis = await analyzeReservationWithGemini(userInput);
        if (peopleAnalysis) {
@@ -6622,6 +6650,80 @@ function detectCancellationConfirmation(text) {
   }
 }
 function isCancellationRequest(text) {
+  if (!text || text.trim().length < 3) {
+    return false; // Inputs muy cortos no son cancelaciones
+  }
+  
+  // Excluir frases que contienen "no puedo" pero no son cancelaciones
+  const falsePositivePatterns = [
+    /no puedo definir/i,
+    /no puedo decir/i,
+    /no puedo especificar/i,
+    /no puedo indicar/i,
+    /no puedo determinar/i,
+    /no puedo precisar/i,
+    /no puedo confirmar/i,
+    /no puedo recordar/i,
+    /no puedo pensar/i,
+    /no puedo decidir/i,
+    /no puedo elegir/i,
+    /no puedo seleccionar/i,
+    /no puedo encontrar/i,
+    /no puedo localizar/i,
+    /no puedo ver/i,
+    /no puedo escuchar/i,
+    /no puedo oír/i,
+    /no puedo entender/i,
+    /no puedo comprender/i,
+    /no puedo procesar/i,
+    /no puedo calcular/i,
+    /no puedo resolver/i,
+    /no puedo solucionar/i,
+    /no puedo hacer/i,
+    /no puedo realizar/i,
+    /no puedo ejecutar/i,
+    /no puedo completar/i,
+    /no puedo terminar/i,
+    /no puedo finalizar/i,
+    /no puedo acabar/i,
+    /no puedo concluir/i,
+    /no puedo cerrar/i,
+    /no puedo abrir/i,
+    /no puedo iniciar/i,
+    /no puedo comenzar/i,
+    /no puedo empezar/i,
+    /no puedo continuar/i,
+    /no puedo seguir/i,
+    /no puedo avanzar/i,
+    /no puedo proseguir/i,
+    /no puedo proceder/i,
+    /no puedo seguir adelante/i,
+    /no puedo seguir con/i,
+    /no puedo seguir haciendo/i,
+    /no puedo seguir realizando/i,
+    /no puedo seguir ejecutando/i,
+    /no puedo seguir completando/i,
+    /no puedo seguir terminando/i,
+    /no puedo seguir finalizando/i,
+    /no puedo seguir acabando/i,
+    /no puedo seguir concluyendo/i,
+    /no puedo seguir cerrando/i,
+    /no puedo seguir abriendo/i,
+    /no puedo seguir iniciando/i,
+    /no puedo seguir comenzando/i,
+    /no puedo seguir empezando/i,
+    /no puedo seguir continuando/i,
+    /no puedo seguir avanzando/i,
+    /no puedo seguir prosiguiendo/i,
+    /no puedo seguir procediendo/i,
+  ];
+  
+  // Si coincide con un patrón de falso positivo, NO es cancelación
+  if (falsePositivePatterns.some(pattern => pattern.test(text))) {
+    console.log(`🔍 [DEBUG] Patrón de falso positivo detectado, NO es cancelación`);
+    return false;
+  }
+  
   const cancellationWords = [
     // ESPAÑOL - Expresiones de cancelación (palabras simples y comunes)
     'cancelar', 'cancelación', 'no quiero', 'no necesito', 'no voy a', 'no voy',
