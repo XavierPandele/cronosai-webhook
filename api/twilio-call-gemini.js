@@ -643,10 +643,23 @@ async function processConversationStep(state, userInput) {
   // Esto previene que el sistema vuelva a greeting cuando no debería
   if (step !== 'greeting' && step !== 'ask_intention' && (!userInput || userInput.trim().length < 2)) {
     console.log(`⚠️ [WARNING] Input muy corto en paso ${step}, manteniendo paso actual`);
-    // Mantener el paso actual y pedir clarificación
-    const unclearMessages = getMultilingualMessages('unclear', state.language);
+    // Mantener el paso actual y pedir clarificación según el paso
+    let unclearMessage = 'No capté bien. ¿Podría repetirlo?';
+    
+    if (step === 'ask_people') {
+      unclearMessage = 'No capté bien. ¿Para cuántas personas desea la reserva?';
+    } else if (step === 'ask_date') {
+      unclearMessage = 'No capté bien. ¿Para qué fecha desea la reserva?';
+    } else if (step === 'ask_time') {
+      unclearMessage = 'No capté bien. ¿A qué hora desea la reserva?';
+    } else if (step === 'ask_name') {
+      unclearMessage = 'No capté bien. ¿A nombre de quién desea la reserva?';
+    } else if (step.startsWith('cancel_')) {
+      unclearMessage = 'No capté bien. ¿Podría repetir su respuesta?';
+    }
+    
     return {
-      message: getRandomMessage(unclearMessages || ['No capté bien. ¿Podría repetirlo?']),
+      message: unclearMessage,
       gather: true
     };
   }
@@ -697,6 +710,13 @@ async function processConversationStep(state, userInput) {
             
             // Determinar qué falta
             const missing = determineMissingFields(analysis, state.data);
+            
+            // Priorizar fecha si solo tenemos hora
+            if (missing.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
+              missing.splice(missing.indexOf('date'), 1);
+              missing.unshift('date');
+              console.log(`📅 [PRIORIDAD] Priorizando fecha porque solo tenemos hora`);
+            }
             
             console.log(`📊 [GEMINI] Campos faltantes: ${missing.join(', ') || 'ninguno'}`);
             
@@ -6654,8 +6674,24 @@ function isCancellationRequest(text) {
     return false; // Inputs muy cortos no son cancelaciones
   }
   
-  // Excluir frases que contienen "no puedo" pero no son cancelaciones
+  // Excluir frases que contienen "no" pero no son cancelaciones
   const falsePositivePatterns = [
+    // Patrones relacionados con nombres
+    /a nombre de/i,
+    /nombre de/i,
+    /a nombre/i,
+    /el nombre/i,
+    /mi nombre/i,
+    /su nombre/i,
+    /cual.*nombre/i,
+    /que nombre/i,
+    /nombre.*es/i,
+    /nombre.*ser/i,
+    /nombre.*llama/i,
+    /me llamo/i,
+    /se llama/i,
+    /llamarse/i,
+    // Patrones relacionados con "no puedo"
     /no puedo definir/i,
     /no puedo decir/i,
     /no puedo especificar/i,
