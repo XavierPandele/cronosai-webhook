@@ -108,7 +108,7 @@ module.exports = async function handler(req, res) {
     }
 
     // Guardar entrada del usuario si existe
-    const userInput = SpeechResult || Digits || '';
+    let userInput = SpeechResult || Digits || '';
     
     // Si hay un parámetro ?process=true, significa que ya mostramos el mensaje de procesando
     // y ahora necesitamos procesar con Gemini
