@@ -31,3 +31,5 @@ QRCode.toFile(outputPath, url, options, (err) => {
     console.log(`✓ Color: Burgundy (#800020) con fondo blanco`);
 });
 
+
+
