@@ -477,9 +477,10 @@ function determineMissingFields(analysis, stateData) {
 
 /**
  * Aplica los datos extraídos por Gemini al estado de la conversación
+ * Retorna { success: boolean, error?: string } para indicar si hubo error de validación
  */
-function applyGeminiAnalysisToState(analysis, state) {
-  if (!analysis) return;
+async function applyGeminiAnalysisToState(analysis, state) {
+  if (!analysis) return { success: true };
   
   // Aplicar solo si el porcentaje de credibilidad es >= 50%
   const applyIfConfident = (value, percentage) => {
@@ -487,31 +488,71 @@ function applyGeminiAnalysisToState(analysis, state) {
     return pct >= 50 ? value : null;
   };
   
-  // Comensales
+  // Comensales - Validar contra configuración del restaurante
   if (analysis.comensales && applyIfConfident(analysis.comensales, analysis.comensales_porcentaje_credivilidad)) {
     const peopleCount = parseInt(analysis.comensales);
-    if (peopleCount >= 1 && peopleCount <= 20) {
+    
+    // Validar mínimo
+    if (peopleCount < 1) {
+      logger.warn('Número de personas inválido (menor a 1)', { peopleCount });
+      return { 
+        success: false, 
+        error: 'people_too_low',
+        message: 'El número de personas debe ser al menos 1'
+      };
+    }
+    
+    // Validar máximo usando configuración del restaurante
+    try {
+      const config = await getRestaurantConfig();
+      if (peopleCount > config.maxPersonasMesa) {
+        logger.warn('Número de personas excede el máximo', { 
+          peopleCount, 
+          maxPersonas: config.maxPersonasMesa 
+        });
+        return { 
+          success: false, 
+          error: 'people_too_many',
+          maxPersonas: config.maxPersonasMesa,
+          message: `El máximo de personas por reserva es ${config.maxPersonasMesa}`
+        };
+      }
+      
+      // Si pasa la validación, aplicar
       state.data.NumeroReserva = peopleCount;
-      console.log(`✅ [GEMINI] Comensales aplicados: ${peopleCount}`);
+      logger.reservation(`Comensales aplicados: ${peopleCount}`);
+    } catch (error) {
+      // Si falla obtener config, usar valor por defecto
+      if (peopleCount > 20) {
+        logger.warn('Número de personas excede el máximo (fallback)', { peopleCount });
+        return { 
+          success: false, 
+          error: 'people_too_many',
+          maxPersonas: 20,
+          message: 'El máximo de personas por reserva es 20'
+        };
+      }
+      state.data.NumeroReserva = peopleCount;
+      logger.reservation(`Comensales aplicados: ${peopleCount}`);
     }
   }
   
   // Fecha
   if (analysis.fecha && applyIfConfident(analysis.fecha, analysis.fecha_porcentaje_credivilidad)) {
     state.data.FechaReserva = analysis.fecha;
-    console.log(`✅ [GEMINI] Fecha aplicada: ${analysis.fecha}`);
+    logger.reservation(`Fecha aplicada: ${analysis.fecha}`);
   }
   
   // Hora (aceptar cualquier hora, sin validación de horario por ahora)
   if (analysis.hora && applyIfConfident(analysis.hora, analysis.hora_porcentaje_credivilidad)) {
     state.data.HoraReserva = analysis.hora;
-    console.log(`✅ [GEMINI] Hora aplicada: ${analysis.hora}`);
+    logger.reservation(`Hora aplicada: ${analysis.hora}`);
   }
   
   // Nombre
   if (analysis.nombre && applyIfConfident(analysis.nombre, analysis.nombre_porcentaje_credivilidad)) {
-    state.data.NomReserva = analysis.nombre.trim();
-    console.log(`✅ [GEMINI] Nombre aplicado: ${analysis.nombre}`);
+    state.data.NomReserva = analysis.nombre;
+    logger.reservation(`Nombre aplicado: ${analysis.nombre}`);
   }
   
   // Intolerancias (guardamos pero no es crítico)
@@ -524,11 +565,7 @@ function applyGeminiAnalysisToState(analysis, state) {
     state.data.Observacions = (state.data.Observacions || '') + ' Necesita mesa accesible.';
   }
   
-  // Idioma detectado
-  if (analysis.idioma_detectado) {
-    state.language = analysis.idioma_detectado;
-    console.log(`✅ [GEMINI] Idioma detectado: ${analysis.idioma_detectado}`);
-  }
+  return { success: true };
 }
 
 async function processConversationStep(state, userInput) {
@@ -628,7 +665,16 @@ async function processConversationStep(state, userInput) {
           if (intention === 'reservation') {
           
             // Aplicar los datos extraídos al estado
-            applyGeminiAnalysisToState(analysis, state);
+            const applyResult = await applyGeminiAnalysisToState(analysis, state);
+            
+            // Si hay error de validación (ej: demasiadas personas), manejar
+            if (!applyResult.success && applyResult.error === 'people_too_many') {
+              const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+              return {
+                message: getRandomMessage(maxPeopleMessages),
+                gather: true
+              };
+            }
             
             // Determinar qué falta
             const missing = determineMissingFields(analysis, state.data);
@@ -743,10 +789,25 @@ async function processConversationStep(state, userInput) {
          if (intention === 'reservation') {
          
            // Aplicar la información extraída al estado
-           applyGeminiAnalysisToState(analysis, state);
+           const applyResult = await applyGeminiAnalysisToState(analysis, state);
+           
+           // Si hay error de validación (ej: demasiadas personas), manejar
+           if (!applyResult.success && applyResult.error === 'people_too_many') {
+             const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+             return {
+               message: getRandomMessage(maxPeopleMessages),
+               gather: true
+             };
+           }
            
            // Determinar qué campos faltan
            const missingFields = determineMissingFields(analysis, state.data);
+           
+           // Priorizar fecha si solo tenemos hora
+           if (missingFields.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
+             missingFields.splice(missingFields.indexOf('date'), 1);
+             missingFields.unshift('date');
+           }
            
            console.log(`📊 [RESERVA] Campos faltantes:`, missingFields);
            
@@ -846,7 +907,16 @@ async function processConversationStep(state, userInput) {
        // Usar Gemini para extraer información de la respuesta del usuario
        const peopleAnalysis = await analyzeReservationWithGemini(userInput);
        if (peopleAnalysis) {
-         applyGeminiAnalysisToState(peopleAnalysis, state);
+         const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state);
+         
+         // Si hay error de validación (ej: demasiadas personas), mostrar mensaje
+         if (!applyResult.success && applyResult.error === 'people_too_many') {
+           const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+           return {
+             message: getRandomMessage(maxPeopleMessages),
+             gather: true
+           };
+         }
        }
        
        if (state.data.NumeroReserva) {
@@ -905,7 +975,7 @@ async function processConversationStep(state, userInput) {
        // Usar Gemini para extraer información de la respuesta del usuario
        const dateAnalysis = await analyzeReservationWithGemini(userInput);
        if (dateAnalysis) {
-         applyGeminiAnalysisToState(dateAnalysis, state);
+         await applyGeminiAnalysisToState(dateAnalysis, state);
        }
        
        if (state.data.FechaReserva) {
@@ -983,7 +1053,7 @@ async function processConversationStep(state, userInput) {
              gather: true
            };
          }
-         applyGeminiAnalysisToState(timeAnalysis, state);
+         await applyGeminiAnalysisToState(timeAnalysis, state);
        }
        
        if (state.data.HoraReserva) {
@@ -1040,7 +1110,7 @@ async function processConversationStep(state, userInput) {
        // Usar Gemini para extraer información de la respuesta del usuario
        const nameAnalysis = await analyzeReservationWithGemini(userInput);
        if (nameAnalysis) {
-         applyGeminiAnalysisToState(nameAnalysis, state);
+         await applyGeminiAnalysisToState(nameAnalysis, state);
        }
        
        if (state.data.NomReserva) {
@@ -2334,6 +2404,52 @@ function getProcessingMessage(language = 'es') {
 }
 
 // Función para obtener mensajes multilingües
+/**
+ * Obtiene mensajes multilingües para cuando se excede el máximo de personas
+ */
+function getMaxPeopleExceededMessages(language = 'es', maxPersonas = 20) {
+  const messages = {
+    es: [
+      `Lo siento, el máximo de personas por reserva es ${maxPersonas}. ¿Podría hacer la reserva para ${maxPersonas} personas o menos?`,
+      `Disculpe, solo podemos aceptar hasta ${maxPersonas} personas por reserva. ¿Cuántas personas serían?`,
+      `El máximo permitido es ${maxPersonas} personas por mesa. ¿Para cuántas personas desea la reserva?`,
+      `Lamentablemente, no podemos aceptar más de ${maxPersonas} personas en una sola reserva. ¿Podría indicarme un número menor?`
+    ],
+    en: [
+      `I'm sorry, the maximum number of people per reservation is ${maxPersonas}. Could you make the reservation for ${maxPersonas} people or less?`,
+      `Sorry, we can only accept up to ${maxPersonas} people per reservation. How many people would it be?`,
+      `The maximum allowed is ${maxPersonas} people per table. How many people would you like to reserve for?`,
+      `Unfortunately, we cannot accept more than ${maxPersonas} people in a single reservation. Could you tell me a smaller number?`
+    ],
+    de: [
+      `Es tut mir leid, die maximale Anzahl von Personen pro Reservierung beträgt ${maxPersonas}. Könnten Sie die Reservierung für ${maxPersonas} Personen oder weniger vornehmen?`,
+      `Entschuldigung, wir können nur bis zu ${maxPersonas} Personen pro Reservierung akzeptieren. Wie viele Personen wären es?`,
+      `Das Maximum beträgt ${maxPersonas} Personen pro Tisch. Für wie viele Personen möchten Sie reservieren?`,
+      `Leider können wir nicht mehr als ${maxPersonas} Personen in einer einzigen Reservierung akzeptieren. Könnten Sie mir eine kleinere Anzahl nennen?`
+    ],
+    fr: [
+      `Je suis désolé, le nombre maximum de personnes par réservation est ${maxPersonas}. Pourriez-vous faire la réservation pour ${maxPersonas} personnes ou moins?`,
+      `Désolé, nous ne pouvons accepter que jusqu'à ${maxPersonas} personnes par réservation. Combien de personnes seraient-ce?`,
+      `Le maximum autorisé est ${maxPersonas} personnes par table. Pour combien de personnes souhaitez-vous réserver?`,
+      `Malheureusement, nous ne pouvons pas accepter plus de ${maxPersonas} personnes dans une seule réservation. Pourriez-vous me donner un nombre plus petit?`
+    ],
+    it: [
+      `Mi dispiace, il numero massimo di persone per prenotazione è ${maxPersonas}. Potresti fare la prenotazione per ${maxPersonas} persone o meno?`,
+      `Scusa, possiamo accettare solo fino a ${maxPersonas} persone per prenotazione. Quante persone sarebbero?`,
+      `Il massimo consentito è ${maxPersonas} persone per tavolo. Per quante persone desideri prenotare?`,
+      `Sfortunatamente, non possiamo accettare più di ${maxPersonas} persone in una singola prenotazione. Potresti dirmi un numero più piccolo?`
+    ],
+    pt: [
+      `Desculpe, o número máximo de pessoas por reserva é ${maxPersonas}. Você poderia fazer a reserva para ${maxPersonas} pessoas ou menos?`,
+      `Desculpe, só podemos aceitar até ${maxPersonas} pessoas por reserva. Quantas pessoas seriam?`,
+      `O máximo permitido é ${maxPersonas} pessoas por mesa. Para quantas pessoas você gostaria de reservar?`,
+      `Infelizmente, não podemos aceitar mais de ${maxPersonas} pessoas em uma única reserva. Você poderia me dizer um número menor?`
+    ]
+  };
+  
+  return messages[language] || messages.es;
+}
+
 function getMultilingualMessages(type, language = 'es', variables = {}) {
   const messages = {
     greeting: {
