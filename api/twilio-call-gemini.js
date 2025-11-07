@@ -9,6 +9,56 @@ const logger = require('../lib/logging');
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
 
+// ===== CONFIGURACIÓN GLOBAL DEL RESTAURANTE =====
+// Variables globales para la configuración (se cargan al inicio)
+let restaurantConfig = {
+  maxPersonasMesa: 20,
+  minPersonas: 1,
+  horario1Inicio: null,
+  horario1Fin: null,
+  horario2Inicio: '13:00',
+  horario2Fin: '15:00',
+  horario3Inicio: '19:00',
+  horario3Fin: '23:00',
+  minAntelacionHoras: 2
+};
+
+// Cargar configuración del restaurante al inicio
+let configLoaded = false;
+async function loadRestaurantConfig() {
+  if (configLoaded) {
+    return restaurantConfig;
+  }
+  
+  try {
+    console.log('📋 [CONFIG] Cargando configuración del restaurante...');
+    const config = await getRestaurantConfig();
+    
+    // Asignar valores a las variables globales
+    restaurantConfig = {
+      maxPersonasMesa: config.maxPersonasMesa || 20,
+      minPersonas: config.minPersonas || 1,
+      horario1Inicio: config.horario1Inicio || null,
+      horario1Fin: config.horario1Fin || null,
+      horario2Inicio: config.horario2Inicio || '13:00',
+      horario2Fin: config.horario2Fin || '15:00',
+      horario3Inicio: config.horario3Inicio || '19:00',
+      horario3Fin: config.horario3Fin || '23:00',
+      minAntelacionHoras: config.minAntelacionHoras || 2,
+      // Mantener referencia completa para uso futuro
+      fullConfig: config
+    };
+    
+    configLoaded = true;
+    console.log('✅ [CONFIG] Configuración cargada:', JSON.stringify(restaurantConfig, null, 2));
+    return restaurantConfig;
+  } catch (error) {
+    console.error('❌ [CONFIG] Error cargando configuración, usando valores por defecto:', error);
+    configLoaded = true; // Marcar como cargada para no intentar infinitamente
+    return restaurantConfig;
+  }
+}
+
 // ===== GEMINI 2.5 FLASH - INICIALIZACIÓN =====
 let geminiClient = null;
 function getGeminiClient() {
@@ -42,6 +92,11 @@ function getDayAfterTomorrowDate() {
 module.exports = async function handler(req, res) {
   // Siempre establecer headers primero
   res.setHeader('Content-Type', 'text/xml');
+  
+  // Cargar configuración del restaurante al inicio (solo la primera vez)
+  if (!configLoaded) {
+    await loadRestaurantConfig();
+  }
   
   console.log('📞 Twilio Call recibida');
   console.log('Method:', req.method);
@@ -286,25 +341,46 @@ async function analyzeReservationWithGemini(userInput) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
+    // Asegurar que la configuración está cargada
+    if (!configLoaded) {
+      await loadRestaurantConfig();
+    }
+    
     // Obtener fecha/hora actual y horarios
     const now = new Date();
     const currentDateTime = now.toISOString().replace('T', ' ').substring(0, 19);
     const tomorrow = getTomorrowDate();
     const dayAfterTomorrow = getDayAfterTomorrowDate();
-    const hours = await getRestaurantHours();
+    
+    // Construir información de horarios
+    const horariosInfo = [];
+    if (restaurantConfig.horario1Inicio && restaurantConfig.horario1Fin) {
+      horariosInfo.push(`  - Desayuno: ${restaurantConfig.horario1Inicio} - ${restaurantConfig.horario1Fin}`);
+    }
+    if (restaurantConfig.horario2Inicio && restaurantConfig.horario2Fin) {
+      horariosInfo.push(`  - Comida: ${restaurantConfig.horario2Inicio} - ${restaurantConfig.horario2Fin}`);
+    }
+    if (restaurantConfig.horario3Inicio && restaurantConfig.horario3Fin) {
+      horariosInfo.push(`  - Cena: ${restaurantConfig.horario3Inicio} - ${restaurantConfig.horario3Fin}`);
+    }
+    const horariosStr = horariosInfo.length > 0 ? horariosInfo.join('\n') : '  - Comida: 13:00 - 15:00\n  - Cena: 19:00 - 23:00';
     
     // Prompt optimizado para extracción máxima de información
     const prompt = `## MISIÓN
 Eres un experto analizador de texto especializado en extraer información de reservas de restaurante.
-Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas de ella.
+Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas de ella, VALIDANDO contra las restricciones del restaurante.
 
 ## CONTEXTO ACTUAL
 - Fecha y hora actual: ${currentDateTime}
 - Fecha de mañana: ${tomorrow}
 - Fecha de pasado mañana: ${dayAfterTomorrow}
-- Horario del restaurante:
-  - Comida: ${hours.lunch[0]} - ${hours.lunch[1]}
-  - Cena: ${hours.dinner[0]} - ${hours.dinner[1]}
+
+## CONFIGURACIÓN DEL RESTAURANTE
+- Máximo de personas por reserva: ${restaurantConfig.maxPersonasMesa}
+- Mínimo de personas por reserva: ${restaurantConfig.minPersonas}
+- Horarios de servicio:
+${horariosStr}
+- Antelación mínima requerida: ${restaurantConfig.minAntelacionHoras} horas
 
 ## TEXTO A ANALIZAR
 "${userInput}"
@@ -313,9 +389,13 @@ Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas 
 1. NO INVENTES información. Si no está en el texto, devuelve null.
 2. Si NO estás seguro, usa porcentaje de credibilidad bajo (0% o 50%).
 3. Si estás muy seguro, usa 100%.
-4. Valida la hora contra el horario del restaurante. Si está fuera de horario, marca enhorario:false.
+4. VALIDA contra las restricciones del restaurante:
+   - Si el número de comensales es mayor a ${restaurantConfig.maxPersonasMesa}, marca "comensales_validos": "false" y "comensales_error": "max_exceeded"
+   - Si el número de comensales es menor a ${restaurantConfig.minPersonas}, marca "comensales_validos": "false" y "comensales_error": "min_not_met"
+   - Si la hora está FUERA de los horarios del restaurante, marca "hora_disponible": "false" y "hora_error": "fuera_horario"
+   - Si la hora está DENTRO de los horarios, marca "hora_disponible": "true"
 5. Convierte todo a formato estándar:
-   - Comensales: SIEMPRE extrae el número mencionado en el texto, incluso si es mayor a 20. Si el texto dice "30 personas", devuelve "30" con credibilidad 100%. Si no hay número, devuelve null con credibilidad 0%.
+   - Comensales: SIEMPRE extrae el número mencionado en el texto, incluso si es mayor a ${restaurantConfig.maxPersonasMesa}. Si el texto dice "30 personas", devuelve "30" con credibilidad 100%. Si no hay número, devuelve null con credibilidad 0%.
    - Fecha: YYYY-MM-DD
    - Hora: HH:MM (formato 24h)
    - Intolerancias: "true" o "false"
@@ -327,10 +407,13 @@ Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas 
   "intencion": "reservation" | "modify" | "cancel" | "clarify",
   "comensales": null o "número",
   "comensales_porcentaje_credivilidad": "0%" | "50%" | "100%",
+  "comensales_validos": "true" | "false" | null,
+  "comensales_error": null | "max_exceeded" | "min_not_met",
   "fecha": null o "YYYY-MM-DD",
   "fecha_porcentaje_credivilidad": "0%" | "50%" | "100%",
   "hora": null o "HH:MM",
-  "enhorario": "true" | "false",
+  "hora_disponible": "true" | "false" | null,
+  "hora_error": null | "fuera_horario",
   "hora_porcentaje_credivilidad": "0%" | "50%" | "100%",
   "intolerancias": "true" | "false",
   "intolerancias_porcentaje_credivilidad": "0%" | "50%" | "100%",
@@ -346,6 +429,11 @@ NOTA SOBRE INTENCIÓN:
 - "modify": El usuario quiere modificar una reserva existente
 - "cancel": El usuario quiere cancelar una reserva existente
 - "clarify": El texto es ambiguo o no indica una intención clara
+
+NOTA SOBRE VALIDACIONES:
+- "comensales_validos": "false" si el número excede el máximo o es menor al mínimo
+- "hora_disponible": "false" si la hora está fuera de los horarios del restaurante
+- Si hay errores de validación, aún devuelve los valores extraídos pero marca los errores para que el sistema pueda informar al cliente
 
 IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
 
@@ -520,53 +608,66 @@ async function applyGeminiAnalysisToState(analysis, state) {
   
   // Si tenemos un número válido, validar y aplicar
   if (peopleCount !== null && !isNaN(peopleCount)) {
-    // Validar mínimo
-    if (peopleCount < 1) {
-      logger.warn('Número de personas inválido (menor a 1)', { peopleCount });
-      return { 
-        success: false, 
-        error: 'people_too_low',
-        message: 'El número de personas debe ser al menos 1'
-      };
-    }
-    
-    // Validar máximo usando configuración del restaurante
-    try {
-      const config = await getRestaurantConfig();
-      console.log(`🔍 [VALIDATION] Validando ${peopleCount} personas contra máximo: ${config.maxPersonasMesa}`);
-      
-      if (peopleCount > config.maxPersonasMesa) {
-        logger.warn('Número de personas excede el máximo', { 
+    // Primero verificar si Gemini ya validó (nuevos campos)
+    if (analysis.comensales_validos === 'false') {
+      if (analysis.comensales_error === 'max_exceeded') {
+        logger.warn('Número de personas excede el máximo (validado por Gemini)', { 
           peopleCount, 
-          maxPersonas: config.maxPersonasMesa 
+          maxPersonas: restaurantConfig.maxPersonasMesa 
         });
         return { 
           success: false, 
           error: 'people_too_many',
-          maxPersonas: config.maxPersonasMesa,
-          message: `El máximo de personas por reserva es ${config.maxPersonasMesa}`
+          maxPersonas: restaurantConfig.maxPersonasMesa,
+          message: `El máximo de personas por reserva es ${restaurantConfig.maxPersonasMesa}`
         };
-      }
-      
-      // Si pasa la validación, aplicar
-      state.data.NumeroReserva = peopleCount;
-      logger.reservation(`Comensales aplicados: ${peopleCount}`);
-    } catch (error) {
-      console.error('❌ [ERROR] Error obteniendo configuración del restaurante:', error);
-      // Si falla obtener config, usar valor por defecto
-      const defaultMax = 20;
-      if (peopleCount > defaultMax) {
-        logger.warn('Número de personas excede el máximo (fallback)', { peopleCount });
+      } else if (analysis.comensales_error === 'min_not_met') {
+        logger.warn('Número de personas menor al mínimo (validado por Gemini)', { 
+          peopleCount, 
+          minPersonas: restaurantConfig.minPersonas 
+        });
         return { 
           success: false, 
-          error: 'people_too_many',
-          maxPersonas: defaultMax,
-          message: `El máximo de personas por reserva es ${defaultMax}`
+          error: 'people_too_low',
+          minPersonas: restaurantConfig.minPersonas,
+          message: `El mínimo de personas por reserva es ${restaurantConfig.minPersonas}`
         };
       }
-      state.data.NumeroReserva = peopleCount;
-      logger.reservation(`Comensales aplicados: ${peopleCount}`);
     }
+    
+    // Validar mínimo (fallback si Gemini no validó)
+    if (peopleCount < 1 || (restaurantConfig.minPersonas && peopleCount < restaurantConfig.minPersonas)) {
+      logger.warn('Número de personas inválido (menor al mínimo)', { 
+        peopleCount, 
+        minPersonas: restaurantConfig.minPersonas || 1 
+      });
+      return { 
+        success: false, 
+        error: 'people_too_low',
+        minPersonas: restaurantConfig.minPersonas || 1,
+        message: `El número de personas debe ser al menos ${restaurantConfig.minPersonas || 1}`
+      };
+    }
+    
+    // Validar máximo usando configuración global
+    console.log(`🔍 [VALIDATION] Validando ${peopleCount} personas contra máximo: ${restaurantConfig.maxPersonasMesa}`);
+    
+    if (peopleCount > restaurantConfig.maxPersonasMesa) {
+      logger.warn('Número de personas excede el máximo', { 
+        peopleCount, 
+        maxPersonas: restaurantConfig.maxPersonasMesa 
+      });
+      return { 
+        success: false, 
+        error: 'people_too_many',
+        maxPersonas: restaurantConfig.maxPersonasMesa,
+        message: `El máximo de personas por reserva es ${restaurantConfig.maxPersonasMesa}`
+      };
+    }
+    
+    // Si pasa la validación, aplicar
+    state.data.NumeroReserva = peopleCount;
+    logger.reservation(`Comensales aplicados: ${peopleCount}`);
   }
   
   // Fecha
@@ -575,10 +676,21 @@ async function applyGeminiAnalysisToState(analysis, state) {
     logger.reservation(`Fecha aplicada: ${analysis.fecha}`);
   }
   
-  // Hora (aceptar cualquier hora, sin validación de horario por ahora)
+  // Hora - Validar disponibilidad si Gemini la marcó como no disponible
   if (analysis.hora && applyIfConfident(analysis.hora, analysis.hora_porcentaje_credivilidad)) {
-    state.data.HoraReserva = analysis.hora;
-    logger.reservation(`Hora aplicada: ${analysis.hora}`);
+    // Si Gemini validó y marcó como no disponible, guardar error para manejar después
+    if (analysis.hora_disponible === 'false' && analysis.hora_error === 'fuera_horario') {
+      logger.warn('Hora fuera de horario (validado por Gemini)', { hora: analysis.hora });
+      // Guardar en el estado para manejar el error después (el paso ask_time lo manejará)
+      state.data.HoraReserva = analysis.hora;
+      state.data.horaError = 'fuera_horario';
+      logger.reservation(`Hora detectada con error: ${analysis.hora} (fuera de horario)`);
+    } else {
+      // Hora válida o no validada, aplicar normalmente
+      state.data.HoraReserva = analysis.hora;
+      delete state.data.horaError; // Limpiar error si existía
+      logger.reservation(`Hora aplicada: ${analysis.hora}`);
+    }
   }
   
   // Nombre
@@ -1179,6 +1291,18 @@ async function processConversationStep(state, userInput) {
            };
          }
          await applyGeminiAnalysisToState(timeAnalysis, state);
+       }
+       
+       // Verificar si hay error de horario (validado por Gemini)
+       if (state.data.horaError === 'fuera_horario') {
+         const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+         // Limpiar el error y la hora para que el usuario pueda proporcionar otra
+         delete state.data.HoraReserva;
+         delete state.data.horaError;
+         return {
+           message: getRandomMessage(timeErrorMessages),
+           gather: true
+         };
        }
        
        if (state.data.HoraReserva) {
@@ -2532,6 +2656,62 @@ function getProcessingMessage(language = 'es') {
 /**
  * Obtiene mensajes multilingües para cuando se excede el máximo de personas
  */
+function getTimeOutOfHoursMessages(language = 'es', hora = null) {
+  // Construir información de horarios disponibles
+  const horariosDisponibles = [];
+  if (restaurantConfig.horario1Inicio && restaurantConfig.horario1Fin) {
+    horariosDisponibles.push(`${restaurantConfig.horario1Inicio} - ${restaurantConfig.horario1Fin}`);
+  }
+  if (restaurantConfig.horario2Inicio && restaurantConfig.horario2Fin) {
+    horariosDisponibles.push(`${restaurantConfig.horario2Inicio} - ${restaurantConfig.horario2Fin}`);
+  }
+  if (restaurantConfig.horario3Inicio && restaurantConfig.horario3Fin) {
+    horariosDisponibles.push(`${restaurantConfig.horario3Inicio} - ${restaurantConfig.horario3Fin}`);
+  }
+  const horariosStr = horariosDisponibles.join(' o ');
+  
+  const messages = {
+    es: [
+      `Lo siento, a esa hora no estamos disponibles. Nuestro horario es de ${horariosStr}. ¿Podría elegir otro horario?`,
+      `Disculpe, no atendemos a esa hora. Estamos disponibles de ${horariosStr}. ¿Qué otra hora le conviene?`,
+      `Lamentablemente, no estamos abiertos a esa hora. Nuestro horario de servicio es de ${horariosStr}. ¿Prefiere otro horario?`,
+      `A esa hora no podemos atenderle. Estamos disponibles de ${horariosStr}. ¿Podría indicarme otra hora?`
+    ],
+    en: [
+      `I'm sorry, we're not available at that time. Our hours are ${horariosStr}. Could you choose another time?`,
+      `Sorry, we don't serve at that time. We're available from ${horariosStr}. What other time would work for you?`,
+      `Unfortunately, we're not open at that time. Our service hours are ${horariosStr}. Would you prefer another time?`,
+      `We can't serve you at that time. We're available from ${horariosStr}. Could you tell me another time?`
+    ],
+    de: [
+      `Es tut mir leid, wir sind zu dieser Zeit nicht verfügbar. Unsere Öffnungszeiten sind ${horariosStr}. Könnten Sie eine andere Zeit wählen?`,
+      `Entschuldigung, wir servieren zu dieser Zeit nicht. Wir sind verfügbar von ${horariosStr}. Welche andere Zeit würde für Sie passen?`,
+      `Leider sind wir zu dieser Zeit nicht geöffnet. Unsere Servicezeiten sind ${horariosStr}. Würden Sie eine andere Zeit bevorzugen?`,
+      `Wir können Sie zu dieser Zeit nicht bedienen. Wir sind verfügbar von ${horariosStr}. Könnten Sie mir eine andere Zeit nennen?`
+    ],
+    fr: [
+      `Je suis désolé, nous ne sommes pas disponibles à cette heure. Nos horaires sont ${horariosStr}. Pourriez-vous choisir une autre heure?`,
+      `Désolé, nous ne servons pas à cette heure. Nous sommes disponibles de ${horariosStr}. Quelle autre heure vous conviendrait?`,
+      `Malheureusement, nous ne sommes pas ouverts à cette heure. Nos heures de service sont ${horariosStr}. Préféreriez-vous une autre heure?`,
+      `Nous ne pouvons pas vous servir à cette heure. Nous sommes disponibles de ${horariosStr}. Pourriez-vous me dire une autre heure?`
+    ],
+    it: [
+      `Mi dispiace, non siamo disponibili a quell'ora. I nostri orari sono ${horariosStr}. Potresti scegliere un altro orario?`,
+      `Scusa, non serviamo a quell'ora. Siamo disponibili dalle ${horariosStr}. Quale altro orario ti andrebbe bene?`,
+      `Sfortunatamente, non siamo aperti a quell'ora. I nostri orari di servizio sono ${horariosStr}. Preferiresti un altro orario?`,
+      `Non possiamo servirvi a quell'ora. Siamo disponibili dalle ${horariosStr}. Potresti dirmi un altro orario?`
+    ],
+    pt: [
+      `Desculpe, não estamos disponíveis nesse horário. Nossos horários são ${horariosStr}. Você poderia escolher outro horário?`,
+      `Desculpe, não servimos nesse horário. Estamos disponíveis das ${horariosStr}. Que outro horário funcionaria para você?`,
+      `Infelizmente, não estamos abertos nesse horário. Nossos horários de atendimento são ${horariosStr}. Você prefere outro horário?`,
+      `Não podemos atendê-lo nesse horário. Estamos disponíveis das ${horariosStr}. Você poderia me dizer outro horário?`
+    ]
+  };
+  
+  return messages[language] || messages.es;
+}
+
 function getMaxPeopleExceededMessages(language = 'es', maxPersonas = 20) {
   const messages = {
     es: [
