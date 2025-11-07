@@ -101,6 +101,9 @@ module.exports = async function handler(req, res) {
       language: 'es' // Detectar idioma por defecto
     };
     
+    // Log del estado recuperado
+    console.log(`📊 [DEBUG] Estado recuperado: step=${state.step}, phone=${state.phone}, language=${state.language}`);
+    
     // Asegurar que state.data existe y es un objeto
     if (!state.data || typeof state.data !== 'object') {
       console.warn('⚠️ [WARNING] state.data no es válido, inicializando...');
@@ -180,7 +183,9 @@ module.exports = async function handler(req, res) {
     }
 
     // Procesar según el paso actual
+    console.log(`🔍 [DEBUG] Antes de processConversationStep: step=${state.step}, phone=${state.phone}`);
     const response = await processConversationStep(state, inputToProcess);
+    console.log(`🔍 [DEBUG] Después de processConversationStep: step=${state.step}, phone=${state.phone}`);
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -190,6 +195,7 @@ module.exports = async function handler(req, res) {
     });
 
     // Actualizar estado
+    console.log(`💾 [DEBUG] Guardando estado: step=${state.step}, CallSid=${CallSid}`);
     conversationStates.set(CallSid, state);
 
     // Si la conversación está completa, guardar en BD
@@ -585,27 +591,33 @@ async function processConversationStep(state, userInput) {
   // para evitar falsos positivos (por ejemplo, "15 de enero" contiene "no")
   const criticalReservationSteps = ['ask_date', 'ask_time', 'ask_name', 'confirm'];
   
+  // Variable para almacenar el análisis de Gemini y reutilizarlo
+  let geminiAnalysis = null;
+  
   // Verificar si el usuario quiere cancelar la reserva
-  if (userInput && userInput.trim()) {
+  // OPTIMIZACIÓN: Solo verificar cancelación si el input es suficientemente largo
+  // para evitar falsos positivos con respuestas cortas como "no" que pueden ser válidas
+  if (userInput && userInput.trim() && userInput.trim().length > 2) {
     let shouldCheckCancellation = true;
     
     // En pasos críticos de reserva, verificar primero si la respuesta es un dato válido usando Gemini
     if (criticalReservationSteps.includes(step) && step !== 'confirm') {
       // Usar Gemini para verificar si hay datos válidos en la respuesta
-      const quickAnalysis = await analyzeReservationWithGemini(userInput);
+      // Guardar el análisis para reutilizarlo más adelante y evitar llamadas duplicadas
+      geminiAnalysis = await analyzeReservationWithGemini(userInput);
       let isValidData = false;
       
-      if (quickAnalysis) {
+      if (geminiAnalysis) {
         // Verificar según el paso actual
         switch (step) {
           case 'ask_date':
-            isValidData = quickAnalysis.fecha !== null && quickAnalysis.fecha_porcentaje_credivilidad !== '0%';
+            isValidData = geminiAnalysis.fecha !== null && geminiAnalysis.fecha_porcentaje_credivilidad !== '0%';
             break;
           case 'ask_time':
-            isValidData = quickAnalysis.hora !== null && quickAnalysis.hora_porcentaje_credivilidad !== '0%';
+            isValidData = geminiAnalysis.hora !== null && geminiAnalysis.hora_porcentaje_credivilidad !== '0%';
             break;
           case 'ask_name':
-            isValidData = quickAnalysis.nombre !== null && quickAnalysis.nombre_porcentaje_credivilidad !== '0%';
+            isValidData = geminiAnalysis.nombre !== null && geminiAnalysis.nombre_porcentaje_credivilidad !== '0%';
             break;
         }
       }
@@ -624,9 +636,10 @@ async function processConversationStep(state, userInput) {
       }
     }
     
-    // Verificar cancelación solo si es apropiado
+    // Verificar cancelación solo si es apropiado y el input es suficientemente largo
     // EXCLUIR 'greeting' y 'ask_intention' porque usan detectIntentionWithGemini que es más preciso
-    if (shouldCheckCancellation && step !== 'greeting' && step !== 'ask_intention' && isCancellationRequest(userInput)) {
+    // También excluir 'ask_people' porque "no" puede ser una respuesta válida (negativa)
+    if (shouldCheckCancellation && step !== 'greeting' && step !== 'ask_intention' && step !== 'ask_people' && isCancellationRequest(userInput)) {
       console.log(`🚫 [CANCELACIÓN] Usuario quiere cancelar en paso: ${step}`);
       
       // Si ya está en proceso de cancelación, confirmar
@@ -952,6 +965,17 @@ async function processConversationStep(state, userInput) {
          };
        }
        
+       // Detectar respuestas negativas comunes que no son números
+       const negativeResponses = /^(no|não|nein|non|ni)$/i;
+       if (negativeResponses.test(userInput.trim())) {
+         // El usuario dijo "no", pedir clarificación
+         const unclearMessages = getMultilingualMessages('people_unclear', state.language);
+         return {
+           message: getRandomMessage(unclearMessages || ['No capté bien. ¿Para cuántas personas desea la reserva?']),
+           gather: true
+         };
+       }
+       
        // Usar Gemini para extraer información de la respuesta del usuario
        const peopleAnalysis = await analyzeReservationWithGemini(userInput);
        if (peopleAnalysis) {
@@ -1020,8 +1044,8 @@ async function processConversationStep(state, userInput) {
        }
 
      case 'ask_date':
-       // Usar Gemini para extraer información de la respuesta del usuario
-       const dateAnalysis = await analyzeReservationWithGemini(userInput);
+       // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
+       const dateAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput);
        if (dateAnalysis) {
          await applyGeminiAnalysisToState(dateAnalysis, state);
        }
@@ -1045,7 +1069,10 @@ async function processConversationStep(state, userInput) {
          
          const nextField = missing[0];
          
-         if (nextField === 'time') {
+         // Actualizar el paso según el siguiente campo faltante
+         if (nextField === 'people') {
+           state.step = 'ask_people';
+         } else if (nextField === 'time') {
            state.step = 'ask_time';
          } else if (nextField === 'name') {
            state.step = 'ask_name';
@@ -1069,6 +1096,7 @@ async function processConversationStep(state, userInput) {
            };
          }
        } else {
+         // No se detectó fecha válida, pedir clarificación
          const errorResponse = handleUnclearResponse(text, 'date', state.language);
          return {
            message: errorResponse,
@@ -1088,8 +1116,8 @@ async function processConversationStep(state, userInput) {
          };
        }
        
-       // Usar Gemini para extraer información de la respuesta del usuario
-       const timeAnalysis = await analyzeReservationWithGemini(userInput);
+       // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
+       const timeAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput);
        if (timeAnalysis) {
          // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
          // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
@@ -1155,8 +1183,8 @@ async function processConversationStep(state, userInput) {
        }
 
      case 'ask_name':
-       // Usar Gemini para extraer información de la respuesta del usuario
-       const nameAnalysis = await analyzeReservationWithGemini(userInput);
+       // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
+       const nameAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput);
        if (nameAnalysis) {
          await applyGeminiAnalysisToState(nameAnalysis, state);
        }
@@ -7626,15 +7654,21 @@ function getPartialConfirmationMessage(data, missingField, language = 'es') {
       try {
         const timeStr = formatter.time(data.HoraReserva);
         if (timeStr) {
-          const timePrefix = {
-            es: 'a las',
-            en: 'at',
-            de: 'um',
-            it: 'alle',
-            fr: 'à',
-            pt: 'às'
-          };
-          parts.push(`${timePrefix[language] || timePrefix['es']} ${timeStr}`);
+          // Para español, formatTimeForSpeech ya incluye "las", solo agregar "a"
+          // Para otros idiomas, usar el prefijo completo
+          if (language === 'es' && timeStr.startsWith('las ')) {
+            parts.push(`a ${timeStr}`);
+          } else {
+            const timePrefix = {
+              es: 'a las',
+              en: 'at',
+              de: 'um',
+              it: 'alle',
+              fr: 'à',
+              pt: 'às'
+            };
+            parts.push(`${timePrefix[language] || timePrefix['es']} ${timeStr}`);
+          }
         }
       } catch (error) {
         console.error('❌ [ERROR] Error formateando hora:', error, data.HoraReserva);
