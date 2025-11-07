@@ -795,22 +795,53 @@ async function processConversationStep(state, userInput) {
   if (step !== 'greeting' && step !== 'ask_intention' && (!userInput || userInput.trim().length < 2)) {
     console.log(`⚠️ [WARNING] Input muy corto en paso ${step}, manteniendo paso actual`);
     // Mantener el paso actual y pedir clarificación según el paso
-    let unclearMessage = 'No capté bien. ¿Podría repetirlo?';
+    const unclearMessages = {
+      ask_people: [
+        'Disculpe, no he captado bien. ¿Para cuántas personas desean la reserva?',
+        'Lo siento, no lo he oído bien. ¿Cuántas personas serán?',
+        'Perdón, no he entendido. ¿Para cuántas personas será la mesa?'
+      ],
+      ask_date: [
+        'Perdón, no lo he entendido bien. ¿Para qué día les gustaría venir?',
+        'Disculpe, no he captado la fecha. ¿Qué día les conviene?',
+        'Lo siento, no lo he oído bien. ¿Para qué día desean la reserva?'
+      ],
+      ask_time: [
+        'Disculpe, no he captado bien. ¿A qué hora les gustaría hacer la reserva?',
+        'Perdón, no lo he entendido. ¿A qué hora les viene bien?',
+        'Lo siento, no lo he oído bien. ¿A qué hora desean venir?'
+      ],
+      ask_name: [
+        'Perdón, no lo he entendido. ¿A nombre de quién desean hacer la reserva?',
+        'Disculpe, no he captado el nombre. ¿Cómo se llama?',
+        'Lo siento, no lo he oído bien. ¿Me puede decir su nombre?'
+      ],
+      default: [
+        'Perdón, no he entendido bien. ¿Podría repetirlo, por favor?',
+        'Disculpe, no lo he captado. ¿Podría repetir, por favor?',
+        'Lo siento, no lo he oído bien. ¿Podría decirlo otra vez?'
+      ]
+    };
     
+    let messageArray = unclearMessages.default;
     if (step === 'ask_people') {
-      unclearMessage = 'No capté bien. ¿Para cuántas personas desea la reserva?';
+      messageArray = unclearMessages.ask_people;
     } else if (step === 'ask_date') {
-      unclearMessage = 'No capté bien. ¿Para qué fecha desea la reserva?';
+      messageArray = unclearMessages.ask_date;
     } else if (step === 'ask_time') {
-      unclearMessage = 'No capté bien. ¿A qué hora desea la reserva?';
+      messageArray = unclearMessages.ask_time;
     } else if (step === 'ask_name') {
-      unclearMessage = 'No capté bien. ¿A nombre de quién desea la reserva?';
+      messageArray = unclearMessages.ask_name;
     } else if (step.startsWith('cancel_')) {
-      unclearMessage = 'No capté bien. ¿Podría repetir su respuesta?';
+      messageArray = [
+        'Disculpe, no he entendido bien. ¿Podría repetir su respuesta, por favor?',
+        'Lo siento, no lo he captado. ¿Podría repetirlo?',
+        'Perdón, no lo he oído bien. ¿Puede repetir, por favor?'
+      ];
     }
     
     return {
-      message: unclearMessage,
+      message: getRandomMessage(messageArray),
       gather: true
     };
   }
@@ -1122,7 +1153,7 @@ async function processConversationStep(state, userInput) {
        if (!userInput || userInput.trim().length < 2) {
          const unclearMessages = getMultilingualMessages('people_unclear', state.language);
          return {
-           message: getRandomMessage(unclearMessages || ['No capté bien. ¿Cuántas personas van a venir?']),
+           message: getRandomMessage(unclearMessages || ['Disculpe, no he captado bien. ¿Cuántas personas van a venir?']),
            gather: true
          };
        }
@@ -1133,7 +1164,7 @@ async function processConversationStep(state, userInput) {
          // El usuario dijo "no", pedir clarificación
          const unclearMessages = getMultilingualMessages('people_unclear', state.language);
          return {
-           message: getRandomMessage(unclearMessages || ['No capté bien. ¿Para cuántas personas desea la reserva?']),
+           message: getRandomMessage(unclearMessages || ['Disculpe, no he captado bien. ¿Para cuántas personas desean la reserva?']),
            gather: true
          };
        }
@@ -2511,7 +2542,16 @@ function generateTwiML(response, language = 'es', processingMessage = null) {
     timeout="4">
     <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
   </Gather>
-  <Say voice="${config.voice}" language="${config.language}">${getRandomMessage(['No escuché respuesta. ¿Sigue ahí?', 'Disculpe, no escuché. ¿Sigue ahí?', '¿Está ahí? No escuché nada.', '¿Sigue en la línea? No escuché respuesta.', 'Disculpe, ¿podría repetir? No escuché bien.'])}</Say>
+  <Say voice="${config.voice}" language="${config.language}">${getRandomMessage(language === 'es' ? [
+    'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
+    'Perdón, no he oído nada. ¿Sigue en la línea?',
+    '¿Está ahí? No he escuchado su respuesta.',
+    'Disculpe, ¿sigue ahí? No he oído nada.',
+    'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
+    'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
+    'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
+    'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
+  ] : ['Sorry, I didn\'t hear your response. Are you still there?'])}</Say>
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
   } else {
@@ -2639,13 +2679,32 @@ function getRandomMessage(messages) {
 }
 
 // Función para obtener mensajes de "procesando" multilingües
+// Mensajes naturales y cálidos para hacer la espera más amigable
 function getProcessingMessage(language = 'es') {
   const messages = {
     es: [
-      'Un momento por favor.',
-      'Un instante.',
-      'Déjeme verificar.',
-      'Procesando información.'
+      'Eeeeh, un segundo por favor, que le confirmo...',
+      'Déjeme verificar un momento, por favor...',
+      'Un segundo, que lo compruebo ahora mismo...',
+      'Muy bien, déjeme revisar eso rápidamente...',
+      'Perfecto, un momentito que lo consulto...',
+      'Eeh, déjeme comprobar un instante, por favor...',
+      'Claro, un segundito que lo verifico...',
+      'Déjeme confirmar eso ahora mismo...',
+      'Un momento, que lo miro aquí...',
+      'Sí, sí, déjeme verificar eso un segundo...',
+      'Por supuesto, un momentito que lo consulto...',
+      'Muy bien, déjeme revisar un momento, por favor...',
+      'Eeeh, déjeme ver eso rápidamente...',
+      'Un segundito, que lo compruebo ahora...',
+      'Claro, claro, déjeme confirmar eso...',
+      'Perfecto, un segundo que lo reviso...',
+      'Déjeme verificar eso un momento...',
+      'Eeh, un segundo por favor, que lo consulto...',
+      'Sí, déjeme comprobar eso ahora...',
+      'Un momentito, que lo miro aquí...',
+      'Claro, déjeme verificar eso rápidamente...',
+      'Perfecto, un segundo que lo confirmo...'
     ],
     en: [
       'One moment please.',
@@ -2703,10 +2762,14 @@ function getTimeOutOfHoursMessages(language = 'es', hora = null) {
   
   const messages = {
     es: [
-      `Lo siento, a esa hora no estamos disponibles. Nuestro horario es de ${horariosStr}. ¿Podría elegir otro horario?`,
-      `Disculpe, no atendemos a esa hora. Estamos disponibles de ${horariosStr}. ¿Qué otra hora le conviene?`,
-      `Lamentablemente, no estamos abiertos a esa hora. Nuestro horario de servicio es de ${horariosStr}. ¿Prefiere otro horario?`,
-      `A esa hora no podemos atenderle. Estamos disponibles de ${horariosStr}. ¿Podría indicarme otra hora?`
+      `Lo siento mucho, a esa hora no estamos disponibles. Nuestro horario es de ${horariosStr}. ¿Qué otra hora les conviene mejor?`,
+      `Disculpe, no atendemos a esa hora. Estamos disponibles de ${horariosStr}. ¿Qué hora les vendría mejor?`,
+      `Lamentablemente, no estamos abiertos a esa hora. Nuestro horario de servicio es de ${horariosStr}. ¿Prefieren otro horario que les venga mejor?`,
+      `A esa hora no podemos atenderles, lo siento. Estamos disponibles de ${horariosStr}. ¿Podrían decirme otra hora que les convenga?`,
+      `Lo siento, a esa hora no tenemos disponibilidad. Nuestro horario es de ${horariosStr}. ¿Qué hora les gustaría en su lugar?`,
+      `Perdón, a esa hora no podemos atenderles. Nuestro horario es de ${horariosStr}. ¿Qué otra hora les vendría bien?`,
+      `Disculpe, no estamos disponibles a esa hora. Estamos abiertos de ${horariosStr}. ¿Qué hora les gustaría en su lugar?`,
+      `Lo siento mucho, a esa hora no podemos atenderles. Nuestro horario es de ${horariosStr}. ¿Qué hora les conviene mejor?`
     ],
     en: [
       `I'm sorry, we're not available at that time. Our hours are ${horariosStr}. Could you choose another time?`,
@@ -2746,10 +2809,14 @@ function getTimeOutOfHoursMessages(language = 'es', hora = null) {
 function getMaxPeopleExceededMessages(language = 'es', maxPersonas = 20) {
   const messages = {
     es: [
-      `Lo siento, el máximo de personas por reserva es ${maxPersonas}. ¿Podría hacer la reserva para ${maxPersonas} personas o menos?`,
-      `Disculpe, solo podemos aceptar hasta ${maxPersonas} personas por reserva. ¿Cuántas personas serían?`,
-      `El máximo permitido es ${maxPersonas} personas por mesa. ¿Para cuántas personas desea la reserva?`,
-      `Lamentablemente, no podemos aceptar más de ${maxPersonas} personas en una sola reserva. ¿Podría indicarme un número menor?`
+      `Lo siento mucho, el máximo de personas por reserva es ${maxPersonas}. ¿Podrían hacer la reserva para ${maxPersonas} personas o menos?`,
+      `Disculpe, solo podemos aceptar hasta ${maxPersonas} personas por reserva. ¿Cuántas personas serían entonces?`,
+      `El máximo que podemos aceptar es ${maxPersonas} personas por mesa. ¿Para cuántas personas desean hacer la reserva?`,
+      `Lamentablemente, no podemos aceptar más de ${maxPersonas} personas en una sola reserva. ¿Podrían decirme un número menor, por favor?`,
+      `Lo siento, tenemos un límite de ${maxPersonas} personas por reserva. ¿Para cuántas personas les gustaría entonces?`,
+      `Perdón, el máximo de personas que podemos aceptar por reserva es ${maxPersonas}. ¿Cuántas personas serían?`,
+      `Disculpe, solo podemos reservar para hasta ${maxPersonas} personas. ¿Para cuántas personas desean hacer la reserva?`,
+      `Lo siento mucho, tenemos un límite máximo de ${maxPersonas} personas por reserva. ¿Cuántas personas serían entonces?`
     ],
     en: [
       `I'm sorry, the maximum number of people per reservation is ${maxPersonas}. Could you make the reservation for ${maxPersonas} people or less?`,
@@ -2790,11 +2857,18 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
   const messages = {
     greeting: {
       es: [
-        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?',
-        '¡Buenos días! Bienvenido. ¿Cómo puedo ayudarle hoy?',
-        '¡Hola! Gracias por llamar. ¿En qué puedo asistirle?',
-        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué necesita?',
-        '¡Hola! Encantado de atenderle. ¿En qué puedo ayudarle?'
+        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle hoy?',
+        '¡Buenos días! Qué gusto tenerle por aquí. ¿Cómo puedo ayudarle?',
+        '¡Hola! Gracias por llamarnos. ¿En qué puedo asistirle?',
+        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué puedo hacer por usted hoy?',
+        '¡Hola! Encantado de atenderle. ¿Cómo le puedo ayudar?',
+        '¡Buenos días! Bienvenido. Estoy aquí para lo que necesite.',
+        '¡Hola! Qué alegría recibir su llamada. ¿En qué puedo ayudarle?',
+        '¡Hola! Bienvenido. Estaremos encantados de atenderle. ¿En qué puedo ayudarle?',
+        '¡Buenas! Qué placer recibir su llamada. ¿Cómo le puedo ayudar hoy?',
+        '¡Hola! Bienvenido a nuestro restaurante. Estoy aquí para lo que necesite.',
+        '¡Buenos días! Encantado de hablar con usted. ¿En qué puedo ayudarle?',
+        '¡Hola! Gracias por contactarnos. ¿Qué puedo hacer por usted?'
       ],
       en: [
         'Hello! Welcome to our restaurant. How can I help you?',
@@ -2834,11 +2908,18 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     reservation: {
       es: [
-        '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas?',
-        '¡Excelente! Me alegra ayudarle con la reserva. ¿Cuántas personas serán?',
-        '¡Muy bien! Con gusto le ayudo. ¿Para cuántos comensales?',
+        '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas será?',
+        '¡Excelente! Me alegra mucho poder ayudarle. ¿Cuántas personas serán?',
+        '¡Muy bien! Con mucho gusto le ayudo. ¿Para cuántos comensales?',
         '¡Perfecto! ¿Para cuántas personas necesita la mesa?',
-        '¡Genial! ¿Cuántas personas van a venir?'
+        '¡Genial! ¿Cuántas personas van a venir?',
+        '¡Por supuesto! Con mucho gusto. ¿Para cuántas personas desean la reserva?',
+        '¡Perfecto! Estaré encantado de ayudarle. ¿Cuántas personas serán?',
+        '¡Claro que sí! Con mucho gusto le ayudo con la reserva. ¿Para cuántas personas?',
+        '¡Por supuesto! Encantado de ayudarles. ¿Cuántas personas van a venir?',
+        '¡Perfecto! Me da mucho gusto ayudarle. ¿Para cuántas personas será la mesa?',
+        '¡Excelente! Con mucho gusto. ¿Cuántas personas serán?',
+        '¡Muy bien! Estaré encantado de reservarles una mesa. ¿Para cuántas personas?'
       ],
       en: [
         'Perfect! I\'m delighted to help you with your reservation. For how many people?',
@@ -2894,10 +2975,13 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     clarify: {
       es: [
         'Disculpe, solo puedo ayudarle con reservas. ¿Le gustaría hacer una reserva?',
-        'Lo siento, solo puedo ayudarle con reservas. ¿Quiere hacer una reserva?',
-        'Perdón, únicamente puedo ayudarle con reservas. ¿Le gustaría reservar?',
-        'Disculpe, solo manejo reservas. ¿Desea hacer una reserva?',
-        'Lo siento, solo puedo ayudarle con reservas. ¿Quiere reservar una mesa?'
+        'Lo siento, únicamente puedo ayudarle con reservas de mesa. ¿Quiere hacer una reserva?',
+        'Perdón, solo manejo reservas para nuestro restaurante. ¿Le gustaría reservar una mesa?',
+        'Disculpe, solo puedo ayudarle con reservas. ¿Desea hacer una reserva para venir a visitarnos?',
+        'Lo siento, solo puedo ayudarle con reservas. ¿Quiere reservar una mesa para cuando?',
+        'Disculpe, en este momento solo puedo ayudarle con reservas de mesa. ¿Le gustaría hacer una reserva?',
+        'Lo siento mucho, pero solo puedo atender reservas. ¿Quiere reservar una mesa?',
+        'Perdón, solo puedo ayudarle con reservas. ¿Le gustaría que le reserve una mesa?'
       ],
       en: [
         'Sorry, I can only help you with reservations. Would you like to make a reservation?',
@@ -2937,11 +3021,17 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     people: {
       es: [
-        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha?`,
+        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día les gustaría venir?`,
         `Excelente, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día prefieren?`,
-        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo?`,
-        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día?`,
-        `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Cuándo les gustaría venir?`
+        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo sería la reserva?`,
+        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día la necesitan?`,
+        `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Cuándo les gustaría venir?`,
+        `¡Perfecto! Mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
+        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha desean la reserva?`,
+        `¡Estupendo! ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día les gustaría la reserva?`,
+        `Perfecto, mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les conviene?`,
+        `Excelente, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo desean venir?`,
+        `Muy bien, perfecto. ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les gustaría?`
       ],
       en: [
         `Perfect, ${variables.people} ${variables.people === 1 ? 'person' : 'people'}. For what date?`,
@@ -2981,11 +3071,17 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     date: {
       es: [
-        `Perfecto, ${formatDateSpanish(variables.date)}. ¿A qué hora?`,
-        `Excelente, ${formatDateSpanish(variables.date)}. ¿A qué hora prefieren?`,
-        `Muy bien, ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
-        `Perfecto, ${formatDateSpanish(variables.date)}. ¿Qué hora les conviene?`,
-        `Genial, ${formatDateSpanish(variables.date)}. ¿A qué hora?`
+        `Perfecto, el ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
+        `Excelente, el día ${formatDateSpanish(variables.date)}. ¿Qué hora les conviene más?`,
+        `Muy bien, el ${formatDateSpanish(variables.date)}. ¿A qué hora prefieren?`,
+        `Perfecto, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
+        `Genial, el ${formatDateSpanish(variables.date)}. ¿A qué hora desean la reserva?`,
+        `¡Perfecto! El ${formatDateSpanish(variables.date)}. ¿Qué hora les gustaría?`,
+        `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora pueden venir?`,
+        `¡Estupendo! El ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
+        `Perfecto, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les viene mejor?`,
+        `Excelente, el ${formatDateSpanish(variables.date)}. ¿Qué hora les conviene?`,
+        `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora desean hacer la reserva?`
       ],
       en: [
         `Perfect, ${formatDateEnglish(variables.date)}. What time?`,
@@ -3025,11 +3121,17 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     time: {
       es: [
-        `Perfecto, a las ${variables.time}. ¿Su nombre?`,
-        `Excelente, a las ${variables.time}. ¿Cómo se llama?`,
-        `Muy bien, a las ${variables.time}. ¿Su nombre, por favor?`,
-        `Perfecto, a las ${variables.time}. ¿Cómo me dice su nombre?`,
-        `Genial, a las ${variables.time}. ¿Su nombre?`
+        `Perfecto, a las ${variables.time}. ¿A nombre de quién será la reserva?`,
+        `Excelente, a las ${variables.time}. ¿Cómo me dice su nombre?`,
+        `Muy bien, a las ${variables.time}. ¿A nombre de quién la hacemos?`,
+        `Perfecto, a las ${variables.time}. ¿Me puede decir su nombre?`,
+        `Genial, a las ${variables.time}. ¿Cómo se llama?`,
+        `¡Perfecto! A las ${variables.time}. ¿A nombre de quién va la reserva?`,
+        `Muy bien, a las ${variables.time}. ¿Cuál es su nombre?`,
+        `¡Estupendo! A las ${variables.time}. ¿A nombre de quién será?`,
+        `Perfecto, a las ${variables.time}. ¿Me dice su nombre, por favor?`,
+        `Excelente, a las ${variables.time}. ¿Cómo se llama para la reserva?`,
+        `Muy bien, a las ${variables.time}. ¿A nombre de quién la reservamos?`
       ],
       en: [
         `Perfect, at ${variables.time}. Your name?`,
@@ -3073,7 +3175,13 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         `Excelente, ${variables.name}.`,
         `Muy bien, ${variables.name}.`,
         `Perfecto, ${variables.name}.`,
-        `Genial, ${variables.name}.`
+        `Genial, ${variables.name}.`,
+        `¡Perfecto! ${variables.name}.`,
+        `Muy bien, ${variables.name}.`,
+        `¡Estupendo! ${variables.name}.`,
+        `Perfecto, encantado ${variables.name}.`,
+        `Excelente, muy bien ${variables.name}.`,
+        `Muy bien, perfecto ${variables.name}.`
       ],
       en: [
         `Perfect, ${variables.name}.`,
@@ -3201,11 +3309,17 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     confirm: {
       es: [
-        '¡Perfecto! Su reserva está confirmada. Le esperamos. ¡Buen día!',
-        '¡Excelente! Reserva confirmada. Les esperamos. ¡Que tengan buen día!',
-        '¡Muy bien! Todo listo. Les esperamos. ¡Hasta pronto!',
-        '¡Genial! Reserva confirmada. Nos vemos pronto. ¡Buen día!',
-        '¡Perfecto! Todo confirmado. Les esperamos. ¡Que disfruten!'
+        '¡Perfecto! Su reserva está confirmada. Les esperamos con muchas ganas. ¡Que tengan un día estupendo!',
+        '¡Excelente! Reserva confirmada. Estaremos encantados de recibirles. ¡Que disfruten el día!',
+        '¡Muy bien! Todo listo y confirmado. Les esperamos con ilusión. ¡Hasta pronto!',
+        '¡Genial! Reserva confirmada. Nos vemos muy pronto. ¡Que pasen un día maravilloso!',
+        '¡Perfecto! Todo confirmado. Les esperamos con los brazos abiertos. ¡Que disfruten mucho!',
+        '¡Excelente! Su reserva está confirmada. Estamos deseando recibirles. ¡Que tengan un día fantástico!',
+        '¡Perfecto! Todo listo. Les esperamos con mucha ilusión. ¡Que pasen un día estupendo!',
+        '¡Estupendo! Su reserva está confirmada. Les esperamos con muchísimas ganas. ¡Que tengan un día maravilloso!',
+        '¡Perfecto! Reserva confirmada. Estaremos encantados de recibirles. ¡Hasta muy pronto!',
+        '¡Excelente! Todo está listo y confirmado. Les esperamos con ilusión. ¡Que disfruten mucho el día!',
+        '¡Muy bien! Reserva confirmada. Estamos deseando verles. ¡Que pasen un día estupendo!'
       ],
       en: [
         'Perfect! Your reservation is confirmed. We look forward to seeing you. Have a great day!',
@@ -3289,11 +3403,15 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     clarify_confirm: {
       es: [
-        '¿Es correcto? Puede decir sí, no, o qué quiere cambiar.',
-        '¿Está bien? Puede confirmar, negar, o decir qué modificar.',
-        '¿Le parece bien? Puede decir sí, no, o qué desea cambiar.',
-        '¿Es correcto? Puede aceptar, rechazar, o indicar qué cambiar.',
-        '¿Está de acuerdo? Puede confirmar, corregir, o decir qué cambiar.'
+        '¿Le parece correcto? Puede decir sí para confirmar, no si quiere cambiar algo, o simplemente dígame qué desea modificar.',
+        '¿Está todo bien? Si está de acuerdo, diga sí. Si quiere cambiar algo, dígame qué.',
+        '¿Le parece bien así? Puede confirmar diciendo sí, o si prefiere cambiar algo, dígame qué.',
+        '¿Es correcto todo? Si está de acuerdo, diga sí. Si quiere modificar algo, dígame qué cambiar.',
+        '¿Le viene bien así? Puede decir sí para confirmar, o si quiere cambiar algo, simplemente dígame qué.',
+        'Perfecto, ¿está todo bien así? Si está de acuerdo, dígame sí. Si quiere cambiar algo, dígame qué.',
+        'Muy bien, ¿le parece correcto? Puede confirmar con un sí, o si quiere modificar algo, dígame qué.',
+        'Excelente, ¿está todo bien? Si está de acuerdo, diga sí. Si quiere cambiar algo, dígame qué modificar.',
+        'Perfecto, ¿le viene bien así? Puede decir sí para confirmar, o si prefiere cambiar algo, dígame qué.'
       ],
       en: [
         'Is it correct? You can say yes, no, or what you want to change.',
@@ -6396,11 +6514,15 @@ function handleUnclearResponse(text, field, language = 'es') {
   const responses = {
     people: {
       es: [
-        'Disculpe, no entendí. ¿Cuántas personas serán?',
-        '¿Para cuántas personas? Dígame un número del 1 al 20.',
-        'No capté bien. ¿Cuántas personas van a venir?',
-        '¿Podría repetir? ¿Para cuántas personas?',
-        'Disculpe, ¿cuántas personas serán en total?'
+        'Disculpe, no he entendido bien. ¿Cuántas personas serán?',
+        '¿Para cuántas personas será la reserva? Dígame un número del 1 al 20, por favor.',
+        'Perdón, no lo he captado bien. ¿Cuántas personas van a venir?',
+        '¿Podría repetirlo, por favor? ¿Para cuántas personas?',
+        'Disculpe, no he entendido. ¿Cuántas personas serán en total?',
+        'Lo siento, no he captado bien el número. ¿Para cuántas personas será la reserva?',
+        'Perdón, no lo he oído bien. ¿Cuántas personas van a venir?',
+        'Disculpe, ¿podría repetirlo? ¿Para cuántas personas será?',
+        'No he entendido bien. ¿Me puede decir cuántas personas serán?'
       ],
       en: [
         'Sorry, I didn\'t understand. How many people will it be?',
@@ -6440,11 +6562,15 @@ function handleUnclearResponse(text, field, language = 'es') {
     },
     date: {
       es: [
-        'No entendí bien la fecha. ¿Qué día prefieren?',
-        '¿Para qué día? Pueden decir mañana, pasado mañana, o un día específico.',
-        'Disculpe, no capté la fecha. ¿Qué día les conviene?',
-        '¿Podrían repetir? ¿Para qué fecha?',
-        'No entendí. ¿Qué día quieren venir?'
+        'Perdón, no he entendido bien la fecha. ¿Qué día prefieren?',
+        '¿Para qué día les gustaría venir? Pueden decir mañana, pasado mañana, o un día específico.',
+        'Disculpe, no he captado bien la fecha. ¿Qué día les conviene más?',
+        '¿Podrían repetirlo, por favor? ¿Para qué día desean la reserva?',
+        'No lo he entendido bien. ¿Qué día quieren venir?',
+        'Lo siento, no he oído bien la fecha. ¿Para qué día les gustaría venir?',
+        'Perdón, no lo he captado. ¿Qué día les viene mejor?',
+        'Disculpe, ¿podría repetir la fecha? ¿Para qué día desean la reserva?',
+        'No he entendido bien. ¿Me puede decir para qué día les gustaría venir?'
       ],
       en: [
         'I didn\'t understand the date well. What day do you prefer?',
@@ -6484,11 +6610,15 @@ function handleUnclearResponse(text, field, language = 'es') {
     },
     time: {
       es: [
-        'No entendí bien la hora. ¿A qué hora prefieren?',
-        '¿A qué hora? Pueden decir por ejemplo: las ocho, las ocho y media...',
-        'Disculpe, no capté la hora. ¿A qué hora les gustaría venir?',
-        '¿Podrían repetir? ¿A qué hora?',
-        'No entendí. ¿A qué hora quieren la reserva?'
+        'Perdón, no he entendido bien la hora. ¿A qué hora prefieren?',
+        '¿A qué hora les gustaría venir? Pueden decir, por ejemplo: las ocho, las ocho y media...',
+        'Disculpe, no he captado bien la hora. ¿A qué hora les vendría mejor?',
+        '¿Podrían repetirlo, por favor? ¿A qué hora desean hacer la reserva?',
+        'No lo he entendido bien. ¿A qué hora quieren la reserva?',
+        'Lo siento, no he oído bien la hora. ¿A qué hora les gustaría venir?',
+        'Perdón, no lo he captado. ¿Qué hora les viene mejor?',
+        'Disculpe, ¿podría repetir la hora? ¿A qué hora desean la reserva?',
+        'No he entendido bien. ¿Me puede decir a qué hora les gustaría venir?'
       ],
       en: [
         'I didn\'t understand the time well. What time do you prefer?',
@@ -6528,11 +6658,15 @@ function handleUnclearResponse(text, field, language = 'es') {
     },
     name: {
       es: [
-        'Disculpe, no entendí bien su nombre. ¿Cómo se llama?',
-        '¿Su nombre? Por favor, dígamelo despacio.',
-        'No capté su nombre. ¿Podría repetirlo?',
-        'Disculpe, ¿cómo se llama?',
-        '¿Podría decirme su nombre otra vez?'
+        'Disculpe, no he entendido bien su nombre. ¿Cómo se llama, por favor?',
+        '¿Me puede decir su nombre? Por favor, dígamelo despacio.',
+        'Perdón, no he captado bien su nombre. ¿Podría repetirlo?',
+        'Disculpe, ¿cómo se llama para la reserva?',
+        '¿Podría decirme su nombre otra vez, por favor?',
+        'Lo siento, no he oído bien su nombre. ¿Cómo se llama?',
+        'Perdón, no lo he captado. ¿Me puede decir su nombre otra vez?',
+        'Disculpe, ¿podría repetir su nombre? No lo he entendido bien.',
+        'No he entendido bien. ¿Me puede decir su nombre, por favor?'
       ],
       en: [
         'Sorry, I didn\'t understand your name well. What\'s your name?',
@@ -6572,11 +6706,11 @@ function handleUnclearResponse(text, field, language = 'es') {
     },
     phone: {
       es: [
-        'No entendí bien el número. ¿Podría decirlo dígito por dígito?',
-        '¿El número de teléfono? Dígalo despacio, número por número.',
-        'Disculpe, no capté el teléfono. ¿Puede repetirlo?',
-        '¿Podría repetir el número? Dígito por dígito.',
-        'No entendí. ¿Su número de teléfono?'
+        'Perdón, no he entendido bien el número. ¿Podría decirlo dígito por dígito, por favor?',
+        '¿Me puede dar su número de teléfono? Dígalo despacio, número por número.',
+        'Disculpe, no he captado bien el teléfono. ¿Puede repetirlo, por favor?',
+        '¿Podría repetir el número? Dígito por dígito, si es posible.',
+        'No lo he entendido bien. ¿Cuál es su número de teléfono?'
       ],
       en: [
         'I didn\'t understand the number well. Could you say it digit by digit?',
@@ -7821,7 +7955,7 @@ function getConfirmationMessage(data, language = 'es') {
   const phoneFormatted = formatPhoneForSpeech(data.TelefonReserva, language);
   
   const confirmations = {
-    es: `Confirmo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}, teléfono ${phoneFormatted}. ¿Es correcto?`,
+    es: `Perfecto, ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, el día ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}, teléfono ${phoneFormatted}. ¿Les parece correcto?`,
     en: `I confirm: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'person' : 'people'}, ${formatDateEnglish(data.FechaReserva)} at ${data.HoraReserva}, under the name of ${data.NomReserva}, phone ${phoneFormatted}. Is it correct?`,
     de: `Ich bestätige: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'Person' : 'Personen'}, ${formatDateGerman(data.FechaReserva)} um ${data.HoraReserva}, unter dem Namen ${data.NomReserva}, Telefon ${phoneFormatted}. Ist es richtig?`,
     it: `Confermo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'persone'}, ${formatDateItalian(data.FechaReserva)} alle ${data.HoraReserva}, a nome di ${data.NomReserva}, telefono ${phoneFormatted}. È corretto?`,
@@ -7946,9 +8080,9 @@ function getPartialConfirmationMessage(data, missingField, language = 'es') {
   const messages = {
     es: {
       prefix: parts.length > 0 ? `Perfecto, ${parts.join(', ')}.` : 'Perfecto.',
-      time: '¿A qué hora desean la reserva?',
-      date: '¿Para qué día desean la reserva?',
-      people: '¿Para cuántas personas desean la reserva?',
+      time: '¿A qué hora les gustaría venir?',
+      date: '¿Para qué día desean hacer la reserva?',
+      people: '¿Para cuántas personas será la reserva?',
       name: '¿A nombre de quién será la reserva?'
     },
     en: {
