@@ -392,8 +392,15 @@ ${horariosStr}
 4. VALIDA contra las restricciones del restaurante:
    - Si el número de comensales es mayor a ${restaurantConfig.maxPersonasMesa}, marca "comensales_validos": "false" y "comensales_error": "max_exceeded"
    - Si el número de comensales es menor a ${restaurantConfig.minPersonas}, marca "comensales_validos": "false" y "comensales_error": "min_not_met"
-   - Si la hora está FUERA de los horarios del restaurante, marca "hora_disponible": "false" y "hora_error": "fuera_horario"
-   - Si la hora está DENTRO de los horarios, marca "hora_disponible": "true"
+   - VALIDACIÓN DE HORA (MUY IMPORTANTE): 
+     * Si la hora extraída está DENTRO de alguno de los horarios de servicio listados arriba, marca "hora_disponible": "true"
+     * Si la hora extraída está FUERA de todos los horarios de servicio, marca "hora_disponible": "false" y "hora_error": "fuera_horario"
+     * Ejemplos:
+       - Si la hora es 14:00 y hay horario de comida 13:00-15:00, entonces está DENTRO → "hora_disponible": "true"
+       - Si la hora es 16:00 y los horarios son 08:00-11:00, 13:00-15:00, 19:00-23:00, entonces está FUERA → "hora_disponible": "false", "hora_error": "fuera_horario"
+       - Si la hora es 10:00 y hay horario de desayuno 08:00-11:00, entonces está DENTRO → "hora_disponible": "true"
+       - Si la hora es 12:00 y los horarios son 08:00-11:00, 13:00-15:00, 19:00-23:00, entonces está FUERA → "hora_disponible": "false", "hora_error": "fuera_horario"
+     * SIEMPRE valida la hora contra los horarios listados arriba antes de marcar "hora_disponible"
 5. Convierte todo a formato estándar:
    - Comensales: SIEMPRE extrae el número mencionado en el texto, incluso si es mayor a ${restaurantConfig.maxPersonasMesa}. Si el texto dice "30 personas", devuelve "30" con credibilidad 100%. Si no hay número, devuelve null con credibilidad 0%.
    - Fecha: YYYY-MM-DD
@@ -852,6 +859,18 @@ async function processConversationStep(state, userInput) {
               };
             }
             
+            // Verificar si hay error de horario (validado por Gemini)
+            if (state.data.horaError === 'fuera_horario') {
+              const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+              // Limpiar el error y la hora para que el usuario pueda proporcionar otra
+              delete state.data.HoraReserva;
+              delete state.data.horaError;
+              return {
+                message: getRandomMessage(timeErrorMessages),
+                gather: true
+              };
+            }
+            
             // Determinar qué falta
             const missing = determineMissingFields(analysis, state.data);
             
@@ -979,6 +998,18 @@ async function processConversationStep(state, userInput) {
              const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
              return {
                message: getRandomMessage(maxPeopleMessages),
+               gather: true
+             };
+           }
+           
+           // Verificar si hay error de horario (validado por Gemini)
+           if (state.data.horaError === 'fuera_horario') {
+             const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+             // Limpiar el error y la hora para que el usuario pueda proporcionar otra
+             delete state.data.HoraReserva;
+             delete state.data.horaError;
+             return {
+               message: getRandomMessage(timeErrorMessages),
                gather: true
              };
            }
