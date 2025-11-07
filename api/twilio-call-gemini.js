@@ -315,7 +315,7 @@ Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas 
 3. Si estás muy seguro, usa 100%.
 4. Valida la hora contra el horario del restaurante. Si está fuera de horario, marca enhorario:false.
 5. Convierte todo a formato estándar:
-   - Comensales: número (1-20)
+   - Comensales: SIEMPRE extrae el número mencionado en el texto, incluso si es mayor a 20. Si el texto dice "30 personas", devuelve "30" con credibilidad 100%. Si no hay número, devuelve null con credibilidad 0%.
    - Fecha: YYYY-MM-DD
    - Hora: HH:MM (formato 24h)
    - Intolerancias: "true" o "false"
@@ -502,9 +502,24 @@ async function applyGeminiAnalysisToState(analysis, state) {
   };
   
   // Comensales - Validar contra configuración del restaurante
-  if (analysis.comensales && applyIfConfident(analysis.comensales, analysis.comensales_porcentaje_credivilidad)) {
-    const peopleCount = parseInt(analysis.comensales);
-    
+  // Manejar caso cuando Gemini retorna null pero el porcentaje es alto (extraer del texto original)
+  let peopleCount = null;
+  const comensalesCredibility = parseInt(analysis.comensales_porcentaje_credivilidad || '0%');
+  
+  if (analysis.comensales) {
+    // Gemini retornó un valor
+    if (applyIfConfident(analysis.comensales, analysis.comensales_porcentaje_credivilidad)) {
+      peopleCount = parseInt(analysis.comensales);
+    }
+  } else if (comensalesCredibility >= 50) {
+    // Gemini retornó null pero tiene alta credibilidad - intentar extraer del texto original
+    // Esto puede pasar cuando el número está fuera del rango mencionado en el prompt
+    console.log('⚠️ [WARNING] Gemini retornó comensales=null pero credibilidad alta, intentando extraer del texto');
+    // Esta lógica se manejará en el paso ask_people donde tenemos acceso al userInput
+  }
+  
+  // Si tenemos un número válido, validar y aplicar
+  if (peopleCount !== null && !isNaN(peopleCount)) {
     // Validar mínimo
     if (peopleCount < 1) {
       logger.warn('Número de personas inválido (menor a 1)', { peopleCount });
@@ -518,6 +533,8 @@ async function applyGeminiAnalysisToState(analysis, state) {
     // Validar máximo usando configuración del restaurante
     try {
       const config = await getRestaurantConfig();
+      console.log(`🔍 [VALIDATION] Validando ${peopleCount} personas contra máximo: ${config.maxPersonasMesa}`);
+      
       if (peopleCount > config.maxPersonasMesa) {
         logger.warn('Número de personas excede el máximo', { 
           peopleCount, 
@@ -535,14 +552,16 @@ async function applyGeminiAnalysisToState(analysis, state) {
       state.data.NumeroReserva = peopleCount;
       logger.reservation(`Comensales aplicados: ${peopleCount}`);
     } catch (error) {
+      console.error('❌ [ERROR] Error obteniendo configuración del restaurante:', error);
       // Si falla obtener config, usar valor por defecto
-      if (peopleCount > 20) {
+      const defaultMax = 20;
+      if (peopleCount > defaultMax) {
         logger.warn('Número de personas excede el máximo (fallback)', { peopleCount });
         return { 
           success: false, 
           error: 'people_too_many',
-          maxPersonas: 20,
-          message: 'El máximo de personas por reserva es 20'
+          maxPersonas: defaultMax,
+          message: `El máximo de personas por reserva es ${defaultMax}`
         };
       }
       state.data.NumeroReserva = peopleCount;
@@ -979,6 +998,36 @@ async function processConversationStep(state, userInput) {
        // Usar Gemini para extraer información de la respuesta del usuario
        const peopleAnalysis = await analyzeReservationWithGemini(userInput);
        if (peopleAnalysis) {
+         // Si Gemini retornó null pero tiene alta credibilidad, intentar extraer del texto
+         if (!peopleAnalysis.comensales && parseInt(peopleAnalysis.comensales_porcentaje_credivilidad || '0%') >= 50) {
+           console.log('⚠️ [WARNING] Gemini retornó comensales=null con alta credibilidad, extrayendo del texto original');
+           // Primero intentar con regex para capturar cualquier número (sin límite)
+           const numberMatch = userInput.match(/\b(\d+)\s*(?:personas?|personas|gente|comensales?|invitados?)\b/i);
+           if (numberMatch) {
+             const regexNumber = parseInt(numberMatch[1]);
+             console.log(`✅ [EXTRACTION] Número extraído con regex: ${regexNumber}`);
+             peopleAnalysis.comensales = regexNumber.toString();
+             peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+           } else {
+             // Si no hay match con "personas", intentar solo número cerca de palabras relacionadas
+             const numberMatch2 = userInput.match(/(?:para|de|con|son)\s+(\d+)/i);
+             if (numberMatch2) {
+               const regexNumber2 = parseInt(numberMatch2[1]);
+               console.log(`✅ [EXTRACTION] Número extraído (sin palabra personas): ${regexNumber2}`);
+               peopleAnalysis.comensales = regexNumber2.toString();
+               peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+             } else {
+               // Último intento: usar extractPeopleCount (limitado a 1-20)
+               const extractedNumber = extractPeopleCount(userInput);
+               if (extractedNumber && extractedNumber > 0) {
+                 console.log(`✅ [EXTRACTION] Número extraído con extractPeopleCount: ${extractedNumber}`);
+                 peopleAnalysis.comensales = extractedNumber.toString();
+                 peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+               }
+             }
+           }
+         }
+         
          const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state);
          
          // Si hay error de validación (ej: demasiadas personas), mostrar mensaje
