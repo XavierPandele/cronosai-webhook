@@ -5,6 +5,7 @@ const { getRestaurantConfig, getRestaurantHours } = require('../config/restauran
 const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservation } = require('../lib/capacity');
 const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
 const logger = require('../lib/logging');
+const { sendReservationConfirmationRcs } = require('../lib/rcs');
 const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
 
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
@@ -353,6 +354,15 @@ module.exports = async function handler(req, res) {
       conversationStates.delete(CallSid);
       await deleteCallState(CallSid);
       callLogger.info('RESERVATION_COMPLETED');
+
+      await sendReservationConfirmationRcs({
+        phone: state.data.TelefonReserva || state.phone,
+        name: state.data.NomReserva,
+        date: state.data.FechaReserva,
+        time: state.data.HoraReserva,
+        people: state.data.NumeroReserva,
+        language: state.language || 'es'
+      }, callLogger);
     }
 
     // Generar TwiML response
