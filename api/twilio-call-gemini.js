@@ -897,19 +897,45 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   return { success: true };
 }
 
+const ORDER_STOP_WORDS = new Set([
+  'el', 'la', 'los', 'las', 'de', 'del', 'con', 'sin', 'para', 'por', 'al', 'a', 'en', 'un', 'una', 'unos', 'unas', 'lo', 'le', 'les'
+]);
+
 function normalizeOrderString(value = '') {
   return (value || '')
     .toString()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
     .toLowerCase()
     .trim();
 }
 
+function singularizeToken(token) {
+  if (!token || token.length <= 3) {
+    return token;
+  }
+  if (token.endsWith('es') && token.length > 4) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith('s')) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+function tokenizeOrder(value = '') {
+  return normalizeOrderString(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(token => !ORDER_STOP_WORDS.has(token))
+    .map(singularizeToken);
+}
+
 function computeTokenSimilarity(a, b) {
   if (!a || !b) return 0;
-  const tokensA = Array.from(new Set(normalizeOrderString(a).split(/\s+/).filter(Boolean)));
-  const tokensB = Array.from(new Set(normalizeOrderString(b).split(/\s+/).filter(Boolean)));
+  const tokensA = Array.from(new Set(tokenizeOrder(a)));
+  const tokensB = Array.from(new Set(tokenizeOrder(b)));
   if (!tokensA.length || !tokensB.length) return 0;
   const intersection = tokensA.filter(token => tokensB.includes(token));
   return intersection.length / Math.max(tokensA.length, tokensB.length);
@@ -1091,9 +1117,6 @@ function determineOrderNextStep(order) {
   if (!order.name) {
     return 'order_ask_name';
   }
-  if (!order.phone) {
-    return 'order_ask_phone';
-  }
   return 'order_confirm';
 }
 
@@ -1103,7 +1126,7 @@ function ensureOrderState(state) {
       items: [],
       address: null,
       name: null,
-      phone: null,
+      phone: state.phone || null,
       notes: null,
       total: 0,
       rawHistory: []
@@ -1111,6 +1134,9 @@ function ensureOrderState(state) {
   } else {
     state.order.items = state.order.items || [];
     state.order.rawHistory = state.order.rawHistory || [];
+    if (!state.order.phone && state.phone) {
+      state.order.phone = state.phone;
+    }
   }
   return state.order;
 }
@@ -1134,8 +1160,11 @@ async function updateOrderStateFromAnalysis(state, analysis, userInput, callLogg
   if (analysis?.direccion_entrega && !order.address) {
     order.address = analysis.direccion_entrega;
   }
-  if (analysis?.nombre_cliente && !order.name) {
-    order.name = analysis.nombre_cliente;
+  if (analysis?.nombre_cliente) {
+    const extractedName = extractName(analysis.nombre_cliente);
+    if (extractedName) {
+      order.name = extractedName;
+    }
   }
   if (analysis?.telefono_cliente && !order.phone) {
     order.phone = analysis.telefono_cliente;
@@ -1236,7 +1265,8 @@ async function handleOrderAddressStep(state, userInput) {
 
 async function handleOrderNameStep(state, userInput) {
   const order = ensureOrderState(state);
-  order.name = userInput.trim();
+  const extracted = extractName(userInput);
+  order.name = extracted || userInput.trim();
   const nextStep = determineOrderNextStep(order);
   state.step = nextStep;
   const menuItems = await loadMenuItems();
