@@ -1033,7 +1033,7 @@ function recalculateOrderTotals(order) {
     return {
       ...item,
       cantidad: quantity,
-      precio,
+      precio: price,
       subtotal
     };
   });
