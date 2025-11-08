@@ -5,6 +5,7 @@ const { getRestaurantConfig, getRestaurantHours } = require('../config/restauran
 const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservation } = require('../lib/capacity');
 const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
 const logger = require('../lib/logging');
+const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
 
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
@@ -148,13 +149,33 @@ module.exports = async function handler(req, res) {
     }
 
     // Obtener o crear estado de conversación
-    let state = conversationStates.get(CallSid) || {
-      step: 'greeting',
-      data: {},
-      phone: From,
-      conversationHistory: [],
-      language: 'es' // Detectar idioma por defecto
-    };
+    let state = conversationStates.get(CallSid);
+
+    if (!state) {
+      state = await loadCallState(CallSid);
+      if (state) {
+        conversationStates.set(CallSid, state);
+      }
+    }
+
+    if (!state) {
+      state = {
+        step: 'greeting',
+        data: {},
+        phone: From,
+        conversationHistory: [],
+        language: 'es'
+      };
+    }
+
+    // Asegurar datos críticos en el estado
+    state.callSid = CallSid;
+    if (!state.phone && From) {
+      state.phone = From;
+    }
+    if (!state.language) {
+      state.language = 'es';
+    }
     
     // Log del estado recuperado
     console.log(`📊 [DEBUG] Estado recuperado: step=${state.step}, phone=${state.phone}, language=${state.language}`);
@@ -198,6 +219,7 @@ module.exports = async function handler(req, res) {
         // Guardar el input del usuario en el estado antes de redirigir
         state.pendingInput = userInput;
         conversationStates.set(CallSid, state);
+        await saveCallState(CallSid, state);
         
         // Generar TwiML con mensaje de procesando y redirect
         // Pausa de 2 segundos antes del mensaje para simular tiempo de "pensamiento"
@@ -252,6 +274,7 @@ module.exports = async function handler(req, res) {
     // Actualizar estado
     console.log(`💾 [DEBUG] Guardando estado: step=${state.step}, CallSid=${CallSid}`);
     conversationStates.set(CallSid, state);
+    await saveCallState(CallSid, state);
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -289,6 +312,8 @@ module.exports = async function handler(req, res) {
         // Volver al paso de confirmación para que el usuario pueda aceptar alternativa
         state.step = 'confirm';
         state.data.originalFechaHora = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+        conversationStates.set(CallSid, state);
+        await saveCallState(CallSid, state);
         
         const twiml = generateTwiML({ message, gather: true }, state.language);
         res.setHeader('Content-Type', 'text/xml');
@@ -296,7 +321,8 @@ module.exports = async function handler(req, res) {
       }
       
       // Limpiar el estado después de guardar
-      setTimeout(() => conversationStates.delete(CallSid), 60000); // Limpiar después de 1 minuto
+      conversationStates.delete(CallSid);
+      await deleteCallState(CallSid);
     }
 
     // Generar TwiML response
@@ -1530,10 +1556,6 @@ async function processConversationStep(state, userInput) {
     case 'complete':
       // Estado completado - reserva exitosa
       console.log(`✅ [COMPLETE] Reserva completada exitosamente`);
-      
-      // Limpiar el estado después de un tiempo
-      setTimeout(() => conversationStates.delete(state.callSid), 60000);
-      
       // Devolver mensaje de confirmación final
       const completeMessages = getMultilingualMessages('complete', state.language);
       return {
