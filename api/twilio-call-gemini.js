@@ -5,7 +5,7 @@ const { getRestaurantConfig, getRestaurantHours } = require('../config/restauran
 const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservation } = require('../lib/capacity');
 const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
 const logger = require('../lib/logging');
-const { sendReservationConfirmationRcs } = require('../lib/rcs');
+const { sendReservationConfirmationRcs, sendOrderConfirmationRcs } = require('../lib/rcs');
 const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
 
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
@@ -24,6 +24,48 @@ let restaurantConfig = {
   horario3Fin: '23:00',
   minAntelacionHoras: 2
 };
+
+// ===== CARTA DEL RESTAURANTE =====
+let menuItemsCache = [];
+let menuLoadedAt = 0;
+const MENU_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+async function loadMenuItems(force = false) {
+  const now = Date.now();
+  if (!force && menuItemsCache.length > 0 && (now - menuLoadedAt) < MENU_CACHE_TTL_MS) {
+    return menuItemsCache;
+  }
+
+  try {
+    const rows = await executeQuery(
+      'SELECT id, nombre, precio, descripcion FROM menu ORDER BY nombre ASC'
+    );
+    menuItemsCache = rows.map(row => ({
+      id: row.id,
+      nombre: row.nombre,
+      precio: Number.parseFloat(row.precio),
+      descripcion: row.descripcion || ''
+    }));
+    menuLoadedAt = now;
+  } catch (error) {
+    logger.error('MENU_LOAD_FAILED', { message: error.message });
+    if (menuItemsCache.length === 0) {
+      menuItemsCache = [];
+    }
+  }
+
+  return menuItemsCache;
+}
+
+function formatMenuForPrompt(items = []) {
+  if (!items.length) {
+    return 'No hay elementos en el menú disponibles actualmente.';
+  }
+
+  return items
+    .map(item => `- ID: ${item.id} | Nombre: ${item.nombre} | Precio: ${item.precio.toFixed(2)} | Descripción: ${item.descripcion}`)
+    .join('\n');
+}
 
 // Cargar configuración del restaurante al inicio
 let configLoaded = false;
@@ -363,6 +405,10 @@ module.exports = async function handler(req, res) {
         people: state.data.NumeroReserva,
         language: state.language || 'es'
       }, callLogger);
+    } else if (state.step === 'order_complete') {
+      conversationStates.delete(CallSid);
+      await deleteCallState(CallSid);
+      callLogger.info('ORDER_COMPLETED');
     }
 
     // Generar TwiML response
@@ -432,6 +478,7 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       horariosInfo.push(`  - Cena: ${restaurantConfig.horario3Inicio} - ${restaurantConfig.horario3Fin}`);
     }
     const horariosStr = horariosInfo.length > 0 ? horariosInfo.join('\n') : '  - Comida: 13:00 - 15:00\n  - Cena: 19:00 - 23:00';
+    const menuStr = formatMenuForPrompt(menuItems);
     
     // Prompt optimizado para extracción máxima de información
     const prompt = `## MISIÓN
@@ -449,6 +496,9 @@ Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas 
 - Horarios de servicio:
 ${horariosStr}
 - Antelación mínima requerida: ${restaurantConfig.minAntelacionHoras} horas
+
+## MENÚ DISPONIBLE (PEDIDOS A DOMICILIO)
+${menuStr}
 
 ## TEXTO A ANALIZAR
 "${userInput}"
@@ -479,7 +529,7 @@ ${horariosStr}
 
 ## FORMATO DE SALIDA (SOLO JSON, sin explicaciones)
 {
-  "intencion": "reservation" | "modify" | "cancel" | "clarify",
+  "intencion": "reservation" | "modify" | "cancel" | "order" | "clarify",
   "comensales": null o "número",
   "comensales_porcentaje_credivilidad": "0%" | "50%" | "100%",
   "comensales_validos": "true" | "false" | null,
@@ -496,14 +546,34 @@ ${horariosStr}
   "movilidad_porcentaje_credivilidad": "0%" | "50%" | "100%",
   "nombre": null o "texto",
   "nombre_porcentaje_credivilidad": "0%" | "50%" | "100%",
-  "idioma_detectado": "es" | "en" | "de" | "fr" | "it" | "pt"
+  "idioma_detectado": "es" | "en" | "de" | "fr" | "it" | "pt",
+  "pedido_items": [
+    {
+      "nombre_detectado": null,
+      "cantidad_detectada": null,
+      "comentarios": null
+    }
+  ],
+  "direccion_entrega": null,
+  "nombre_cliente": null,
+  "telefono_cliente": null,
+  "notas_pedido": null
 }
 
 NOTA SOBRE INTENCIÓN:
 - "reservation": El usuario quiere hacer una nueva reserva
 - "modify": El usuario quiere modificar una reserva existente
 - "cancel": El usuario quiere cancelar una reserva existente
+- "order": El usuario quiere hacer un pedido a domicilio usando la carta
 - "clarify": El texto es ambiguo o no indica una intención clara
+
+NOTA SOBRE "order":
+- Usa el menú disponible para reconocer los productos solicitados.
+- Cada elemento de "pedido_items" representa un producto mencionado por el cliente.
+- "nombre_detectado" debe contener lo que dijo el cliente. Si puedes mapearlo al menú, inclúyelo en "comentarios" como "menu: <nombre exacto>".
+- "cantidad_detectada" debe incluir el número solicitado (como string). Si no se menciona, usa "1".
+- Si menciona dirección, nombre o teléfono, complétalos en los campos correspondientes.
+- Cualquier otra instrucción (salsas, extras) debe ir en "notas_pedido".
 
 NOTA SOBRE VALIDACIONES:
 - "comensales_validos": "false" si el número excede el máximo o es menor al mínimo
@@ -826,6 +896,476 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   return { success: true };
 }
 
+function normalizeOrderString(value = '') {
+  return (value || '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function computeTokenSimilarity(a, b) {
+  if (!a || !b) return 0;
+  const tokensA = Array.from(new Set(normalizeOrderString(a).split(/\s+/).filter(Boolean)));
+  const tokensB = Array.from(new Set(normalizeOrderString(b).split(/\s+/).filter(Boolean)));
+  if (!tokensA.length || !tokensB.length) return 0;
+  const intersection = tokensA.filter(token => tokensB.includes(token));
+  return intersection.length / Math.max(tokensA.length, tokensB.length);
+}
+
+function findBestMenuMatch(rawName, menuItems = []) {
+  if (!rawName) {
+    return { match: null, score: 0 };
+  }
+  const normalizedRaw = normalizeOrderString(rawName);
+  let best = { match: null, score: 0 };
+
+  menuItems.forEach(item => {
+    const normalizedMenu = normalizeOrderString(item.nombre);
+    let score = 0;
+    if (normalizedMenu === normalizedRaw) {
+      score = 1;
+    } else if (normalizedMenu.includes(normalizedRaw) || normalizedRaw.includes(normalizedMenu)) {
+      score = 0.85;
+    } else {
+      score = computeTokenSimilarity(normalizedRaw, normalizedMenu);
+    }
+
+    if (score > best.score) {
+      best = { match: item, score };
+    }
+  });
+
+  return best;
+}
+
+function mapOrderItemsFromAnalysis(analysis, menuItems = []) {
+  const items = Array.isArray(analysis?.pedido_items) ? analysis.pedido_items : [];
+  const mapped = [];
+
+  items.forEach(item => {
+    const rawName =
+      item?.nombre_detectado ||
+      item?.producto ||
+      item?.producto_detectado ||
+      item?.comentarios ||
+      '';
+    if (!rawName || typeof rawName !== 'string') {
+      return;
+    }
+
+    const quantityRaw = item?.cantidad_detectada || item?.cantidad || '1';
+    let quantity = parseInt(quantityRaw, 10);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      quantity = 1;
+    }
+
+    const { match, score } = findBestMenuMatch(rawName, menuItems);
+    const menuMatch = score >= 0.55 ? match : null;
+    const price = menuMatch ? Number.parseFloat(menuMatch.precio) : null;
+
+    mapped.push({
+      id_menu: menuMatch ? menuMatch.id : null,
+      nombre_menu: menuMatch ? menuMatch.nombre : null,
+      nombre: menuMatch ? menuMatch.nombre : rawName,
+      cantidad: quantity,
+      precio: price,
+      subtotal: Number.isFinite(price) ? price * quantity : null,
+      match_score: score,
+      menuMatch: Boolean(menuMatch),
+      comentarios: item?.comentarios || null,
+      raw: rawName
+    });
+  });
+
+  return mapped;
+}
+
+function mergeOrderItems(existing = [], incoming = []) {
+  if (!incoming.length) {
+    return existing;
+  }
+
+  const result = [...existing];
+
+  incoming.forEach(item => {
+    const identifier = item.id_menu || normalizeOrderString(item.nombre);
+    const existingIndex = result.findIndex(existingItem => {
+      if (existingItem.id_menu && item.id_menu) {
+        return existingItem.id_menu === item.id_menu;
+      }
+      return normalizeOrderString(existingItem.nombre) === identifier;
+    });
+
+    if (existingIndex >= 0) {
+      result[existingIndex] = {
+        ...result[existingIndex],
+        ...item,
+        cantidad: item.cantidad || result[existingIndex].cantidad || 1
+      };
+    } else {
+      result.push(item);
+    }
+  });
+
+  return result;
+}
+
+function recalculateOrderTotals(order) {
+  if (!order) {
+    return 0;
+  }
+
+  let total = 0;
+  let pendingConfirmation = 0;
+
+  order.items = (order.items || []).map(item => {
+    const quantity = item.cantidad || 1;
+    const price = Number.isFinite(item.precio) ? item.precio : Number.parseFloat(item.precio || '0');
+    const subtotal = Number.isFinite(price) ? price * quantity : null;
+    if (Number.isFinite(subtotal)) {
+      total += subtotal;
+    } else {
+      pendingConfirmation += 1;
+    }
+    return {
+      ...item,
+      cantidad: quantity,
+      precio,
+      subtotal
+    };
+  });
+
+  order.total = Number(total.toFixed(2));
+  order.pendingItems = pendingConfirmation;
+  return order.total;
+}
+
+function buildOrderSummary(order, language = 'es', includePrices = true) {
+  if (!order?.items || order.items.length === 0) {
+    return language === 'en'
+      ? 'I have not recorded any products yet.'
+      : 'Todavía no he registrado ningún producto.';
+  }
+
+  const parts = order.items.map(item => {
+    const name = item.nombre || item.nombre_menu || item.raw || 'producto';
+    const label = item.menuMatch
+      ? name
+      : language === 'en'
+        ? `${name} (confirmar)`
+        : `${name} (por confirmar)`;
+    const qty = item.cantidad || 1;
+    const pricePart = includePrices && Number.isFinite(item.subtotal)
+      ? ` - ${item.subtotal.toFixed(2)}€`
+      : '';
+    return `${qty} × ${label}${pricePart}`;
+  });
+
+  return parts.join(', ');
+}
+
+function summarizeMenuSample(menuItems = [], language = 'es', maxItems = 5) {
+  if (!menuItems.length) {
+    return '';
+  }
+  const sample = menuItems.slice(0, maxItems).map(item => item.nombre);
+  const intro = language === 'en'
+    ? 'Some dishes available are'
+    : 'Algunos platos disponibles son';
+  return `${intro}: ${sample.join(', ')}.`;
+}
+
+function determineOrderNextStep(order) {
+  if (!order || !order.items || order.items.length === 0) {
+    return 'order_collect_items';
+  }
+  if (order.pendingItems > 0) {
+    return 'order_collect_items';
+  }
+  if (!order.address) {
+    return 'order_ask_address';
+  }
+  if (!order.name) {
+    return 'order_ask_name';
+  }
+  if (!order.phone) {
+    return 'order_ask_phone';
+  }
+  return 'order_confirm';
+}
+
+function ensureOrderState(state) {
+  if (!state.order) {
+    state.order = {
+      items: [],
+      address: null,
+      name: null,
+      phone: null,
+      notes: null,
+      total: 0,
+      rawHistory: []
+    };
+  } else {
+    state.order.items = state.order.items || [];
+    state.order.rawHistory = state.order.rawHistory || [];
+  }
+  return state.order;
+}
+
+async function updateOrderStateFromAnalysis(state, analysis, userInput, callLogger) {
+  const order = ensureOrderState(state);
+  const menuItems = await loadMenuItems();
+
+  if (userInput) {
+    order.rawHistory.push({
+      text: userInput,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  const mappedItems = mapOrderItemsFromAnalysis(analysis, menuItems);
+  if (mappedItems.length) {
+    order.items = mergeOrderItems(order.items, mappedItems);
+  }
+
+  if (analysis?.direccion_entrega && !order.address) {
+    order.address = analysis.direccion_entrega;
+  }
+  if (analysis?.nombre_cliente && !order.name) {
+    order.name = analysis.nombre_cliente;
+  }
+  if (analysis?.telefono_cliente && !order.phone) {
+    order.phone = analysis.telefono_cliente;
+  }
+  if (analysis?.notas_pedido) {
+    order.notes = analysis.notas_pedido;
+  }
+
+  recalculateOrderTotals(order);
+
+  if (callLogger) {
+    callLogger.debug('ORDER_STATE_UPDATED', {
+      items: order.items.length,
+      pendingItems: order.pendingItems,
+      total: order.total
+    });
+  }
+
+  return order;
+}
+
+function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
+  const summary = buildOrderSummary(order, language, true);
+  switch (step) {
+    case 'order_collect_items':
+      return order.items.length > 0 && order.pendingItems === 0
+        ? (language === 'en'
+            ? `I have your order as: ${summary}. Anything else you would like to add?`
+            : `Tengo anotado: ${summary}. ¿Quieres añadir algo más?`)
+        : (language === 'en'
+            ? `Sure, tell me what you would like to order. ${summarizeMenuSample(menuItems, 'en')}`
+            : `Claro, dime qué te gustaría pedir. ${summarizeMenuSample(menuItems, language)}`);
+    case 'order_ask_address':
+      return language === 'en'
+        ? `Great. I have the order as: ${summary}. What is the delivery address?`
+        : `Perfecto. De momento tengo: ${summary}. ¿Cuál es la dirección de entrega?`;
+    case 'order_ask_name':
+      return language === 'en'
+        ? 'A name for the order, please.'
+        : '¿A nombre de quién registramos el pedido?';
+    case 'order_ask_phone':
+      return language === 'en'
+        ? 'Could you give me a phone number to contact you if needed?'
+        : '¿Me facilitas un número de teléfono para contactarte si hace falta?';
+    case 'order_confirm': {
+      const totalStr = order.total ? `${order.total.toFixed(2)}€` : (language === 'en' ? 'pending' : 'pendiente');
+      return language === 'en'
+        ? `Order summary: ${summary}. Total: ${totalStr}. Shall we confirm and prepare it?`
+        : `Resumen del pedido: ${summary}. Total: ${totalStr}. ¿Confirmamos para prepararlo?`;
+    }
+    case 'order_complete':
+      return language === 'en'
+        ? 'Perfect! Your delivery order is confirmed. We will prepare it right away.'
+        : '¡Perfecto! Tu pedido a domicilio queda confirmado. Lo preparamos de inmediato.';
+    default:
+      return language === 'en'
+        ? 'Could you repeat that, please?'
+        : '¿Podrías repetirlo, por favor?';
+  }
+}
+
+async function handleOrderIntent(state, analysis, callLogger, userInput) {
+  await updateOrderStateFromAnalysis(state, analysis, userInput, callLogger);
+  const order = ensureOrderState(state);
+  const menuItems = await loadMenuItems();
+  const nextStep = determineOrderNextStep(order);
+  state.step = nextStep;
+  return {
+    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    gather: true
+  };
+}
+
+async function handleOrderCollectItems(state, userInput, callLogger) {
+  const analysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+  await updateOrderStateFromAnalysis(state, analysis || {}, userInput, callLogger);
+  const order = ensureOrderState(state);
+  const menuItems = await loadMenuItems();
+  const nextStep = determineOrderNextStep(order);
+  state.step = nextStep;
+  return {
+    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    gather: true
+  };
+}
+
+async function handleOrderAddressStep(state, userInput) {
+  const order = ensureOrderState(state);
+  order.address = userInput.trim();
+  const nextStep = determineOrderNextStep(order);
+  state.step = nextStep;
+  const menuItems = await loadMenuItems();
+  return {
+    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    gather: true
+  };
+}
+
+async function handleOrderNameStep(state, userInput) {
+  const order = ensureOrderState(state);
+  order.name = userInput.trim();
+  const nextStep = determineOrderNextStep(order);
+  state.step = nextStep;
+  const menuItems = await loadMenuItems();
+  return {
+    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    gather: true
+  };
+}
+
+async function handleOrderPhoneStep(state, userInput) {
+  const order = ensureOrderState(state);
+  const phone = extractPhoneNumber(userInput) || userInput.replace(/\s+/g, '');
+  if (!phone || phone.length < 6) {
+    return {
+      message: state.language === 'en'
+        ? 'I could not capture the phone number. Could you repeat it with all the digits, please?'
+        : 'No he captado bien el número de teléfono. ¿Podrías repetirlo con todos los dígitos, por favor?',
+      gather: true
+    };
+  }
+
+  order.phone = phone;
+  const nextStep = determineOrderNextStep(order);
+  state.step = nextStep;
+  const menuItems = await loadMenuItems();
+  return {
+    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    gather: true
+  };
+}
+
+function createOrderConfirmationMessage(order, language = 'es') {
+  return getOrderStepMessage(order, 'order_confirm', language);
+}
+
+async function saveOrder(state, callLogger) {
+  const order = state.order;
+  if (!order || !order.items || order.items.length === 0) {
+    return { success: false, error: 'NO_ITEMS' };
+  }
+
+  const connection = await createConnection();
+  try {
+    await connection.beginTransaction();
+    const observaciones = JSON.stringify({
+      items: order.items,
+      notes: order.notes || null,
+      history: order.rawHistory || []
+    });
+
+    const [result] = await connection.execute(
+      `INSERT INTO pedidos_realizados
+        (cliente_nombre, cliente_telefono, direccion_entrega, observaciones, total, estado)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        order.name || 'Cliente',
+        order.phone || state.phone || null,
+        order.address || null,
+        observaciones,
+        Number.isFinite(order.total) ? order.total : 0,
+        'pendiente'
+      ]
+    );
+
+    await connection.commit();
+    const orderId = result.insertId;
+    if (callLogger) {
+      callLogger.info('ORDER_SAVED', { orderId, total: order.total });
+    }
+    return { success: true, orderId };
+  } catch (error) {
+    await connection.rollback();
+    logger.error('ORDER_SAVE_FAILED', { message: error.message });
+    return { success: false, error: error.message };
+  } finally {
+    await connection.end();
+  }
+}
+
+async function handleOrderConfirm(state, userInput, callLogger) {
+  const order = ensureOrderState(state);
+  const confirmation = handleConfirmationResponse(userInput.toLowerCase());
+
+  if (confirmation.action === 'confirm') {
+    const saveResult = await saveOrder(state, callLogger);
+    if (!saveResult.success) {
+      return {
+        message: state.language === 'en'
+          ? 'There was an error saving the order. Could you repeat it later or contact the restaurant?'
+          : 'Ha ocurrido un error guardando el pedido. ¿Podrías repetirlo más tarde o contactar con el restaurante?',
+        gather: false
+      };
+    }
+
+    state.order.orderId = saveResult.orderId;
+    state.step = 'order_complete';
+
+    await sendOrderConfirmationRcs({
+      phone: order.phone || state.phone,
+      name: order.name,
+      total: order.total,
+      items: order.items,
+      address: order.address,
+      language: state.language || 'es'
+    }, callLogger);
+
+    return {
+      message: getOrderStepMessage(order, 'order_complete', state.language || 'es'),
+      gather: false
+    };
+  }
+
+  if (confirmation.action === 'modify' || confirmation.action === 'restart') {
+    state.step = 'order_collect_items';
+    return {
+      message: state.language === 'en'
+        ? 'Of course. Tell me what changes you would like to make to the order.'
+        : 'Claro. Dime qué cambios te gustaría hacer en el pedido.',
+      gather: true
+    };
+  }
+
+  return {
+    message: state.language === 'en'
+      ? 'I did not catch that. Could you confirm if the order is correct?'
+      : 'No lo he entendido. ¿Me confirmas si el pedido está correcto?',
+    gather: true
+  };
+}
+
 async function processConversationStep(state, userInput, callLogger) {
   const step = state.step;
   const text = userInput.toLowerCase();
@@ -1118,6 +1658,9 @@ async function processConversationStep(state, userInput, callLogger) {
           } else if (intention === 'cancel') {
             log.info('CANCELLATION_INTENT_AT_GREETING');
             return await handleCancellationRequest(state, userInput);
+          } else if (intention === 'order') {
+            log.info('ORDER_INTENT_AT_GREETING');
+            return await handleOrderIntent(state, analysis, callLogger, userInput);
           }
         }
         
@@ -1231,9 +1774,11 @@ async function processConversationStep(state, userInput, callLogger) {
          } else if (intention === 'modify') {
            // Usuario quiere modificar una reserva existente
            return await handleModificationRequest(state, userInput);
-         } else if (intention === 'cancel') {
+        } else if (intention === 'cancel') {
            // Usuario quiere cancelar una reserva existente
            return await handleCancellationRequest(state, userInput);
+        } else if (intention === 'order') {
+          return await handleOrderIntent(state, analysis, callLogger, userInput);
          }
        }
        
@@ -1282,6 +1827,27 @@ async function processConversationStep(state, userInput, callLogger) {
 
      case 'cancel_no_reservations':
        return await handleCancelNoReservations(state, userInput);
+
+    case 'order_collect_items':
+      return await handleOrderCollectItems(state, userInput, callLogger);
+
+    case 'order_ask_address':
+      return await handleOrderAddressStep(state, userInput);
+
+    case 'order_ask_name':
+      return await handleOrderNameStep(state, userInput);
+
+    case 'order_ask_phone':
+      return await handleOrderPhoneStep(state, userInput);
+
+    case 'order_confirm':
+      return await handleOrderConfirm(state, userInput, callLogger);
+
+    case 'order_complete':
+      return {
+        message: getOrderStepMessage(state.order, 'order_complete', state.language || 'es'),
+        gather: false
+      };
 
      case 'ask_people':
        // Validar que el input no sea muy corto o ambiguo
