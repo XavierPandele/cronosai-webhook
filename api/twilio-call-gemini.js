@@ -32,7 +32,7 @@ async function loadRestaurantConfig() {
   }
   
   try {
-    console.log('📋 [CONFIG] Cargando configuración del restaurante...');
+    logger.info('CONFIG_LOAD_START');
     const config = await getRestaurantConfig();
     
     // Asignar valores a las variables globales
@@ -51,10 +51,10 @@ async function loadRestaurantConfig() {
     };
     
     configLoaded = true;
-    console.log('✅ [CONFIG] Configuración cargada:', JSON.stringify(restaurantConfig, null, 2));
+    logger.info('CONFIG_LOADED', restaurantConfig);
     return restaurantConfig;
   } catch (error) {
-    console.error('❌ [CONFIG] Error cargando configuración, usando valores por defecto:', error);
+    logger.error('CONFIG_LOAD_FAILED', { message: error.message, stack: error.stack });
     configLoaded = true; // Marcar como cargada para no intentar infinitamente
     return restaurantConfig;
   }
@@ -99,11 +99,13 @@ module.exports = async function handler(req, res) {
     await loadRestaurantConfig();
   }
   
-  console.log('📞 Twilio Call recibida');
-  console.log('Method:', req.method);
-  console.log('Body:', req.body);
-  console.log('Body type:', typeof req.body);
-  console.log('Query:', req.query);
+  logger.info('TWILIO_WEBHOOK_RECEIVED', {
+    method: req.method,
+    url: req.url,
+    hasBody: Boolean(req.body),
+    bodyType: typeof req.body,
+    hasQuery: Object.keys(req.query || {}).length > 0
+  });
 
   try {
     // Extraer parámetros de Twilio
@@ -115,16 +117,16 @@ module.exports = async function handler(req, res) {
       if (typeof req.body === 'string') {
         const querystring = require('querystring');
         params = querystring.parse(req.body);
-        console.log('📦 Body parseado manualmente como string');
+        logger.debug('TWILIO_BODY_PARSED_STRING');
       } else if (typeof req.body === 'object') {
         // Si ya es un objeto, usarlo directamente
         params = req.body;
-        console.log('📦 Body usado directamente como objeto');
+        logger.debug('TWILIO_BODY_USED_AS_OBJECT');
       }
     } else if (req.query) {
       // Si no hay body, usar query (para GET requests)
       params = req.query;
-      console.log('📦 Usando query params');
+      logger.debug('TWILIO_USING_QUERY_PARAMS');
     }
     
     const { 
@@ -138,7 +140,7 @@ module.exports = async function handler(req, res) {
     
     // Si no hay CallSid, generar respuesta de saludo inicial
     if (!CallSid) {
-      console.warn('⚠️ CallSid no recibido. Generando respuesta de saludo inicial.');
+      logger.warn('CALL_SID_MISSING');
       const greetingMessage = '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?';
       const twiml = generateTwiML({
         message: greetingMessage,
@@ -149,6 +151,19 @@ module.exports = async function handler(req, res) {
     }
 
     // Obtener o crear estado de conversación
+    const callLogger = logger.withContext({
+      callSid: CallSid,
+      direction: params?.Direction,
+      from: From,
+      to: To,
+      accountSid: params?.AccountSid
+    });
+    callLogger.info('TWILIO_WEBHOOK_PARSED', {
+      callStatus: CallStatus,
+      apiVersion: params?.ApiVersion,
+      hasSpeechResult: Boolean(SpeechResult)
+    });
+
     let state = conversationStates.get(CallSid);
 
     if (!state) {
@@ -176,13 +191,29 @@ module.exports = async function handler(req, res) {
     if (!state.language) {
       state.language = 'es';
     }
+    const stateSource = conversationStates.has(CallSid)
+      ? 'memory'
+      : state && state.data && Object.keys(state.data).length > 0
+        ? 'database'
+        : 'new';
+
+    callLogger.update({
+      phone: state.phone,
+      language: state.language,
+      step: state.step
+    });
+    callLogger.debug('CONVERSATION_STATE_READY', { source: stateSource });
     
     // Log del estado recuperado
-    console.log(`📊 [DEBUG] Estado recuperado: step=${state.step}, phone=${state.phone}, language=${state.language}`);
+    callLogger.debug('CONVERSATION_STATE', {
+      step: state.step,
+      phone: state.phone,
+      language: state.language
+    });
     
     // Asegurar que state.data existe y es un objeto
     if (!state.data || typeof state.data !== 'object') {
-      console.warn('⚠️ [WARNING] state.data no es válido, inicializando...');
+      callLogger.warn('STATE_DATA_INVALID');
       state.data = {};
     }
 
@@ -197,7 +228,7 @@ module.exports = async function handler(req, res) {
     if (needsProcessing && state.pendingInput) {
       userInput = state.pendingInput;
       delete state.pendingInput; // Limpiar después de usar
-      console.log(`📝 [DEBUG] Usando pendingInput: "${userInput}"`);
+      callLogger.debug('USING_PENDING_INPUT', { pendingInput: userInput });
     }
     
     if (!needsProcessing && userInput) {
@@ -237,32 +268,30 @@ module.exports = async function handler(req, res) {
     }
     
     // Si estamos procesando, usar el input pendiente
-    const inputToProcess = needsProcessing ? (state.pendingInput || userInput) : userInput;
+    const inputToProcess = needsProcessing ? (userInput || '') : userInput;
     
-    if (inputToProcess && !needsProcessing) {
-      state.conversationHistory.push({
-        role: 'user',
-        message: inputToProcess,
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    // Si estamos en modo procesamiento, limpiar el input pendiente
-    if (needsProcessing && state.pendingInput) {
-      if (!state.conversationHistory.some(h => h.message === state.pendingInput && h.role === 'user')) {
+    if (inputToProcess && inputToProcess.trim()) {
+      const lastEntry = state.conversationHistory[state.conversationHistory.length - 1];
+      if (!lastEntry || lastEntry.role !== 'user' || lastEntry.message !== inputToProcess) {
         state.conversationHistory.push({
           role: 'user',
-          message: state.pendingInput,
+          message: inputToProcess,
           timestamp: new Date().toISOString()
         });
+        callLogger.debug('USER_MESSAGE_RECORDED', { message: inputToProcess });
       }
-      delete state.pendingInput;
     }
 
+
     // Procesar según el paso actual
-    console.log(`🔍 [DEBUG] Antes de processConversationStep: step=${state.step}, phone=${state.phone}`);
-    const response = await processConversationStep(state, inputToProcess);
-    console.log(`🔍 [DEBUG] Después de processConversationStep: step=${state.step}, phone=${state.phone}`);
+    callLogger.debug('BEFORE_PROCESS_STEP', { step: state.step, hasInput: Boolean(inputToProcess) });
+    const previousStep = state.step;
+    const response = await processConversationStep(state, inputToProcess, callLogger);
+    if (previousStep !== state.step) {
+      callLogger.info('STEP_TRANSITION', { from: previousStep, to: state.step });
+      callLogger.update({ step: state.step });
+    }
+    callLogger.debug('AFTER_PROCESS_STEP', { step: state.step });
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -272,7 +301,7 @@ module.exports = async function handler(req, res) {
     });
 
     // Actualizar estado
-    console.log(`💾 [DEBUG] Guardando estado: step=${state.step}, CallSid=${CallSid}`);
+    callLogger.debug('STATE_PERSIST', { step: state.step });
     conversationStates.set(CallSid, state);
     await saveCallState(CallSid, state);
 
@@ -282,7 +311,7 @@ module.exports = async function handler(req, res) {
       
       // Si no se pudo guardar por falta de disponibilidad, manejar el error
       if (!saved && state.availabilityError) {
-        logger.warn('Reserva no guardada por falta de disponibilidad', { error: state.availabilityError });
+        callLogger.warn('RESERVATION_NOT_SAVED_NO_AVAILABILITY', { error: state.availabilityError });
         
         // Obtener alternativas si no las tenemos
         if (!state.availabilityError.alternativas || state.availabilityError.alternativas.length === 0) {
@@ -323,6 +352,7 @@ module.exports = async function handler(req, res) {
       // Limpiar el estado después de guardar
       conversationStates.delete(CallSid);
       await deleteCallState(CallSid);
+      callLogger.info('RESERVATION_COMPLETED');
     }
 
     // Generar TwiML response
@@ -332,11 +362,11 @@ module.exports = async function handler(req, res) {
     res.status(200).send(twiml);
 
   } catch (error) {
-    console.error('❌ Error en Twilio Call:', error);
-    console.error('🔍 [ERROR] Error message:', error.message);
-    console.error('🔍 [ERROR] Error stack:', error.stack);
-    console.error('🔍 [ERROR] Error name:', error.name);
-    console.error('🔍 [ERROR] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    logger.error('TWILIO_CALL_HANDLER_ERROR', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -357,11 +387,13 @@ module.exports = async function handler(req, res) {
  * Analiza una frase del usuario para extraer TODA la información de reserva posible
  * Usa Gemini 2.5 Flash para extraer: comensales, fecha, hora, intolerancias, movilidad, nombre
  */
-async function analyzeReservationWithGemini(userInput) {
+async function analyzeReservationWithGemini(userInput, context = {}) {
   try {
+    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    geminiLogger.gemini('ANALYSIS_START', { userInput });
     const client = getGeminiClient();
     if (!client) {
-      console.warn('⚠️ Gemini no disponible, usando fallback');
+      geminiLogger.warn('GEMINI_CLIENT_NOT_AVAILABLE');
       return null;
     }
 
@@ -468,31 +500,30 @@ NOTA SOBRE VALIDACIONES:
 - "hora_disponible": "false" si la hora está fuera de los horarios del restaurante
 - Si hay errores de validación, aún devuelve los valores extraídos pero marca los errores para que el sistema pueda informar al cliente
 
-IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
+  IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
 
-    console.log('🤖 [GEMINI] Analizando con Gemini 2.5 Flash...');
-    console.log('📝 [GEMINI] Input:', userInput);
+    geminiLogger.gemini('REQUEST_SENT', { promptLength: prompt.length });
     
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
     
-    console.log('🤖 [GEMINI] Respuesta raw:', text);
+    geminiLogger.gemini('RAW_RESPONSE_RECEIVED', { text });
     
     // Extraer JSON de la respuesta (puede venir con markdown o texto extra)
     let jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('❌ [GEMINI] No se pudo extraer JSON de la respuesta');
+      geminiLogger.error('JSON_EXTRACTION_FAILED', { text });
       return null;
     }
     
     const analysis = JSON.parse(jsonMatch[0]);
-    console.log('✅ [GEMINI] Análisis completado:', JSON.stringify(analysis, null, 2));
+    geminiLogger.gemini('ANALYSIS_COMPLETED', analysis);
     
     return analysis;
     
   } catch (error) {
-    console.error('❌ [GEMINI] Error en análisis:', error);
+    logger.error('GEMINI_ANALYSIS_ERROR', { message: error.message, stack: error.stack });
     return null;
   }
 }
@@ -501,7 +532,7 @@ IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
  * Detecta la intención del usuario usando Gemini
  * Retorna: { action: 'reservation' | 'modify' | 'cancel' | 'clarify' }
  */
-async function detectIntentionWithGemini(text) {
+async function detectIntentionWithGemini(text, context = {}) {
   try {
     const client = getGeminiClient();
     if (!client) {
@@ -522,6 +553,9 @@ Texto: "${text}"
 
 Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explicaciones.`;
 
+    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    geminiLogger.gemini('INTENTION_ANALYSIS_START', { text });
+
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const detectedIntention = response.text().trim().toLowerCase();
@@ -529,11 +563,11 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
     const validIntentions = ['reservation', 'modify', 'cancel', 'clarify'];
     const action = validIntentions.includes(detectedIntention) ? detectedIntention : 'clarify';
     
-    console.log(`🤖 [GEMINI] Intención detectada: ${action}`);
+    geminiLogger.gemini('INTENTION_DETECTED', { action });
     return { action };
     
   } catch (error) {
-    console.error('❌ [GEMINI] Error detectando intención:', error);
+    logger.error('GEMINI_INTENTION_ERROR', { message: error.message, stack: error.stack });
     // Fallback: asumir reservation
     return { action: 'reservation' };
   }
@@ -613,8 +647,29 @@ function determineMissingFields(analysis, stateData) {
  * Aplica los datos extraídos por Gemini al estado de la conversación
  * Retorna { success: boolean, error?: string } para indicar si hubo error de validación
  */
-async function applyGeminiAnalysisToState(analysis, state) {
+async function applyGeminiAnalysisToState(analysis, state, callLogger) {
   if (!analysis) return { success: true };
+  const attach = (data) => {
+    if (!data) return { step: state.step };
+    if (typeof data === 'object' && !Array.isArray(data)) {
+      return { step: state.step, ...data };
+    }
+    return { step: state.step, value: data };
+  };
+
+  const log = callLogger
+    ? {
+        warn: (message, data) => callLogger.warn(message, attach(data)),
+        reservation: (message, data) => callLogger.reservation(message, attach(data)),
+        info: (message, data) => callLogger.info(message, attach(data)),
+        debug: (message, data) => callLogger.debug(message, attach(data))
+      }
+    : {
+        warn: (message, data) => logger.warn(message, attach(data)),
+        reservation: (message, data) => logger.reservation(message, attach(data)),
+        info: (message, data) => logger.info(message, attach(data)),
+        debug: (message, data) => logger.debug(message, attach(data))
+      };
   
   // Aplicar solo si el porcentaje de credibilidad es >= 50%
   const applyIfConfident = (value, percentage) => {
@@ -635,7 +690,7 @@ async function applyGeminiAnalysisToState(analysis, state) {
   } else if (comensalesCredibility >= 50) {
     // Gemini retornó null pero tiene alta credibilidad - intentar extraer del texto original
     // Esto puede pasar cuando el número está fuera del rango mencionado en el prompt
-    console.log('⚠️ [WARNING] Gemini retornó comensales=null pero credibilidad alta, intentando extraer del texto');
+    log.warn('GEMINI_NULL_PEOPLE_WITH_CONFIDENCE');
     // Esta lógica se manejará en el paso ask_people donde tenemos acceso al userInput
   }
   
@@ -644,7 +699,7 @@ async function applyGeminiAnalysisToState(analysis, state) {
     // Primero verificar si Gemini ya validó (nuevos campos)
     if (analysis.comensales_validos === 'false') {
       if (analysis.comensales_error === 'max_exceeded') {
-        logger.warn('Número de personas excede el máximo (validado por Gemini)', { 
+        log.warn('PEOPLE_MAX_EXCEEDED_GEMINI', { 
           peopleCount, 
           maxPersonas: restaurantConfig.maxPersonasMesa 
         });
@@ -655,7 +710,7 @@ async function applyGeminiAnalysisToState(analysis, state) {
           message: `El máximo de personas por reserva es ${restaurantConfig.maxPersonasMesa}`
         };
       } else if (analysis.comensales_error === 'min_not_met') {
-        logger.warn('Número de personas menor al mínimo (validado por Gemini)', { 
+        log.warn('PEOPLE_MIN_NOT_MET_GEMINI', { 
           peopleCount, 
           minPersonas: restaurantConfig.minPersonas 
         });
@@ -670,7 +725,7 @@ async function applyGeminiAnalysisToState(analysis, state) {
     
     // Validar mínimo (fallback si Gemini no validó)
     if (peopleCount < 1 || (restaurantConfig.minPersonas && peopleCount < restaurantConfig.minPersonas)) {
-      logger.warn('Número de personas inválido (menor al mínimo)', { 
+      log.warn('PEOPLE_BELOW_MIN', { 
         peopleCount, 
         minPersonas: restaurantConfig.minPersonas || 1 
       });
@@ -683,10 +738,10 @@ async function applyGeminiAnalysisToState(analysis, state) {
     }
     
     // Validar máximo usando configuración global
-    console.log(`🔍 [VALIDATION] Validando ${peopleCount} personas contra máximo: ${restaurantConfig.maxPersonasMesa}`);
+    log.debug('PEOPLE_COUNT_VALIDATION', { peopleCount, maxPersonas: restaurantConfig.maxPersonasMesa });
     
     if (peopleCount > restaurantConfig.maxPersonasMesa) {
-      logger.warn('Número de personas excede el máximo', { 
+      log.warn('PEOPLE_ABOVE_MAX', { 
         peopleCount, 
         maxPersonas: restaurantConfig.maxPersonasMesa 
       });
@@ -700,20 +755,20 @@ async function applyGeminiAnalysisToState(analysis, state) {
     
     // Si pasa la validación, aplicar
     state.data.NumeroReserva = peopleCount;
-    logger.reservation(`Comensales aplicados: ${peopleCount}`);
+    log.reservation('PEOPLE_APPLIED', { peopleCount });
   }
   
   // Fecha
   if (analysis.fecha && applyIfConfident(analysis.fecha, analysis.fecha_porcentaje_credivilidad)) {
     state.data.FechaReserva = analysis.fecha;
-    logger.reservation(`Fecha aplicada: ${analysis.fecha}`);
+    log.reservation('DATE_APPLIED', { fecha: analysis.fecha });
   }
   
   // Hora - Validar disponibilidad si Gemini la marcó como no disponible
   if (analysis.hora && applyIfConfident(analysis.hora, analysis.hora_porcentaje_credivilidad)) {
     // Si Gemini validó y marcó como no disponible, guardar error para manejar después
     if (analysis.hora_disponible === 'false' && analysis.hora_error === 'fuera_horario') {
-      logger.warn('Hora fuera de horario (validado por Gemini)', { hora: analysis.hora });
+      log.warn('TIME_OUT_OF_HOURS_GEMINI', { hora: analysis.hora });
       // Guardar en el estado para manejar el error después (el paso ask_time lo manejará)
       state.data.HoraReserva = analysis.hora;
       state.data.horaError = 'fuera_horario';
@@ -722,7 +777,7 @@ async function applyGeminiAnalysisToState(analysis, state) {
       // Hora válida o no validada, aplicar normalmente
       state.data.HoraReserva = analysis.hora;
       delete state.data.horaError; // Limpiar error si existía
-      logger.reservation(`Hora aplicada: ${analysis.hora}`);
+      log.reservation('TIME_APPLIED', { hora: analysis.hora });
     }
   }
   
@@ -745,11 +800,39 @@ async function applyGeminiAnalysisToState(analysis, state) {
   return { success: true };
 }
 
-async function processConversationStep(state, userInput) {
+async function processConversationStep(state, userInput, callLogger) {
   const step = state.step;
   const text = userInput.toLowerCase();
 
-  console.log(`📋 Procesando paso: ${step}, Input: "${userInput}"`);
+  const attachStep = (data) => {
+    if (!data) {
+      return { step: state.step };
+    }
+    if (typeof data === 'object' && !Array.isArray(data)) {
+      return { step: state.step, ...data };
+    }
+    return { step: state.step, value: data };
+  };
+
+  const log = callLogger
+    ? {
+        debug: (message, data) => callLogger.debug(message, attachStep(data)),
+        info: (message, data) => callLogger.info(message, attachStep(data)),
+        warn: (message, data) => callLogger.warn(message, attachStep(data)),
+        error: (message, data) => callLogger.error(message, attachStep(data)),
+        gemini: (message, data) => callLogger.gemini(message, attachStep(data)),
+        reservation: (message, data) => callLogger.reservation(message, attachStep(data))
+      }
+    : {
+        debug: (message, data) => logger.debug(message, attachStep(data)),
+        info: (message, data) => logger.info(message, attachStep(data)),
+        warn: (message, data) => logger.warn(message, attachStep(data)),
+        error: (message, data) => logger.error(message, attachStep(data)),
+        gemini: (message, data) => logger.gemini(message, attachStep(data)),
+        reservation: (message, data) => logger.reservation(message, attachStep(data))
+      };
+
+  log.debug('PROCESS_STEP', { input: userInput });
 
   // PASOS CRÍTICOS donde debemos ser más cuidadosos al detectar cancelación
   // para evitar falsos positivos (por ejemplo, "15 de enero" contiene "no")
@@ -768,7 +851,7 @@ async function processConversationStep(state, userInput) {
     if (criticalReservationSteps.includes(step) && step !== 'confirm') {
       // Usar Gemini para verificar si hay datos válidos en la respuesta
       // Guardar el análisis para reutilizarlo más adelante y evitar llamadas duplicadas
-      geminiAnalysis = await analyzeReservationWithGemini(userInput);
+      geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
       let isValidData = false;
       
       if (geminiAnalysis) {
@@ -788,14 +871,14 @@ async function processConversationStep(state, userInput) {
       
       // Si se detectó un dato válido, NO buscar cancelación
       if (isValidData) {
-        console.log(`✅ [PASO CRÍTICO] Se detectó dato válido en paso ${step}, saltando verificación de cancelación`);
+        log.debug('CRITICAL_DATA_DETECTED_SKIP_CANCEL_CHECK');
         shouldCheckCancellation = false;
       }
     } else if (step === 'confirm') {
       // Las confirmaciones usan handleConfirmationResponse
       const confirmResult = handleConfirmationResponse(text);
       if (confirmResult.action !== 'clarify') {
-        console.log(`✅ [PASO CRÍTICO] Se detectó confirmación válida, saltando verificación de cancelación`);
+        log.debug('CRITICAL_CONFIRMATION_DETECTED');
         shouldCheckCancellation = false;
       }
     }
@@ -804,7 +887,7 @@ async function processConversationStep(state, userInput) {
     // EXCLUIR 'greeting' y 'ask_intention' porque usan detectIntentionWithGemini que es más preciso
     // También excluir 'ask_people' porque "no" puede ser una respuesta válida (negativa)
     if (shouldCheckCancellation && step !== 'greeting' && step !== 'ask_intention' && step !== 'ask_people' && isCancellationRequest(userInput)) {
-      console.log(`🚫 [CANCELACIÓN] Usuario quiere cancelar en paso: ${step}`);
+      log.info('CANCELLATION_REQUEST_DETECTED');
       
       // Si ya está en proceso de cancelación, confirmar
       if (step === 'cancelling') {
@@ -819,7 +902,7 @@ async function processConversationStep(state, userInput) {
   // NO resetear el estado si estamos en un paso de reserva y el input es muy corto
   // Esto previene que el sistema vuelva a greeting cuando no debería
   if (step !== 'greeting' && step !== 'ask_intention' && (!userInput || userInput.trim().length < 2)) {
-    console.log(`⚠️ [WARNING] Input muy corto en paso ${step}, manteniendo paso actual`);
+    log.warn('INPUT_TOO_SHORT');
     // Mantener el paso actual y pedir clarificación según el paso
     const unclearMessages = {
       ask_people: [
@@ -876,36 +959,36 @@ async function processConversationStep(state, userInput) {
   // Solo actualizar si no se detectó en el análisis
   if (userInput && userInput.trim() && step === 'greeting') {
     // El idioma se detectará en analyzeReservationWithGemini, no necesitamos llamada separada
-    console.log(`📝 [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
+    log.debug('STATE_OVERVIEW', { language: state.language });
   }
 
   switch (step) {
     case 'greeting':
       // Primera interacción - saludo general
-      console.log(`🎯 [DEBUG] GREETING: language=${state.language}, userInput="${userInput}"`);
+      log.debug('GREETING_STEP', { language: state.language, userInput });
       
       // Si hay input del usuario, analizar directamente con Gemini (ya detecta intención e idioma)
       if (userInput && userInput.trim()) {
-        console.log(`🔍 [GEMINI] Analizando directamente con Gemini (detecta intención + datos): "${userInput}"`);
+        log.gemini('ANALYZE_GREETING_INPUT');
         
         // Usar Gemini para extraer TODO de la primera frase (incluye intención e idioma)
-        const analysis = await analyzeReservationWithGemini(userInput);
+        const analysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
         
         if (analysis) {
           // Actualizar idioma si se detectó
           if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
             state.language = analysis.idioma_detectado;
-            console.log(`✅ [GEMINI] Idioma actualizado a: ${analysis.idioma_detectado}`);
+            log.gemini('LANGUAGE_UPDATED', { language: analysis.idioma_detectado });
           }
           
           // Verificar intención
           const intention = analysis.intencion || 'reservation';
-          console.log(`🎯 [GEMINI] Intención detectada: ${intention}`);
+          log.gemini('INTENTION_DETECTED', { intention });
           
           if (intention === 'reservation') {
           
             // Aplicar los datos extraídos al estado
-            const applyResult = await applyGeminiAnalysisToState(analysis, state);
+            const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger);
             
             // Si hay error de validación (ej: demasiadas personas), manejar
             if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -935,10 +1018,10 @@ async function processConversationStep(state, userInput) {
             if (missing.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
               missing.splice(missing.indexOf('date'), 1);
               missing.unshift('date');
-              console.log(`📅 [PRIORIDAD] Priorizando fecha porque solo tenemos hora`);
+              log.debug('PRIORITIZING_DATE_BEFORE_TIME');
             }
             
-            console.log(`📊 [GEMINI] Campos faltantes: ${missing.join(', ') || 'ninguno'}`);
+            log.gemini('MISSING_FIELDS', { missing });
             
             // Si tenemos todo lo esencial, usar teléfono de la llamada directamente y confirmar
             if (missing.length === 0) {
@@ -950,7 +1033,7 @@ async function processConversationStep(state, userInput) {
               // Ir directamente a confirmación con mensaje completo
               state.step = 'confirm';
               const confirmMessage = getConfirmationMessage(state.data, state.language);
-              console.log(`✅ [GEMINI] Información completa extraída en greeting, mostrando confirmación`);
+              log.info('INFO_COMPLETE_AT_GREETING');
               return {
                 message: confirmMessage,
                 gather: true
@@ -978,10 +1061,11 @@ async function processConversationStep(state, userInput) {
                   gather: true
                 };
               } catch (error) {
-                console.error('❌ [ERROR] Error generando mensaje parcial de confirmación:', error);
-                console.error('❌ [ERROR] State.data:', JSON.stringify(state.data));
-                console.error('❌ [ERROR] NextField:', nextField);
-                console.error('❌ [ERROR] Language:', state.language);
+                log.error('PARTIAL_CONFIRMATION_ERROR', {
+                  error: error.message,
+                  nextField,
+                  language: state.language
+                });
                 
                 // Fallback: usar mensaje simple
                 const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
@@ -1002,17 +1086,17 @@ async function processConversationStep(state, userInput) {
               }
             }
           } else if (intention === 'modify') {
-            console.log(`✏️ [DEBUG] Intención de modificación detectada en saludo`);
+            log.info('MODIFICATION_INTENT_AT_GREETING');
             const result = await handleModificationRequest(state, userInput);
             return result;
           } else if (intention === 'cancel') {
-            console.log(`🚫 [DEBUG] Intención de cancelación detectada en saludo`);
+            log.info('CANCELLATION_INTENT_AT_GREETING');
             return await handleCancellationRequest(state, userInput);
           }
         }
         
         // Si Gemini falló o no devolvió análisis válido, usar flujo normal
-        console.log(`⚠️ [GEMINI] Gemini falló o no disponible, usando flujo normal`);
+        log.warn('GEMINI_FALLBACK_GREETING');
         state.step = 'ask_people';
         const reservationMessages = getMultilingualMessages('reservation', state.language);
         return {
@@ -1022,10 +1106,9 @@ async function processConversationStep(state, userInput) {
       }
       
       // Si no hay input o no se detectó intención, hacer saludo normal
-      console.log(`👋 [DEBUG] Saludo normal - idioma=${state.language}`);
+      log.debug('GREETING_DEFAULT', { language: state.language });
       state.step = 'ask_intention';
       const greetingMessages = getMultilingualMessages('greeting', state.language);
-      console.log(`💬 [DEBUG] Mensajes de saludo obtenidos:`, greetingMessages);
        return {
          message: getRandomMessage(greetingMessages),
          gather: true
@@ -1196,7 +1279,7 @@ async function processConversationStep(state, userInput) {
        }
        
        // Usar Gemini para extraer información de la respuesta del usuario
-       const peopleAnalysis = await analyzeReservationWithGemini(userInput);
+      const peopleAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
        if (peopleAnalysis) {
          // Si Gemini retornó null pero tiene alta credibilidad, intentar extraer del texto
          if (!peopleAnalysis.comensales && parseInt(peopleAnalysis.comensales_porcentaje_credivilidad || '0%') >= 50) {
@@ -1294,7 +1377,7 @@ async function processConversationStep(state, userInput) {
 
      case 'ask_date':
        // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
-       const dateAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput);
+      const dateAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
        if (dateAnalysis) {
          await applyGeminiAnalysisToState(dateAnalysis, state);
        }
@@ -1366,7 +1449,7 @@ async function processConversationStep(state, userInput) {
        }
        
        // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
-       const timeAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput);
+      const timeAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
        if (timeAnalysis) {
          // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
          // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
@@ -1445,7 +1528,7 @@ async function processConversationStep(state, userInput) {
 
      case 'ask_name':
        // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
-       const nameAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput);
+      const nameAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
        if (nameAnalysis) {
          await applyGeminiAnalysisToState(nameAnalysis, state);
        }
