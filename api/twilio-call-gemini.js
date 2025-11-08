@@ -478,6 +478,7 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       horariosInfo.push(`  - Cena: ${restaurantConfig.horario3Inicio} - ${restaurantConfig.horario3Fin}`);
     }
     const horariosStr = horariosInfo.length > 0 ? horariosInfo.join('\n') : '  - Comida: 13:00 - 15:00\n  - Cena: 19:00 - 23:00';
+    const menuItems = await loadMenuItems();
     const menuStr = formatMenuForPrompt(menuItems);
     
     // Prompt optimizado para extracción máxima de información
