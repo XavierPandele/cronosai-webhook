@@ -647,7 +647,7 @@ function determineMissingFields(analysis, stateData) {
  * Aplica los datos extraídos por Gemini al estado de la conversación
  * Retorna { success: boolean, error?: string } para indicar si hubo error de validación
  */
-async function applyGeminiAnalysisToState(analysis, state, callLogger) {
+async function applyGeminiAnalysisToState(analysis, state, callLogger, originalText = '') {
   if (!analysis) return { success: true };
   const attach = (data) => {
     if (!data) return { step: state.step };
@@ -765,6 +765,7 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger) {
   }
   
   // Hora - Validar disponibilidad si Gemini la marcó como no disponible
+  let timeApplied = false;
   if (analysis.hora && applyIfConfident(analysis.hora, analysis.hora_porcentaje_credivilidad)) {
     // Si Gemini validó y marcó como no disponible, guardar error para manejar después
     if (analysis.hora_disponible === 'false' && analysis.hora_error === 'fuera_horario') {
@@ -772,12 +773,27 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger) {
       // Guardar en el estado para manejar el error después (el paso ask_time lo manejará)
       state.data.HoraReserva = analysis.hora;
       state.data.horaError = 'fuera_horario';
-      logger.reservation(`Hora detectada con error: ${analysis.hora} (fuera de horario)`);
+      log.reservation('TIME_WITH_ERROR', { hora: analysis.hora, error: 'fuera_horario' });
     } else {
       // Hora válida o no validada, aplicar normalmente
       state.data.HoraReserva = analysis.hora;
       delete state.data.horaError; // Limpiar error si existía
       log.reservation('TIME_APPLIED', { hora: analysis.hora });
+    }
+    timeApplied = true;
+  }
+
+  // Fallback: intentar extraer hora del texto original si Gemini no la detectó
+  if (!timeApplied && originalText) {
+    const fallbackTime = extractTime(originalText.toLowerCase());
+    if (fallbackTime) {
+      const shouldOverride = !state.data.HoraReserva || state.data.HoraReserva !== fallbackTime || state.data.horaError;
+      if (shouldOverride) {
+        state.data.HoraReserva = fallbackTime;
+        delete state.data.horaError;
+        log.reservation('TIME_APPLIED_FALLBACK', { hora: fallbackTime });
+        timeApplied = true;
+      }
     }
   }
   
@@ -988,7 +1004,7 @@ async function processConversationStep(state, userInput, callLogger) {
           if (intention === 'reservation') {
           
             // Aplicar los datos extraídos al estado
-            const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger);
+            const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
             
             // Si hay error de validación (ej: demasiadas personas), manejar
             if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -1118,7 +1134,7 @@ async function processConversationStep(state, userInput, callLogger) {
        // Analizar directamente con Gemini (ya detecta intención + datos en una sola llamada)
        console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${text}"`);
        
-       const analysis = await analyzeReservationWithGemini(text);
+      const analysis = await analyzeReservationWithGemini(text, { callSid: state.callSid, step: state.step });
        
        if (analysis) {
          // Actualizar idioma si se detectó
@@ -1131,7 +1147,7 @@ async function processConversationStep(state, userInput, callLogger) {
          if (intention === 'reservation') {
          
            // Aplicar la información extraída al estado
-           const applyResult = await applyGeminiAnalysisToState(analysis, state);
+          const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
            
            // Si hay error de validación (ej: demasiadas personas), manejar
            if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -1311,7 +1327,7 @@ async function processConversationStep(state, userInput, callLogger) {
            }
          }
          
-         const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state);
+        const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state, callLogger, userInput);
          
          // Si hay error de validación (ej: demasiadas personas), mostrar mensaje
          if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -1378,8 +1394,8 @@ async function processConversationStep(state, userInput, callLogger) {
      case 'ask_date':
        // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
       const dateAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
-       if (dateAnalysis) {
-         await applyGeminiAnalysisToState(dateAnalysis, state);
+      if (dateAnalysis) {
+        await applyGeminiAnalysisToState(dateAnalysis, state, callLogger, userInput);
        }
        
        if (state.data.FechaReserva) {
@@ -1450,7 +1466,7 @@ async function processConversationStep(state, userInput, callLogger) {
        
        // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
       const timeAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
-       if (timeAnalysis) {
+      if (timeAnalysis) {
          // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
          // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
          if (timeAnalysis.intencion === 'clarify' && !timeAnalysis.hora) {
@@ -1461,7 +1477,7 @@ async function processConversationStep(state, userInput, callLogger) {
              gather: true
            };
          }
-         await applyGeminiAnalysisToState(timeAnalysis, state);
+        await applyGeminiAnalysisToState(timeAnalysis, state, callLogger, userInput);
        }
        
        // Verificar si hay error de horario (validado por Gemini)
@@ -1529,8 +1545,8 @@ async function processConversationStep(state, userInput, callLogger) {
      case 'ask_name':
        // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
       const nameAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
-       if (nameAnalysis) {
-         await applyGeminiAnalysisToState(nameAnalysis, state);
+      if (nameAnalysis) {
+        await applyGeminiAnalysisToState(nameAnalysis, state, callLogger, userInput);
        }
        
        if (state.data.NomReserva) {
