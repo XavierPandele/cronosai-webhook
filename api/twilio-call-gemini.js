@@ -267,6 +267,26 @@ module.exports = async function handler(req, res) {
     totalTime: 0
   };
   
+  // Extraer CallSid de forma segura ANTES del try para que esté disponible en el catch
+  let CallSid = null;
+  try {
+    // Intentar extraer CallSid de req.body o req.query
+    if (req.body) {
+      if (typeof req.body === 'string') {
+        const querystring = require('querystring');
+        const parsed = querystring.parse(req.body);
+        CallSid = parsed.CallSid;
+      } else if (typeof req.body === 'object' && req.body.CallSid) {
+        CallSid = req.body.CallSid;
+      }
+    }
+    if (!CallSid && req.query && req.query.CallSid) {
+      CallSid = req.query.CallSid;
+    }
+  } catch (e) {
+    // Si falla la extracción, CallSid seguirá siendo null
+  }
+  
   // OPTIMIZACIÓN: Cargar configuración (el cache interno de getRestaurantConfig maneja TTL de 5min)
   // No dependemos de configLoaded en memoria porque en serverless se pierde entre instancias
   const configStartTime = Date.now();
@@ -308,8 +328,12 @@ module.exports = async function handler(req, res) {
       logger.debug('TWILIO_USING_QUERY_PARAMS');
     }
     
+    // Si CallSid no se extrajo antes, intentar extraerlo de params
+    if (!CallSid) {
+      CallSid = params?.CallSid;
+    }
+    
     const { 
-      CallSid, 
       SpeechResult, 
       Digits,
       From,
@@ -628,8 +652,8 @@ module.exports = async function handler(req, res) {
       processStepTimeMs: performanceMetrics.processStepTime || 0,
       saveReservationTimeMs: performanceMetrics.saveReservationTime || 0,
       step: state.step,
-      hasInput: Boolean(inputToProcess),
-      callSid: CallSid
+      hasInput: Boolean(userInput),
+      callSid: CallSid || state?.callSid || 'unknown'
     });
     
     res.setHeader('Content-Type', 'text/xml');
@@ -643,7 +667,7 @@ module.exports = async function handler(req, res) {
       stack: error.stack,
       name: error.name,
       totalTimeMs: errorTotalTime,
-      callSid: CallSid
+      callSid: CallSid || 'unknown'
     });
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
