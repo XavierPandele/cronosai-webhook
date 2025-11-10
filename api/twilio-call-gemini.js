@@ -311,16 +311,39 @@ module.exports = async function handler(req, res) {
       hasSpeechResult: Boolean(SpeechResult)
     });
 
-    let state = conversationStates.get(CallSid);
-
-    if (!state) {
-      state = await loadCallState(CallSid);
-      if (state) {
-        conversationStates.set(CallSid, state);
+    // CRÍTICO: En Vercel serverless, cada request puede ejecutarse en una instancia diferente
+    // Por lo tanto, debemos SIEMPRE cargar el estado desde BD, no confiar en memoria
+    let state = null;
+    let stateFromMemory = conversationStates.get(CallSid);
+    let stateFromDatabase = null;
+    
+    // Intentar cargar desde BD primero (fuente de verdad en serverless)
+    try {
+      stateFromDatabase = await loadCallState(CallSid);
+      if (stateFromDatabase) {
+        callLogger.debug('STATE_LOADED_FROM_DB', {
+          step: stateFromDatabase.step,
+          hasData: Boolean(stateFromDatabase.data && Object.keys(stateFromDatabase.data).length > 0),
+          dataKeys: stateFromDatabase.data ? Object.keys(stateFromDatabase.data) : []
+        });
       }
+    } catch (error) {
+      callLogger.warn('STATE_LOAD_FROM_DB_FAILED', { error: error.message });
+      // Si falla cargar desde BD, usar memoria como fallback
+      stateFromDatabase = null;
     }
-
-    if (!state) {
+    
+    // Usar estado de BD si existe, sino usar memoria, sino crear nuevo
+    if (stateFromDatabase) {
+      state = stateFromDatabase;
+      // Actualizar memoria con estado de BD para esta request
+      conversationStates.set(CallSid, state);
+      callLogger.debug('STATE_SOURCE_DATABASE');
+    } else if (stateFromMemory) {
+      state = stateFromMemory;
+      callLogger.debug('STATE_SOURCE_MEMORY');
+    } else {
+      // Crear nuevo estado
       state = {
         step: 'greeting',
         data: {},
@@ -328,6 +351,7 @@ module.exports = async function handler(req, res) {
         conversationHistory: [],
         language: 'es'
       };
+      callLogger.debug('STATE_SOURCE_NEW');
     }
 
     // Asegurar datos críticos en el estado
@@ -338,31 +362,35 @@ module.exports = async function handler(req, res) {
     if (!state.language) {
       state.language = 'es';
     }
-    const stateSource = conversationStates.has(CallSid)
-      ? 'memory'
-      : state && state.data && Object.keys(state.data).length > 0
-        ? 'database'
-        : 'new';
-
+    
+    // Asegurar que state.data existe y es un objeto
+    if (!state.data || typeof state.data !== 'object') {
+      state.data = {};
+      callLogger.warn('STATE_DATA_INVALID_RESET');
+    }
+    
     callLogger.update({
       phone: state.phone,
       language: state.language,
       step: state.step
     });
-    callLogger.debug('CONVERSATION_STATE_READY', { source: stateSource });
     
-    // Log del estado recuperado
-    callLogger.debug('CONVERSATION_STATE', {
+    // Log detallado del estado recuperado (RESTAURADO - logs que el usuario quería)
+    callLogger.info('CONVERSATION_STATE_LOADED', {
       step: state.step,
       phone: state.phone,
-      language: state.language
+      language: state.language,
+      hasData: Boolean(state.data && Object.keys(state.data).length > 0),
+      dataKeys: state.data ? Object.keys(state.data) : [],
+      dataValues: state.data ? {
+        NumeroReserva: state.data.NumeroReserva,
+        FechaReserva: state.data.FechaReserva,
+        HoraReserva: state.data.HoraReserva,
+        NomReserva: state.data.NomReserva,
+        TelefonReserva: state.data.TelefonReserva
+      } : {},
+      conversationHistoryLength: state.conversationHistory ? state.conversationHistory.length : 0
     });
-    
-    // Asegurar que state.data existe y es un objeto
-    if (!state.data || typeof state.data !== 'object') {
-      callLogger.warn('STATE_DATA_INVALID');
-      state.data = {};
-    }
 
     // Guardar entrada del usuario si existe
     let userInput = SpeechResult || Digits || '';
@@ -414,46 +442,44 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // Actualizar estado en memoria (inmediato)
-    callLogger.debug('STATE_PERSIST', { step: state.step });
+    // CRÍTICO: Actualizar estado en memoria (inmediato)
+    callLogger.debug('STATE_PERSIST', { 
+      step: state.step,
+      dataKeys: state.data ? Object.keys(state.data) : [],
+      dataValues: state.data ? {
+        NumeroReserva: state.data.NumeroReserva,
+        FechaReserva: state.data.FechaReserva,
+        HoraReserva: state.data.HoraReserva,
+        NomReserva: state.data.NomReserva
+      } : {}
+    });
     conversationStates.set(CallSid, state);
     
-    // OPTIMIZACIÓN: Guardado asíncrono del estado (no bloquea respuesta)
-    // Excepciones: Pasos críticos donde el estado debe guardarse síncronamente
-    const criticalSteps = ['complete', 'order_complete'];
-    const isCriticalStep = criticalSteps.includes(state.step);
-    
-    if (isCriticalStep) {
-      // Guardado síncrono para pasos críticos (importante para no perder datos)
-      const stateSaveStartTime = Date.now();
+    // CRÍTICO: En serverless, debemos guardar el estado SÍNCRONAMENTE antes de responder
+    // para asegurar que se persiste entre requests. Los errores de timeout son un problema
+    // pero es mejor tener latencia que perder datos.
+    const stateSaveStartTime = Date.now();
+    try {
       await saveCallState(CallSid, state);
       performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-      callLogger.debug('STATE_SAVED_SYNC', { 
+      callLogger.info('STATE_SAVED', { 
         step: state.step, 
-        timeMs: performanceMetrics.stateSaveTime 
+        timeMs: performanceMetrics.stateSaveTime,
+        dataKeys: state.data ? Object.keys(state.data) : [],
+        saved: true
       });
-    } else {
-      // Guardado asíncrono para pasos normales (mejora latencia en 200-500ms)
-      setImmediate(() => {
-        const stateSaveStartTime = Date.now();
-        saveCallState(CallSid, state)
-          .then(() => {
-            const stateSaveTime = Date.now() - stateSaveStartTime;
-            callLogger.debug('STATE_SAVED_ASYNC', { 
-              step: state.step, 
-              timeMs: stateSaveTime 
-            });
-          })
-          .catch(err => {
-            logger.error('STATE_SAVE_FAILED_ASYNC', { 
-              error: err.message,
-              callSid: CallSid,
-              step: state.step
-            });
-          });
+    } catch (error) {
+      performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
+      callLogger.error('STATE_SAVE_FAILED', { 
+        error: error.message,
+        callSid: CallSid,
+        step: state.step,
+        timeMs: performanceMetrics.stateSaveTime,
+        // Log crítico: el estado NO se guardó, puede perderse en la próxima request
+        warning: 'STATE_NOT_PERSISTED_WILL_BE_LOST'
       });
-      // Para pasos asíncronos, el tiempo es 0 (no bloquea)
-      performanceMetrics.stateSaveTime = 0;
+      // No lanzar error, continuar con la respuesta, pero el estado puede perderse
+      // En producción, deberías considerar retry o cola de mensajes
     }
 
     // Si la conversación está completa, guardar en BD
@@ -941,6 +967,16 @@ function determineMissingFields(analysis, stateData) {
  */
 async function applyGeminiAnalysisToState(analysis, state, callLogger, originalText = '') {
   if (!analysis) return { success: true };
+  
+  // RESTAURADO: Log del estado ANTES de aplicar análisis
+  const stateBefore = {
+    NumeroReserva: state.data?.NumeroReserva,
+    FechaReserva: state.data?.FechaReserva,
+    HoraReserva: state.data?.HoraReserva,
+    NomReserva: state.data?.NomReserva,
+    TelefonReserva: state.data?.TelefonReserva
+  };
+  
   const attach = (data) => {
     if (!data) return { step: state.step };
     if (typeof data === 'object' && !Array.isArray(data)) {
@@ -962,6 +998,19 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
         info: (message, data) => logger.info(message, attach(data)),
         debug: (message, data) => logger.debug(message, attach(data))
       };
+  
+  // RESTAURADO: Log del análisis recibido
+  log.info('GEMINI_ANALYSIS_APPLY_START', {
+    analysis: {
+      comensales: analysis.comensales,
+      fecha: analysis.fecha,
+      hora: analysis.hora,
+      nombre: analysis.nombre,
+      intencion: analysis.intencion
+    },
+    stateBefore: stateBefore,
+    originalText: originalText
+  });
   
   // Aplicar solo si el porcentaje de credibilidad es >= 50%
   const applyIfConfident = (value, percentage) => {
@@ -1046,14 +1095,37 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
     }
     
     // Si pasa la validación, aplicar
+    const existingPeople = state.data.NumeroReserva;
     state.data.NumeroReserva = peopleCount;
-    log.reservation('PEOPLE_APPLIED', { peopleCount });
+    log.reservation('PEOPLE_APPLIED', { 
+      peopleCount,
+      peopleAnterior: existingPeople,
+      credibilidad: analysis.comensales_porcentaje_credivilidad
+    });
+  } else {
+    log.debug('PEOPLE_NOT_APPLIED', {
+      comensales: analysis.comensales,
+      credibilidad: analysis.comensales_porcentaje_credivilidad,
+      peopleExistente: state.data.NumeroReserva
+    });
   }
   
-  // Fecha
+  // Fecha - Solo aplicar si el análisis tiene fecha Y credibilidad >= 50%
+  // IMPORTANTE: NO sobrescribir si ya existe una fecha válida a menos que el análisis tenga alta credibilidad
   if (analysis.fecha && applyIfConfident(analysis.fecha, analysis.fecha_porcentaje_credivilidad)) {
+    const existingDate = state.data.FechaReserva;
     state.data.FechaReserva = analysis.fecha;
-    log.reservation('DATE_APPLIED', { fecha: analysis.fecha });
+    log.reservation('DATE_APPLIED', { 
+      fecha: analysis.fecha,
+      fechaAnterior: existingDate,
+      credibilidad: analysis.fecha_porcentaje_credivilidad
+    });
+  } else if (analysis.fecha) {
+    log.debug('DATE_NOT_APPLIED_LOW_CONFIDENCE', {
+      fecha: analysis.fecha,
+      credibilidad: analysis.fecha_porcentaje_credivilidad,
+      fechaExistente: state.data.FechaReserva
+    });
   }
   
   // Hora - Validar disponibilidad si Gemini la marcó como no disponible
@@ -1068,42 +1140,99 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       log.reservation('TIME_WITH_ERROR', { hora: analysis.hora, error: 'fuera_horario' });
     } else {
       // Hora válida o no validada, aplicar normalmente
+      const existingTime = state.data.HoraReserva;
       state.data.HoraReserva = analysis.hora;
       delete state.data.horaError; // Limpiar error si existía
-      log.reservation('TIME_APPLIED', { hora: analysis.hora });
+      log.reservation('TIME_APPLIED', { 
+        hora: analysis.hora,
+        horaAnterior: existingTime,
+        credibilidad: analysis.hora_porcentaje_credivilidad
+      });
     }
     timeApplied = true;
+  } else if (analysis.hora) {
+    log.debug('TIME_NOT_APPLIED_LOW_CONFIDENCE', {
+      hora: analysis.hora,
+      credibilidad: analysis.hora_porcentaje_credivilidad,
+      horaExistente: state.data.HoraReserva
+    });
   }
 
   // Fallback: intentar extraer hora del texto original si Gemini no la detectó
+  // IMPORTANTE: Solo aplicar fallback si NO hay hora existente válida
   if (!timeApplied && originalText) {
     const fallbackTime = extractTime(originalText.toLowerCase());
     if (fallbackTime) {
-      const shouldOverride = !state.data.HoraReserva || state.data.HoraReserva !== fallbackTime || state.data.horaError;
+      const existingTime = state.data.HoraReserva;
+      // Solo sobrescribir si NO hay hora existente O si la hora existente tiene error
+      const shouldOverride = !existingTime || state.data.horaError;
       if (shouldOverride) {
         state.data.HoraReserva = fallbackTime;
         delete state.data.horaError;
-        log.reservation('TIME_APPLIED_FALLBACK', { hora: fallbackTime });
+        log.reservation('TIME_APPLIED_FALLBACK', { 
+          hora: fallbackTime,
+          horaAnterior: existingTime,
+          reason: existingTime ? 'hora_error' : 'no_existing_time'
+        });
         timeApplied = true;
+      } else {
+        log.debug('TIME_FALLBACK_SKIPPED', {
+          fallbackTime: fallbackTime,
+          horaExistente: existingTime,
+          reason: 'existing_valid_time'
+        });
       }
     }
   }
   
-  // Nombre
+  // Nombre - Solo aplicar si el análisis tiene nombre Y credibilidad >= 50%
   if (analysis.nombre && applyIfConfident(analysis.nombre, analysis.nombre_porcentaje_credivilidad)) {
+    const existingName = state.data.NomReserva;
     state.data.NomReserva = analysis.nombre;
-    logger.reservation(`Nombre aplicado: ${analysis.nombre}`);
+    log.reservation('NAME_APPLIED', { 
+      nombre: analysis.nombre,
+      nombreAnterior: existingName,
+      credibilidad: analysis.nombre_porcentaje_credivilidad
+    });
+  } else if (analysis.nombre) {
+    log.debug('NAME_NOT_APPLIED_LOW_CONFIDENCE', {
+      nombre: analysis.nombre,
+      credibilidad: analysis.nombre_porcentaje_credivilidad,
+      nombreExistente: state.data.NomReserva
+    });
   }
   
   // Intolerancias (guardamos pero no es crítico)
   if (analysis.intolerancias === 'true') {
     state.data.Observacions = (state.data.Observacions || '') + ' Intolerancias alimentarias.';
+    log.debug('INTOLERANCIAS_APPLIED');
   }
   
   // Movilidad reducida
   if (analysis.movilidad === 'true') {
     state.data.Observacions = (state.data.Observacions || '') + ' Necesita mesa accesible.';
+    log.debug('MOVILIDAD_APPLIED');
   }
+  
+  // RESTAURADO: Log del estado DESPUÉS de aplicar análisis
+  const stateAfter = {
+    NumeroReserva: state.data?.NumeroReserva,
+    FechaReserva: state.data?.FechaReserva,
+    HoraReserva: state.data?.HoraReserva,
+    NomReserva: state.data?.NomReserva,
+    TelefonReserva: state.data?.TelefonReserva
+  };
+  
+  log.info('GEMINI_ANALYSIS_APPLY_COMPLETE', {
+    stateBefore: stateBefore,
+    stateAfter: stateAfter,
+    changes: {
+      NumeroReserva: stateBefore.NumeroReserva !== stateAfter.NumeroReserva,
+      FechaReserva: stateBefore.FechaReserva !== stateAfter.FechaReserva,
+      HoraReserva: stateBefore.HoraReserva !== stateAfter.HoraReserva,
+      NomReserva: stateBefore.NomReserva !== stateAfter.NomReserva
+    }
+  });
   
   return { success: true };
 }
