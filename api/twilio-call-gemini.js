@@ -117,6 +117,64 @@ function getGeminiClient() {
   return geminiClient;
 }
 
+// ===== CACHE DE ANÁLISIS DE GEMINI =====
+// Cache en memoria para análisis recientes (30 segundos TTL)
+const geminiAnalysisCache = new Map();
+const GEMINI_CACHE_TTL_MS = 30000; // 30 segundos
+const GEMINI_CACHE_MAX_SIZE = 100;
+
+function cleanGeminiCache() {
+  if (geminiAnalysisCache.size <= GEMINI_CACHE_MAX_SIZE) {
+    return;
+  }
+  const now = Date.now();
+  for (const [key, value] of geminiAnalysisCache.entries()) {
+    if (now - value.timestamp > GEMINI_CACHE_TTL_MS) {
+      geminiAnalysisCache.delete(key);
+    }
+  }
+}
+
+// ===== CACHE DE DISPONIBILIDAD =====
+// Cache en memoria para disponibilidad (5 minutos TTL)
+const availabilityCache = new Map();
+const AVAILABILITY_CACHE_TTL_MS = 300000; // 5 minutos
+const AVAILABILITY_CACHE_MAX_SIZE = 50;
+
+function cleanAvailabilityCache() {
+  if (availabilityCache.size <= AVAILABILITY_CACHE_MAX_SIZE) {
+    return;
+  }
+  const now = Date.now();
+  for (const [key, value] of availabilityCache.entries()) {
+    if (now - value.timestamp > AVAILABILITY_CACHE_TTL_MS) {
+      availabilityCache.delete(key);
+    }
+  }
+}
+
+// Wrapper para cachear validación de disponibilidad
+async function validarDisponibilidadCached(fechaHora, numPersonas) {
+  const cacheKey = `${fechaHora}:${numPersonas}`;
+  const cached = availabilityCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < AVAILABILITY_CACHE_TTL_MS) {
+    logger.debug('AVAILABILITY_CACHE_HIT', { cacheKey });
+    return cached.result;
+  }
+  
+  const result = await validarDisponibilidad(fechaHora, numPersonas);
+  
+  availabilityCache.set(cacheKey, {
+    result,
+    timestamp: Date.now()
+  });
+  
+  cleanAvailabilityCache();
+  
+  return result;
+}
+
 // ===== FUNCIÓN: Obtener horario del restaurante =====
 // Ahora se usa getRestaurantHours() desde config/restaurant-config.js
 
@@ -263,55 +321,9 @@ module.exports = async function handler(req, res) {
     // Guardar entrada del usuario si existe
     let userInput = SpeechResult || Digits || '';
     
-    // Si hay un parámetro ?process=true, significa que ya mostramos el mensaje de procesando
-    // y ahora necesitamos procesar con Gemini
-    const needsProcessing = req.query?.process === 'true';
-    
-    // Si hay pendingInput de un redirect anterior, usarlo
-    if (needsProcessing && state.pendingInput) {
-      userInput = state.pendingInput;
-      delete state.pendingInput; // Limpiar después de usar
-      callLogger.debug('USING_PENDING_INPUT', { pendingInput: userInput });
-    }
-    
-    if (!needsProcessing && userInput) {
-      // Verificar si necesitamos procesar con Gemini ANTES de guardar el input
-      const stepsThatNeedGemini = ['greeting', 'ask_intention', 'ask_people', 'ask_date', 'ask_time', 'ask_name'];
-      if (stepsThatNeedGemini.includes(state.step)) {
-        // Generar mensaje de procesando y redirigir
-        const processingMessage = getProcessingMessage(state.language);
-        const voiceConfig = {
-          es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-          en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-          de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-          it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-          fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-          pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-        };
-        const config = voiceConfig[state.language] || voiceConfig.es;
-        
-        // Guardar el input del usuario en el estado antes de redirigir
-        state.pendingInput = userInput;
-        conversationStates.set(CallSid, state);
-        await saveCallState(CallSid, state);
-        
-        // Generar TwiML con mensaje de procesando y redirect
-        // Pausa de 2 segundos antes del mensaje para simular tiempo de "pensamiento"
-        const processingTwiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Pause length="2"/>
-  <Say voice="${config.voice}" language="${config.language}">${escapeXml(processingMessage)}</Say>
-  <Pause length="1"/>
-  <Redirect method="POST">/api/twilio-call-gemini?process=true</Redirect>
-</Response>`;
-        
-        res.setHeader('Content-Type', 'text/xml');
-        return res.status(200).send(processingTwiml);
-      }
-    }
-    
-    // Si estamos procesando, usar el input pendiente
-    const inputToProcess = needsProcessing ? (userInput || '') : userInput;
+    // OPTIMIZACIÓN: Eliminado redirect con process=true para reducir latencia
+    // Ahora procesamos directamente sin redirect (ahorro de 500-1000ms)
+    const inputToProcess = userInput;
     
     if (inputToProcess && inputToProcess.trim()) {
       const lastEntry = state.conversationHistory[state.conversationHistory.length - 1];
@@ -343,10 +355,30 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // Actualizar estado
+    // Actualizar estado en memoria (inmediato)
     callLogger.debug('STATE_PERSIST', { step: state.step });
     conversationStates.set(CallSid, state);
-    await saveCallState(CallSid, state);
+    
+    // OPTIMIZACIÓN: Guardado asíncrono del estado (no bloquea respuesta)
+    // Excepciones: Pasos críticos donde el estado debe guardarse síncronamente
+    const criticalSteps = ['complete', 'order_complete'];
+    const isCriticalStep = criticalSteps.includes(state.step);
+    
+    if (isCriticalStep) {
+      // Guardado síncrono para pasos críticos (importante para no perder datos)
+      await saveCallState(CallSid, state);
+    } else {
+      // Guardado asíncrono para pasos normales (mejora latencia en 200-500ms)
+      setImmediate(() => {
+        saveCallState(CallSid, state).catch(err => {
+          logger.error('STATE_SAVE_FAILED_ASYNC', { 
+            error: err.message,
+            callSid: CallSid,
+            step: state.step
+          });
+        });
+      });
+    }
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -385,7 +417,16 @@ module.exports = async function handler(req, res) {
         state.step = 'confirm';
         state.data.originalFechaHora = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
         conversationStates.set(CallSid, state);
-        await saveCallState(CallSid, state);
+        // OPTIMIZACIÓN: Guardado asíncrono (no crítico en este punto)
+        setImmediate(() => {
+          saveCallState(CallSid, state).catch(err => {
+            logger.error('STATE_SAVE_FAILED_ASYNC', { 
+              error: err.message,
+              callSid: CallSid,
+              step: state.step
+            });
+          });
+        });
         
         const twiml = generateTwiML({ message, gather: true }, state.language);
         res.setHeader('Content-Type', 'text/xml');
@@ -446,6 +487,15 @@ module.exports = async function handler(req, res) {
 async function analyzeReservationWithGemini(userInput, context = {}) {
   try {
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    
+    // OPTIMIZACIÓN: Verificar cache antes de hacer la llamada
+    const cacheKey = userInput.trim().toLowerCase();
+    const cached = geminiAnalysisCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < GEMINI_CACHE_TTL_MS) {
+      geminiLogger.debug('GEMINI_CACHE_HIT', { cacheKey });
+      return cached.analysis;
+    }
+    
     geminiLogger.gemini('ANALYSIS_START', { userInput });
     const client = getGeminiClient();
     if (!client) {
@@ -455,9 +505,16 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
+    // OPTIMIZACIÓN: Cargar configuración y menú en paralelo
+    const [configResult, menuItems] = await Promise.all([
+      configLoaded ? Promise.resolve(restaurantConfig) : loadRestaurantConfig(),
+      loadMenuItems()
+    ]);
+    
     // Asegurar que la configuración está cargada
     if (!configLoaded) {
-      await loadRestaurantConfig();
+      restaurantConfig = configResult;
+      configLoaded = true;
     }
     
     // Obtener fecha/hora actual y horarios
@@ -478,7 +535,6 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       horariosInfo.push(`  - Cena: ${restaurantConfig.horario3Inicio} - ${restaurantConfig.horario3Fin}`);
     }
     const horariosStr = horariosInfo.length > 0 ? horariosInfo.join('\n') : '  - Comida: 13:00 - 15:00\n  - Cena: 19:00 - 23:00';
-    const menuItems = await loadMenuItems();
     const menuStr = formatMenuForPrompt(menuItems);
     
     // Prompt optimizado para extracción máxima de información
@@ -600,6 +656,16 @@ NOTA SOBRE VALIDACIONES:
     
     const analysis = JSON.parse(jsonMatch[0]);
     geminiLogger.gemini('ANALYSIS_COMPLETED', analysis);
+    
+    // OPTIMIZACIÓN: Guardar en cache
+    if (analysis) {
+      geminiAnalysisCache.set(cacheKey, {
+        analysis,
+        timestamp: Date.now()
+      });
+      // Limpiar cache si es necesario
+      cleanGeminiCache();
+    }
     
     return analysis;
     
@@ -1998,12 +2064,15 @@ async function processConversationStep(state, userInput, callLogger) {
          };
        }
 
-     case 'ask_date':
-       // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
-      const dateAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
-      if (dateAnalysis) {
-        await applyGeminiAnalysisToState(dateAnalysis, state, callLogger, userInput);
-       }
+    case 'ask_date':
+      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
+      // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_date'
+      if (!geminiAnalysis && userInput && userInput.trim()) {
+        geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+      }
+      if (geminiAnalysis) {
+        await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
+      }
        
        if (state.data.FechaReserva) {
          // Determinar siguiente paso según qué falta
@@ -2059,33 +2128,36 @@ async function processConversationStep(state, userInput, callLogger) {
          };
        }
 
-     case 'ask_time':
-       // Detectar respuestas parciales como "a las" sin hora completa
-       const partialTimePatterns = /^a\s+las?$/i;
-       if (partialTimePatterns.test(userInput.trim())) {
-         // Es una respuesta parcial, pedir que complete
-         const errorResponse = handleUnclearResponse(text, 'time', state.language);
-         return {
-           message: errorResponse,
-           gather: true
-         };
-       }
-       
-       // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
-      const timeAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
-      if (timeAnalysis) {
-         // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
-         // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
-         if (timeAnalysis.intencion === 'clarify' && !timeAnalysis.hora) {
-           // No hay hora detectada, pedir que repita
-           const errorResponse = handleUnclearResponse(text, 'time', state.language);
-           return {
-             message: errorResponse,
-             gather: true
-           };
-         }
-        await applyGeminiAnalysisToState(timeAnalysis, state, callLogger, userInput);
-       }
+    case 'ask_time':
+      // Detectar respuestas parciales como "a las" sin hora completa
+      const partialTimePatterns = /^a\s+las?$/i;
+      if (partialTimePatterns.test(userInput.trim())) {
+        // Es una respuesta parcial, pedir que complete
+        const errorResponse = handleUnclearResponse(text, 'time', state.language);
+        return {
+          message: errorResponse,
+          gather: true
+        };
+      }
+      
+      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
+      // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_time'
+      if (!geminiAnalysis && userInput && userInput.trim()) {
+        geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+      }
+      if (geminiAnalysis) {
+        // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
+        // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
+        if (geminiAnalysis.intencion === 'clarify' && !geminiAnalysis.hora) {
+          // No hay hora detectada, pedir que repita
+          const errorResponse = handleUnclearResponse(text, 'time', state.language);
+          return {
+            message: errorResponse,
+            gather: true
+          };
+        }
+        await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
+      }
        
        // Verificar si hay error de horario (validado por Gemini)
        if (state.data.horaError === 'fuera_horario') {
@@ -2149,12 +2221,15 @@ async function processConversationStep(state, userInput, callLogger) {
          };
        }
 
-     case 'ask_name':
-       // Reutilizar análisis de Gemini si ya se hizo (para evitar llamadas duplicadas)
-      const nameAnalysis = geminiAnalysis || await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
-      if (nameAnalysis) {
-        await applyGeminiAnalysisToState(nameAnalysis, state, callLogger, userInput);
-       }
+    case 'ask_name':
+      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
+      // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_name'
+      if (!geminiAnalysis && userInput && userInput.trim()) {
+        geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+      }
+      if (geminiAnalysis) {
+        await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
+      }
        
        if (state.data.NomReserva) {
          const name = state.data.NomReserva;
@@ -2183,10 +2258,10 @@ async function processConversationStep(state, userInput, callLogger) {
      case 'confirm':
        const confirmationResult = handleConfirmationResponse(text);
        
-       if (confirmationResult.action === 'confirm') {
-         // Verificar disponibilidad antes de confirmar
-         const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
-         const disponibilidad = await validarDisponibilidad(dataCombinada, state.data.NumeroReserva);
+      if (confirmationResult.action === 'confirm') {
+        // OPTIMIZACIÓN: Verificar disponibilidad antes de confirmar (con cache)
+        const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+        const disponibilidad = await validarDisponibilidadCached(dataCombinada, state.data.NumeroReserva);
          
          if (!disponibilidad.disponible) {
            logger.capacity('No hay disponibilidad al confirmar', {
@@ -3316,8 +3391,8 @@ async function saveReservation(state) {
     // Combinar fecha y hora
     const dataCombinada = combinarFechaHora(data.FechaReserva, data.HoraReserva);
 
-    // Validar disponibilidad ANTES de guardar
-    const disponibilidad = await validarDisponibilidad(dataCombinada, data.NumeroReserva);
+    // OPTIMIZACIÓN: Validar disponibilidad con cache
+    const disponibilidad = await validarDisponibilidadCached(dataCombinada, data.NumeroReserva);
     if (!disponibilidad.disponible) {
       logger.capacity('No hay disponibilidad para la reserva', {
         fechaHora: dataCombinada,
