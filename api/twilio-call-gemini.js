@@ -77,14 +77,20 @@ function formatMenuForPrompt(items = []) {
 let configLoaded = false;
 async function loadRestaurantConfig() {
   const configLoadStartTime = Date.now();
-  if (configLoaded) {
+  
+  // OPTIMIZACIÓN: Usar cache en memoria si está disponible (misma instancia)
+  // Pero siempre llamar a getRestaurantConfig() que tiene su propio cache interno (5min TTL)
+  // Esto permite que funcione bien en serverless donde las instancias se reciclan
+  if (configLoaded && restaurantConfig) {
     const cacheTime = Date.now() - configLoadStartTime;
-    logger.debug('CONFIG_CACHE_HIT', { cacheTimeMs: cacheTime });
+    logger.debug('CONFIG_MEMORY_CACHE_HIT', { cacheTimeMs: cacheTime });
+    // Aún así, verificar que el cache interno de getRestaurantConfig esté actualizado
+    // (pero no esperar si ya tenemos config en memoria)
     return restaurantConfig;
   }
   
   try {
-    logger.info('CONFIG_LOAD_START');
+    // getRestaurantConfig() tiene cache interno de 5 minutos, así que es rápido si está cacheado
     const config = await getRestaurantConfig();
     
     // Asignar valores a las variables globales
@@ -104,12 +110,34 @@ async function loadRestaurantConfig() {
     
     configLoaded = true;
     const loadTime = Date.now() - configLoadStartTime;
-    logger.info('CONFIG_LOADED', { ...restaurantConfig, loadTimeMs: loadTime });
+    
+    // Solo loggear si tarda más de 50ms (indica carga desde BD, no cache)
+    if (loadTime > 50) {
+      logger.info('CONFIG_LOADED', { ...restaurantConfig, loadTimeMs: loadTime });
+    } else {
+      logger.debug('CONFIG_CACHE_HIT', { loadTimeMs: loadTime });
+    }
+    
     return restaurantConfig;
   } catch (error) {
     const errorTime = Date.now() - configLoadStartTime;
     logger.error('CONFIG_LOAD_FAILED', { message: error.message, stack: error.stack, timeMs: errorTime });
     configLoaded = true; // Marcar como cargada para no intentar infinitamente
+    // Retornar valores por defecto si falla
+    if (!restaurantConfig) {
+      restaurantConfig = {
+        maxPersonasMesa: 20,
+        minPersonas: 1,
+        horario1Inicio: null,
+        horario1Fin: null,
+        horario2Inicio: '13:00',
+        horario2Fin: '15:00',
+        horario3Inicio: '19:00',
+        horario3Fin: '23:00',
+        minAntelacionHoras: 2,
+        fullConfig: {}
+      };
+    }
     return restaurantConfig;
   }
 }
@@ -239,11 +267,15 @@ module.exports = async function handler(req, res) {
     totalTime: 0
   };
   
-  // Cargar configuración del restaurante al inicio (solo la primera vez)
-  if (!configLoaded) {
-    const configStartTime = Date.now();
-    await loadRestaurantConfig();
-    performanceMetrics.configLoadTime = Date.now() - configStartTime;
+  // OPTIMIZACIÓN: Cargar configuración (el cache interno de getRestaurantConfig maneja TTL de 5min)
+  // No dependemos de configLoaded en memoria porque en serverless se pierde entre instancias
+  const configStartTime = Date.now();
+  await loadRestaurantConfig();
+  const configLoadTime = Date.now() - configStartTime;
+  performanceMetrics.configLoadTime = configLoadTime;
+  // Log solo si tarda más de 50ms (indica que no fue cache hit)
+  if (configLoadTime > 50) {
+    logger.debug('CONFIG_LOADED_FROM_DB', { timeMs: configLoadTime });
   }
   
   logger.info('TWILIO_WEBHOOK_RECEIVED', {
