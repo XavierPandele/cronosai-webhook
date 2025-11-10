@@ -1183,6 +1183,47 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       credibilidad: analysis.comensales_porcentaje_credivilidad,
       peopleExistente: state.data.NumeroReserva
     });
+    
+    // Fallback: intentar extraer número del texto original si no hay comensales
+    // Solo si NO hay número ya guardado en el estado
+    if (!state.data.NumeroReserva && originalText) {
+      const textLower = originalText.toLowerCase();
+      
+      // Buscar patrones como "una mesa", "dos mesas", etc.
+      const mesaPattern = /(?:una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+mesa/i;
+      const mesaMatch = textLower.match(mesaPattern);
+      if (mesaMatch) {
+        const mesaWord = mesaMatch[0].toLowerCase();
+        const wordToNumber = {
+          'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+          'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10
+        };
+        const extractedNumber = wordToNumber[mesaWord.split(' ')[0]];
+        if (extractedNumber && extractedNumber >= 1 && extractedNumber <= restaurantConfig.maxPersonasMesa) {
+          state.data.NumeroReserva = extractedNumber;
+          log.reservation('PEOPLE_APPLIED_FALLBACK_MESA', {
+            peopleCount: extractedNumber,
+            originalText: originalText.substring(0, 50),
+            reason: 'mesa_pattern_found'
+          });
+        }
+      } else {
+        // Intentar extraer cualquier número en el texto
+        const numberMatch = originalText.match(/\b(\d{1,2})\b/);
+        if (numberMatch) {
+          const extractedNumber = parseInt(numberMatch[1]);
+          // Solo aplicar si es un número razonable (1-20) y no hay número ya guardado
+          if (extractedNumber >= 1 && extractedNumber <= restaurantConfig.maxPersonasMesa) {
+            state.data.NumeroReserva = extractedNumber;
+            log.reservation('PEOPLE_APPLIED_FALLBACK_NUMBER', {
+              peopleCount: extractedNumber,
+              originalText: originalText.substring(0, 50),
+              reason: 'number_in_text'
+            });
+          }
+        }
+      }
+    }
   }
   
   // Fecha - Solo aplicar si el análisis tiene fecha Y credibilidad >= 50%
@@ -1261,6 +1302,7 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   }
   
   // Nombre - Solo aplicar si el análisis tiene nombre Y credibilidad >= 50%
+  let nameApplied = false;
   if (analysis.nombre && applyIfConfident(analysis.nombre, analysis.nombre_porcentaje_credivilidad)) {
     const existingName = state.data.NomReserva;
     state.data.NomReserva = analysis.nombre;
@@ -1269,12 +1311,46 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       nombreAnterior: existingName,
       credibilidad: analysis.nombre_porcentaje_credivilidad
     });
+    nameApplied = true;
   } else if (analysis.nombre) {
     log.debug('NAME_NOT_APPLIED_LOW_CONFIDENCE', {
       nombre: analysis.nombre,
       credibilidad: analysis.nombre_porcentaje_credivilidad,
       nombreExistente: state.data.NomReserva
     });
+  }
+  
+  // Fallback: intentar extraer nombre del texto original si Gemini no lo detectó
+  // IMPORTANTE: Solo aplicar fallback si NO hay nombre existente Y el texto contiene indicadores de nombre
+  if (!nameApplied && !state.data.NomReserva && originalText) {
+    const textLower = originalText.toLowerCase();
+    // Verificar si el texto contiene indicadores de que el usuario está dando su nombre
+    const nameIndicators = [
+      /(?:^|\s)(?:mi nombre es|me llamo|soy|a nombre de|nombre de|llamado|llamo)\s+/i,
+      /(?:^|\s)(?:my name is|i am|i'm|call me|named)\s+/i
+    ];
+    
+    const hasNameIndicator = nameIndicators.some(pattern => pattern.test(textLower));
+    
+    // Si hay indicador pero no nombre extraído, intentar extraer con fallback
+    if (hasNameIndicator) {
+      const fallbackName = extractName(originalText);
+      if (fallbackName && fallbackName.trim().length > 0) {
+        state.data.NomReserva = fallbackName;
+        log.reservation('NAME_APPLIED_FALLBACK', { 
+          nombre: fallbackName,
+          originalText: originalText.substring(0, 50),
+          reason: 'name_indicator_found'
+        });
+        nameApplied = true;
+      } else {
+        // El usuario dijo "a nombre de" pero no completó el nombre - esto es OK, no es error
+        log.debug('NAME_INDICATOR_WITHOUT_NAME', {
+          originalText: originalText.substring(0, 50),
+          reason: 'user_will_provide_name_next'
+        });
+      }
+    }
   }
   
   // Intolerancias (guardamos pero no es crítico)
@@ -2554,42 +2630,82 @@ async function processConversationStep(state, userInput, callLogger, performance
          };
        }
        
-       // Usar Gemini para extraer información de la respuesta del usuario
+      // Usar Gemini para extraer información de la respuesta del usuario
       const peopleAnalysis = await analyzeReservationWithGemini(userInput, { 
         callSid: state.callSid, 
         step: state.step,
         performanceMetrics: performanceMetrics
       });
-       if (peopleAnalysis) {
-         // Si Gemini retornó null pero tiene alta credibilidad, intentar extraer del texto
-         if (!peopleAnalysis.comensales && parseInt(peopleAnalysis.comensales_porcentaje_credivilidad || '0%') >= 50) {
-           console.log('⚠️ [WARNING] Gemini retornó comensales=null con alta credibilidad, extrayendo del texto original');
-           // Primero intentar con regex para capturar cualquier número (sin límite)
-           const numberMatch = userInput.match(/\b(\d+)\s*(?:personas?|personas|gente|comensales?|invitados?)\b/i);
-           if (numberMatch) {
-             const regexNumber = parseInt(numberMatch[1]);
-             console.log(`✅ [EXTRACTION] Número extraído con regex: ${regexNumber}`);
-             peopleAnalysis.comensales = regexNumber.toString();
-             peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
-           } else {
-             // Si no hay match con "personas", intentar solo número cerca de palabras relacionadas
-             const numberMatch2 = userInput.match(/(?:para|de|con|son)\s+(\d+)/i);
-             if (numberMatch2) {
-               const regexNumber2 = parseInt(numberMatch2[1]);
-               console.log(`✅ [EXTRACTION] Número extraído (sin palabra personas): ${regexNumber2}`);
-               peopleAnalysis.comensales = regexNumber2.toString();
-               peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
-             } else {
-               // Último intento: usar extractPeopleCount (limitado a 1-20)
-               const extractedNumber = extractPeopleCount(userInput);
-               if (extractedNumber && extractedNumber > 0) {
-                 console.log(`✅ [EXTRACTION] Número extraído con extractPeopleCount: ${extractedNumber}`);
-                 peopleAnalysis.comensales = extractedNumber.toString();
-                 peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
-               }
-             }
-           }
-         }
+      if (peopleAnalysis) {
+        // MEJORADO: Si Gemini retornó null para comensales, SIEMPRE intentar fallback
+        // No solo cuando tiene alta credibilidad, porque a veces Gemini no está seguro pero el número está ahí
+        if (!peopleAnalysis.comensales) {
+          callLogger.debug('PEOPLE_NULL_FROM_GEMINI_TRYING_FALLBACK', { 
+            userInput: userInput.substring(0, 50),
+            credibilidad: peopleAnalysis.comensales_porcentaje_credivilidad
+          });
+          
+          // Primero intentar con regex para capturar cualquier número (sin límite)
+          const numberMatch = userInput.match(/\b(\d+)\s*(?:personas?|personas|gente|comensales?|invitados?|personas más|personas adicionales)\b/i);
+          if (numberMatch) {
+            const regexNumber = parseInt(numberMatch[1]);
+            callLogger.info('PEOPLE_EXTRACTED_REGEX', { number: regexNumber });
+            peopleAnalysis.comensales = regexNumber.toString();
+            peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+          } else {
+            // Si no hay match con "personas", intentar solo número cerca de palabras relacionadas
+            const numberMatch2 = userInput.match(/(?:para|de|con|son|y para|y|otras|otros|además)\s+(\d+)/i);
+            if (numberMatch2) {
+              const regexNumber2 = parseInt(numberMatch2[1]);
+              callLogger.info('PEOPLE_EXTRACTED_REGEX2', { number: regexNumber2 });
+              peopleAnalysis.comensales = regexNumber2.toString();
+              peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+            } else {
+              // Intentar extraer números en palabras (uno, dos, tres, etc.)
+              const wordToNumber = {
+                'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+                'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+                'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14, 'quince': 15,
+                'dieciséis': 16, 'diecisiete': 17, 'dieciocho': 18, 'diecinueve': 19, 'veinte': 20
+              };
+              
+              let foundWordNumber = null;
+              for (const [word, number] of Object.entries(wordToNumber)) {
+                const wordRegex = new RegExp(`\\b${word}\\b`, 'i');
+                if (wordRegex.test(userInput.toLowerCase())) {
+                  foundWordNumber = number;
+                  break;
+                }
+              }
+              
+              if (foundWordNumber) {
+                callLogger.info('PEOPLE_EXTRACTED_WORD', { number: foundWordNumber });
+                peopleAnalysis.comensales = foundWordNumber.toString();
+                peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+              } else {
+                // Intentar extraer cualquier número en el texto
+                const anyNumberMatch = userInput.match(/\b(\d{1,2})\b/);
+                if (anyNumberMatch) {
+                  const anyNumber = parseInt(anyNumberMatch[1]);
+                  // Validar que sea un número razonable (1-20)
+                  if (anyNumber >= 1 && anyNumber <= 20) {
+                    callLogger.info('PEOPLE_EXTRACTED_ANY_NUMBER', { number: anyNumber });
+                    peopleAnalysis.comensales = anyNumber.toString();
+                    peopleAnalysis.comensales_porcentaje_credivilidad = '90%';
+                  }
+                } else {
+                  // Último intento: usar extractPeopleCount (limitado a 1-20)
+                  const extractedNumber = extractPeopleCount(userInput);
+                  if (extractedNumber && extractedNumber > 0) {
+                    callLogger.info('PEOPLE_EXTRACTED_EXTRACT_FUNCTION', { number: extractedNumber });
+                    peopleAnalysis.comensales = extractedNumber.toString();
+                    peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
+                  }
+                }
+              }
+            }
+          }
+        }
          
         const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state, callLogger, userInput);
          
@@ -2648,11 +2764,32 @@ async function processConversationStep(state, userInput, callLogger, performance
            };
          }
        } else {
-         const errorResponse = handleUnclearResponse(text, 'people', state.language);
-         return {
-           message: errorResponse,
-           gather: true
-         };
+         // MEJORADO: Verificar si el usuario está intentando dar un número pero no fue claro
+         // Por ejemplo: "Y para otras personas" - el usuario está intentando dar información pero no fue específico
+         const textLower = (userInput || '').toLowerCase().trim();
+         const peopleIndicators = [
+           /^(?:y\s+para|y|para|además|otras?|otros?)\s+(?:personas?|gente|comensales?|invitados?)/i,
+           /^(?:y\s+)?(?:otras?|otros?)\s+(?:personas?|gente)/i
+         ];
+         
+         const isIncompletePeoplePhrase = peopleIndicators.some(pattern => pattern.test(textLower));
+         
+         if (isIncompletePeoplePhrase) {
+           // El usuario está intentando dar información sobre personas pero no fue específico
+           // Preguntar de forma más directa y clara
+           const unclearMessages = getMultilingualMessages('people_unclear', state.language);
+           return {
+             message: getRandomMessage(unclearMessages || ['Disculpe, no he entendido bien. ¿Para cuántas personas exactamente será la reserva?']),
+             gather: true
+           };
+         } else {
+           // No se pudo extraer el número, usar mensaje de error/repetición estándar
+           const errorResponse = handleUnclearResponse(text, 'people', state.language);
+           return {
+             message: errorResponse,
+             gather: true
+           };
+         }
        }
 
     case 'ask_date':
@@ -2834,6 +2971,17 @@ async function processConversationStep(state, userInput, callLogger, performance
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
       }
        
+       // MEJORADO: Verificar si el usuario dijo "a nombre de" sin completar
+       // En este caso, no es un error, simplemente necesitamos que complete el nombre
+       const textLower = (userInput || '').toLowerCase().trim();
+       const nameIndicators = [
+         /^a\s+nombre\s+de\s*$/i,
+         /^nombre\s+de\s*$/i,
+         /^a\s+nombre\s+de\s*$/i
+       ];
+       
+       const isIncompleteNamePhrase = nameIndicators.some(pattern => pattern.test(textLower));
+       
        if (state.data.NomReserva) {
          const name = state.data.NomReserva;
          // Después del nombre, usar directamente el teléfono de la llamada y confirmar
@@ -2849,7 +2997,16 @@ async function processConversationStep(state, userInput, callLogger, performance
            message: fullMessage,
            gather: true
          };
+       } else if (isIncompleteNamePhrase) {
+         // El usuario dijo "a nombre de" pero no completó el nombre
+         // Esto es normal, simplemente pedir el nombre de forma más clara
+         const nameMessages = getMultilingualMessages('ask_name', state.language);
+         return {
+           message: getRandomMessage(nameMessages),
+           gather: true
+         };
        } else {
+         // No se pudo extraer el nombre, usar mensaje de error/repetición
          const errorResponse = handleUnclearResponse(text, 'name', state.language);
          return {
            message: errorResponse,
