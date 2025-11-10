@@ -2154,49 +2154,94 @@ async function processConversationStep(state, userInput, callLogger, performance
          // INICIAR Gemini de forma asíncrona (sin await) para que se ejecute en paralelo
          const geminiStartTime = Date.now();
          const callSidToUse = state.callSid;
-         analyzeReservationWithGemini(state.pendingGeminiText, { 
-           callSid: callSidToUse, 
-           step: state.step,
-           performanceMetrics: performanceMetrics
-         }).then(async (analysis) => {
-           try {
-             const currentState = await loadCallState(callSidToUse);
-             if (currentState) {
-               currentState.geminiAnalysis = analysis;
-               currentState.geminiProcessing = false;
-               currentState.geminiProcessingEndTime = Date.now();
-               await saveCallState(callSidToUse, currentState);
-               callLogger.info('GEMINI_ANALYSIS_COMPLETED_IN_BACKGROUND', { 
-                 callSid: callSidToUse,
-                 timeMs: currentState.geminiProcessingEndTime - geminiStartTime 
-               });
-             }
-           } catch (error) {
-             callLogger.error('GEMINI_ANALYSIS_SAVE_FAILED', { 
-               error: error.message,
-               callSid: callSidToUse
-             });
-           }
-         }).catch(async (error) => {
-           try {
-             const currentState = await loadCallState(callSidToUse);
-             if (currentState) {
-               currentState.geminiProcessing = false;
-               currentState.geminiError = error.message;
-               await saveCallState(callSidToUse, currentState);
-               callLogger.error('GEMINI_ANALYSIS_FAILED_IN_BACKGROUND', { 
-                 error: error.message,
+         const textToAnalyze = state.pendingGeminiText;
+         
+         // Validar que tenemos el texto necesario
+         if (!textToAnalyze || !textToAnalyze.trim()) {
+           callLogger.error('GEMINI_NO_TEXT_TO_ANALYZE', { 
+             callSid: callSidToUse,
+             pendingGeminiText: state.pendingGeminiText
+           });
+           // No iniciar Gemini si no hay texto
+         } else {
+           // Asegurarse de que performanceMetrics esté definido
+           const metrics = performanceMetrics || {};
+           
+           // Ejecutar Gemini en background - NO usar await para no bloquear la respuesta
+           // Envolver en Promise.resolve() para manejar errores síncronos
+           (async () => {
+             try {
+               callLogger.debug('GEMINI_BACKGROUND_START', { 
+                 textToAnalyze: textToAnalyze.substring(0, 100),
                  callSid: callSidToUse
                });
+               
+               const analysis = await analyzeReservationWithGemini(textToAnalyze, { 
+                 callSid: callSidToUse, 
+                 step: state.step,
+                 performanceMetrics: metrics
+               });
+               
+               // Guardar el análisis en el estado (incluso si es null)
+               const currentState = await loadCallState(callSidToUse);
+               if (currentState) {
+                 if (analysis) {
+                   currentState.geminiAnalysis = analysis;
+                   currentState.geminiProcessing = false;
+                   currentState.geminiProcessingEndTime = Date.now();
+                   await saveCallState(callSidToUse, currentState);
+                   callLogger.info('GEMINI_ANALYSIS_COMPLETED_IN_BACKGROUND', { 
+                     callSid: callSidToUse,
+                     timeMs: currentState.geminiProcessingEndTime - geminiStartTime 
+                   });
+                 } else {
+                   // Gemini retornó null (error o sin análisis)
+                   currentState.geminiProcessing = false;
+                   currentState.geminiError = 'Gemini returned null analysis';
+                   await saveCallState(callSidToUse, currentState);
+                   callLogger.warn('GEMINI_ANALYSIS_NULL', { 
+                     callSid: callSidToUse,
+                     timeMs: Date.now() - geminiStartTime 
+                   });
+                 }
+               } else {
+                 callLogger.warn('GEMINI_STATE_NOT_FOUND', { callSid: callSidToUse });
+               }
+             } catch (error) {
+               // Log del error con toda la información disponible
+               callLogger.error('GEMINI_BACKGROUND_ERROR', { 
+                 error: error.message,
+                 stack: error.stack,
+                 callSid: callSidToUse,
+                 textToAnalyze: textToAnalyze.substring(0, 100)
+               });
+               
+               try {
+                 // Intentar guardar el error en el estado
+                 const currentState = await loadCallState(callSidToUse);
+                 if (currentState) {
+                   currentState.geminiProcessing = false;
+                   currentState.geminiError = error.message || 'Unknown error';
+                   await saveCallState(callSidToUse, currentState);
+                 }
+               } catch (saveError) {
+                 // Si falla guardar el error, al menos loguearlo
+                 callLogger.error('GEMINI_ERROR_SAVE_FAILED', { 
+                   error: error.message,
+                   saveError: saveError.message,
+                   callSid: callSidToUse
+                 });
+               }
              }
-           } catch (saveError) {
-             callLogger.error('GEMINI_ERROR_SAVE_FAILED', { 
-               error: error.message,
-               saveError: saveError.message,
+           })().catch((unhandledError) => {
+             // Capturar cualquier error no manejado en la IIFE
+             callLogger.error('GEMINI_UNHANDLED_PROMISE_ERROR', { 
+               error: unhandledError.message,
+               stack: unhandledError.stack,
                callSid: callSidToUse
              });
-           }
-         });
+           });
+         }
          
          // Guardar el estado con el texto pendiente
          await saveCallState(state.callSid, state);
