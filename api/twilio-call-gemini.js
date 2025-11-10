@@ -427,30 +427,49 @@ module.exports = async function handler(req, res) {
     // Guardar entrada del usuario si existe
     let userInput = SpeechResult || Digits || '';
     
-    // OPTIMIZACIÓN: Eliminado redirect con process=true para reducir latencia
-    // Ahora procesamos directamente sin redirect (ahorro de 500-1000ms)
-    const inputToProcess = userInput;
+    // Detectar si esta es una request de procesamiento (después del mensaje de "procesando")
+    const isProcessing = req.query && req.query.process === 'true';
     
-    if (inputToProcess && inputToProcess.trim()) {
+    // Guardar mensaje del usuario en el historial ANTES de procesar
+    // Si NO estamos procesando y hay input, guardarlo en el estado
+    if (userInput && userInput.trim() && !isProcessing) {
       const lastEntry = state.conversationHistory[state.conversationHistory.length - 1];
-      if (!lastEntry || lastEntry.role !== 'user' || lastEntry.message !== inputToProcess) {
+      if (!lastEntry || lastEntry.role !== 'user' || lastEntry.message !== userInput) {
         state.conversationHistory.push({
           role: 'user',
-          message: inputToProcess,
+          message: userInput,
           timestamp: new Date().toISOString()
         });
-        callLogger.debug('USER_MESSAGE_RECORDED', { message: inputToProcess });
+        callLogger.debug('USER_MESSAGE_RECORDED', { message: userInput });
+        // Guardar el estado ANTES del redirect para que el input esté disponible en la siguiente request
+        try {
+          await saveCallState(CallSid, state);
+          callLogger.debug('STATE_SAVED_BEFORE_REDIRECT');
+        } catch (error) {
+          callLogger.warn('STATE_SAVE_FAILED_BEFORE_REDIRECT', { error: error.message });
+        }
+      }
+    }
+    
+    // Si estamos procesando, obtener el último mensaje del usuario del historial si no hay userInput
+    if (isProcessing && (!userInput || !userInput.trim())) {
+      const lastUserEntry = state.conversationHistory
+        .slice()
+        .reverse()
+        .find(entry => entry.role === 'user');
+      if (lastUserEntry) {
+        userInput = lastUserEntry.message;
+        callLogger.debug('USER_INPUT_RECOVERED_FROM_HISTORY', { userInput });
       }
     }
 
-
     // Procesar según el paso actual
-    callLogger.debug('BEFORE_PROCESS_STEP', { step: state.step, hasInput: Boolean(inputToProcess) });
+    callLogger.debug('BEFORE_PROCESS_STEP', { step: state.step, hasInput: Boolean(userInput), isProcessing });
     const previousStep = state.step;
     
     // PERFORMANCE: Pasar métricas al proceso de conversación
     const processStepStartTime = Date.now();
-    const response = await processConversationStep(state, inputToProcess, callLogger, performanceMetrics);
+    const response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
     const processStepTime = Date.now() - processStepStartTime;
     performanceMetrics.processStepTime = processStepTime;
     
@@ -1773,7 +1792,7 @@ async function handleOrderConfirm(state, userInput, callLogger) {
   };
 }
 
-async function processConversationStep(state, userInput, callLogger, performanceMetrics = null) {
+async function processConversationStep(state, userInput, callLogger, performanceMetrics = null, isProcessing = false) {
   const step = state.step;
   const text = userInput.toLowerCase();
 
@@ -2099,15 +2118,175 @@ async function processConversationStep(state, userInput, callLogger, performance
        };
 
      case 'ask_intention':
-       // Analizar directamente con Gemini (ya detecta intención + datos en una sola llamada)
-       console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${text}"`);
+       // Si hay input del usuario pero NO estamos procesando, iniciar Gemini y mostrar mensaje
+       if (userInput && userInput.trim() && !isProcessing) {
+         callLogger.info('SHOWING_PROCESSING_MESSAGE_AND_STARTING_GEMINI', { userInput });
+         
+         const textToAnalyze = userInput;
+         
+         // Marcar que estamos procesando en el estado
+         state.geminiProcessing = true;
+         state.geminiProcessingStartTime = Date.now();
+         
+         // INICIAR Gemini de forma asíncrona (sin await) para que se ejecute en paralelo
+         // Cuando termine, guardaremos el resultado en la base de datos
+         const geminiStartTime = Date.now();
+         analyzeReservationWithGemini(textToAnalyze, { 
+           callSid: state.callSid, 
+           step: state.step,
+           performanceMetrics: performanceMetrics
+         }).then(async (analysis) => {
+           // Cuando Gemini termine, cargar el estado actual, actualizarlo y guardarlo
+           try {
+             const currentState = await loadCallState(CallSid) || state;
+             currentState.geminiAnalysis = analysis;
+             currentState.geminiProcessing = false;
+             currentState.geminiProcessingEndTime = Date.now();
+             
+             // Guardar el estado con el análisis en la base de datos
+             await saveCallState(CallSid, currentState);
+             
+             callLogger.info('GEMINI_ANALYSIS_COMPLETED_IN_BACKGROUND', { 
+               callSid: CallSid,
+               timeMs: currentState.geminiProcessingEndTime - geminiStartTime 
+             });
+           } catch (error) {
+             callLogger.error('GEMINI_ANALYSIS_SAVE_FAILED', { 
+               error: error.message,
+               callSid: CallSid
+             });
+           }
+         }).catch(async (error) => {
+           // Si Gemini falla, guardar el error en el estado
+           try {
+             const currentState = await loadCallState(CallSid) || state;
+             currentState.geminiProcessing = false;
+             currentState.geminiError = error.message;
+             await saveCallState(CallSid, currentState);
+             callLogger.error('GEMINI_ANALYSIS_FAILED_IN_BACKGROUND', { 
+               error: error.message,
+               callSid: CallSid
+             });
+           } catch (saveError) {
+             callLogger.error('GEMINI_ERROR_SAVE_FAILED', { 
+               error: error.message,
+               saveError: saveError.message,
+               callSid: CallSid
+             });
+           }
+         });
+         
+         // Marcar que Gemini está procesando y guardar el estado
+         state.geminiProcessing = true;
+         state.geminiProcessingStartTime = geminiStartTime;
+         
+         // Guardar el estado ANTES de responder para que esté disponible en el redirect
+         await saveCallState(CallSid, state);
+         
+         // Devolver TwiML con mensaje de procesamiento, Pause y redirect
+         const processingMsg = getRandomMessage(getProcessingMessage(state.language));
+         const voiceConfig = {
+           es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
+           en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
+           de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
+           it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
+           fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
+           pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+         };
+         const config = voiceConfig[state.language] || voiceConfig.es;
+         
+         // Calcular tiempo de Pause: mensaje tarda ~2-3s, Gemini tarda ~5s
+         // Pause de ~6 segundos para dar tiempo suficiente a Gemini mientras el usuario escucha
+         return {
+           message: processingMsg,
+           gather: false,
+           redirect: `/api/twilio-call-gemini?process=true`,
+           voiceConfig: config,
+           pauseLength: 6 // segundos de pausa después del mensaje (mensaje ~2-3s + pause 6s = ~8-9s total)
+         };
+       }
        
-      const analysis = await analyzeReservationWithGemini(text, { 
-        callSid: state.callSid, 
-        step: state.step,
-        performanceMetrics: performanceMetrics
-      });
+       // Si estamos procesando (isProcessing === true), verificar si Gemini ya terminó
+       if (isProcessing) {
+         const textToAnalyze = userInput && userInput.trim() 
+           ? userInput 
+           : (state.conversationHistory.length > 0 
+             ? state.conversationHistory[state.conversationHistory.length - 1].message 
+             : '');
+         
+         // Esperar un poco para que Gemini tenga tiempo de terminar (si aún no ha terminado)
+         // Si el estado indica que Gemini está procesando, esperar un momento
+         if (state.geminiProcessing || (!state.geminiAnalysis && !state.geminiError)) {
+           // Gemini aún no ha terminado, esperar un poco más
+           await new Promise(resolve => setTimeout(resolve, 500)); // Esperar 500ms
+           
+           // Recargar el estado por si Gemini ya terminó
+           const updatedState = await loadCallState(CallSid);
+           if (updatedState) {
+             Object.assign(state, updatedState);
+           }
+         }
+         
+         // Si Gemini ya terminó, usar el análisis guardado
+         if (state.geminiAnalysis) {
+           callLogger.info('USING_CACHED_GEMINI_ANALYSIS', { 
+             analysisTime: state.geminiProcessingEndTime - state.geminiProcessingStartTime 
+           });
+           var analysis = state.geminiAnalysis;
+           // Limpiar el análisis del estado para no reutilizarlo
+           delete state.geminiAnalysis;
+           delete state.geminiProcessing;
+           delete state.geminiProcessingStartTime;
+           delete state.geminiProcessingEndTime;
+         } else if (state.geminiError) {
+           // Gemini falló, continuar sin análisis
+           callLogger.warn('GEMINI_ANALYSIS_FAILED', { error: state.geminiError });
+           delete state.geminiError;
+           var analysis = null;
+         } else {
+           // Gemini aún no ha terminado, ejecutarlo ahora de forma síncrona
+           callLogger.warn('GEMINI_STILL_PROCESSING_FALLBACK_TO_SYNC', { textToAnalyze });
+           var analysis = await analyzeReservationWithGemini(textToAnalyze, { 
+             callSid: state.callSid, 
+             step: state.step,
+             performanceMetrics: performanceMetrics
+           });
+         }
+       } else {
+         // No hay input, mantener en ask_intention
+         const greetingMessages = getMultilingualMessages('greeting', state.language);
+         return {
+           message: getRandomMessage(greetingMessages),
+           gather: true
+         };
+       }
        
+       // Continuar con el análisis (ya sea del cache o recién ejecutado)
+       if (!analysis && !isProcessing) {
+         const textToAnalyze = userInput && userInput.trim() 
+           ? userInput 
+           : (state.conversationHistory.length > 0 
+             ? state.conversationHistory[state.conversationHistory.length - 1].message 
+             : '');
+         
+         if (!textToAnalyze) {
+           const greetingMessages = getMultilingualMessages('greeting', state.language);
+           return {
+             message: getRandomMessage(greetingMessages),
+             gather: true
+           };
+         }
+         
+         console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${textToAnalyze}"`);
+         
+         var analysis = await analyzeReservationWithGemini(textToAnalyze, { 
+           callSid: state.callSid, 
+           step: state.step,
+           performanceMetrics: performanceMetrics
+         });
+       }
+       
+       // Si analysis existe, procesarlo
        if (analysis) {
          // Actualizar idioma si se detectó
          if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
@@ -2119,7 +2298,12 @@ async function processConversationStep(state, userInput, callLogger, performance
          if (intention === 'reservation') {
          
            // Aplicar la información extraída al estado
-          const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+          const textForAnalysis = userInput && userInput.trim() 
+            ? userInput 
+            : (state.conversationHistory.length > 0 
+              ? state.conversationHistory[state.conversationHistory.length - 1].message 
+              : '');
+          const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, textForAnalysis);
            
            // Si hay error de validación (ej: demasiadas personas), manejar
            if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -2190,14 +2374,14 @@ async function processConversationStep(state, userInput, callLogger, performance
                gather: true
              };
            }
-         } else if (intention === 'modify') {
-           // Usuario quiere modificar una reserva existente
-           return await handleModificationRequest(state, userInput);
+        } else if (intention === 'modify') {
+          // Usuario quiere modificar una reserva existente
+          return await handleModificationRequest(state, textToAnalyze);
         } else if (intention === 'cancel') {
-           // Usuario quiere cancelar una reserva existente
-           return await handleCancellationRequest(state, userInput);
+          // Usuario quiere cancelar una reserva existente
+          return await handleCancellationRequest(state, textToAnalyze);
         } else if (intention === 'order') {
-          return await handleOrderIntent(state, analysis, callLogger, userInput);
+          return await handleOrderIntent(state, analysis, callLogger, textToAnalyze);
          }
        }
        
@@ -3650,11 +3834,12 @@ async function handleCancelNoReservations(state, userInput) {
 }
 
 function generateTwiML(response, language = 'es', processingMessage = null) {
-  const { message, gather = true } = response;
+  const { message, gather = true, redirect, voiceConfig: responseVoiceConfig } = response;
 
   console.log(`🎤 [DEBUG] generateTwiML - Idioma recibido: ${language}`);
   console.log(`🎤 [DEBUG] generateTwiML - Mensaje: "${message}"`);
   console.log(`🎤 [DEBUG] generateTwiML - ProcessingMessage: ${processingMessage ? '"' + processingMessage + '"' : 'null'}`);
+  console.log(`🎤 [DEBUG] generateTwiML - Redirect: ${redirect ? '"' + redirect + '"' : 'null'}`);
 
   // Configuración de voz por idioma - Google Neural cuando esté disponible
   const voiceConfig = {
@@ -3666,11 +3851,19 @@ function generateTwiML(response, language = 'es', processingMessage = null) {
     pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
   };
 
-  const config = voiceConfig[language] || voiceConfig.es;
+  const config = responseVoiceConfig || voiceConfig[language] || voiceConfig.es;
   console.log(`🎤 [DEBUG] Configuración de voz seleccionada:`, config);
 
+  // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
+  if (redirect) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
+  <Redirect method="POST">${escapeXml(redirect)}</Redirect>
+</Response>`;
+  }
+
   if (gather) {
-    // Ya no incluimos processingMessage aquí porque se maneja antes con redirect
     // Usar Gather para capturar la respuesta del usuario
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
