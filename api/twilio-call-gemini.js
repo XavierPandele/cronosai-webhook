@@ -31,8 +31,11 @@ let menuLoadedAt = 0;
 const MENU_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
 async function loadMenuItems(force = false) {
+  const menuLoadStartTime = Date.now();
   const now = Date.now();
   if (!force && menuItemsCache.length > 0 && (now - menuLoadedAt) < MENU_CACHE_TTL_MS) {
+    const cacheTime = Date.now() - menuLoadStartTime;
+    logger.debug('MENU_CACHE_HIT', { cacheTimeMs: cacheTime, itemsCount: menuItemsCache.length });
     return menuItemsCache;
   }
 
@@ -47,8 +50,11 @@ async function loadMenuItems(force = false) {
       descripcion: row.descripcion || ''
     }));
     menuLoadedAt = now;
+    const loadTime = Date.now() - menuLoadStartTime;
+    logger.debug('MENU_LOADED', { timeMs: loadTime, itemsCount: menuItemsCache.length });
   } catch (error) {
-    logger.error('MENU_LOAD_FAILED', { message: error.message });
+    const errorTime = Date.now() - menuLoadStartTime;
+    logger.error('MENU_LOAD_FAILED', { message: error.message, timeMs: errorTime });
     if (menuItemsCache.length === 0) {
       menuItemsCache = [];
     }
@@ -70,7 +76,10 @@ function formatMenuForPrompt(items = []) {
 // Cargar configuración del restaurante al inicio
 let configLoaded = false;
 async function loadRestaurantConfig() {
+  const configLoadStartTime = Date.now();
   if (configLoaded) {
+    const cacheTime = Date.now() - configLoadStartTime;
+    logger.debug('CONFIG_CACHE_HIT', { cacheTimeMs: cacheTime });
     return restaurantConfig;
   }
   
@@ -94,10 +103,12 @@ async function loadRestaurantConfig() {
     };
     
     configLoaded = true;
-    logger.info('CONFIG_LOADED', restaurantConfig);
+    const loadTime = Date.now() - configLoadStartTime;
+    logger.info('CONFIG_LOADED', { ...restaurantConfig, loadTimeMs: loadTime });
     return restaurantConfig;
   } catch (error) {
-    logger.error('CONFIG_LOAD_FAILED', { message: error.message, stack: error.stack });
+    const errorTime = Date.now() - configLoadStartTime;
+    logger.error('CONFIG_LOAD_FAILED', { message: error.message, stack: error.stack, timeMs: errorTime });
     configLoaded = true; // Marcar como cargada para no intentar infinitamente
     return restaurantConfig;
   }
@@ -154,16 +165,36 @@ function cleanAvailabilityCache() {
 }
 
 // Wrapper para cachear validación de disponibilidad
-async function validarDisponibilidadCached(fechaHora, numPersonas) {
+async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMetrics = null) {
+  const availabilityStartTime = Date.now();
   const cacheKey = `${fechaHora}:${numPersonas}`;
   const cached = availabilityCache.get(cacheKey);
   
   if (cached && (Date.now() - cached.timestamp) < AVAILABILITY_CACHE_TTL_MS) {
-    logger.debug('AVAILABILITY_CACHE_HIT', { cacheKey });
+    const cacheTime = Date.now() - availabilityStartTime;
+    logger.debug('AVAILABILITY_CACHE_HIT', { 
+      cacheKey, 
+      cacheTimeMs: cacheTime 
+    });
+    if (performanceMetrics) {
+      performanceMetrics.availabilityTime = cacheTime;
+    }
     return cached.result;
   }
   
   const result = await validarDisponibilidad(fechaHora, numPersonas);
+  const availabilityTime = Date.now() - availabilityStartTime;
+  
+  logger.debug('AVAILABILITY_CHECKED', { 
+    fechaHora, 
+    numPersonas,
+    disponible: result.disponible,
+    timeMs: availabilityTime 
+  });
+  
+  if (performanceMetrics) {
+    performanceMetrics.availabilityTime = availabilityTime;
+  }
   
   availabilityCache.set(cacheKey, {
     result,
@@ -195,9 +226,24 @@ module.exports = async function handler(req, res) {
   // Siempre establecer headers primero
   res.setHeader('Content-Type', 'text/xml');
   
+  // PERFORMANCE: Marcar tiempo de inicio de la request
+  const requestStartTime = Date.now();
+  const performanceMetrics = {
+    requestStart: requestStartTime,
+    geminiTime: 0,
+    stateSaveTime: 0,
+    availabilityTime: 0,
+    configLoadTime: 0,
+    menuLoadTime: 0,
+    dbTime: 0,
+    totalTime: 0
+  };
+  
   // Cargar configuración del restaurante al inicio (solo la primera vez)
   if (!configLoaded) {
+    const configStartTime = Date.now();
     await loadRestaurantConfig();
+    performanceMetrics.configLoadTime = Date.now() - configStartTime;
   }
   
   logger.info('TWILIO_WEBHOOK_RECEIVED', {
@@ -341,12 +387,25 @@ module.exports = async function handler(req, res) {
     // Procesar según el paso actual
     callLogger.debug('BEFORE_PROCESS_STEP', { step: state.step, hasInput: Boolean(inputToProcess) });
     const previousStep = state.step;
-    const response = await processConversationStep(state, inputToProcess, callLogger);
+    
+    // PERFORMANCE: Pasar métricas al proceso de conversación
+    const processStepStartTime = Date.now();
+    const response = await processConversationStep(state, inputToProcess, callLogger, performanceMetrics);
+    const processStepTime = Date.now() - processStepStartTime;
+    performanceMetrics.processStepTime = processStepTime;
+    
     if (previousStep !== state.step) {
-      callLogger.info('STEP_TRANSITION', { from: previousStep, to: state.step });
+      callLogger.info('STEP_TRANSITION', { 
+        from: previousStep, 
+        to: state.step,
+        processStepTimeMs: processStepTime
+      });
       callLogger.update({ step: state.step });
     }
-    callLogger.debug('AFTER_PROCESS_STEP', { step: state.step });
+    callLogger.debug('AFTER_PROCESS_STEP', { 
+      step: state.step,
+      processStepTimeMs: processStepTime
+    });
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -366,23 +425,46 @@ module.exports = async function handler(req, res) {
     
     if (isCriticalStep) {
       // Guardado síncrono para pasos críticos (importante para no perder datos)
+      const stateSaveStartTime = Date.now();
       await saveCallState(CallSid, state);
+      performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
+      callLogger.debug('STATE_SAVED_SYNC', { 
+        step: state.step, 
+        timeMs: performanceMetrics.stateSaveTime 
+      });
     } else {
       // Guardado asíncrono para pasos normales (mejora latencia en 200-500ms)
       setImmediate(() => {
-        saveCallState(CallSid, state).catch(err => {
-          logger.error('STATE_SAVE_FAILED_ASYNC', { 
-            error: err.message,
-            callSid: CallSid,
-            step: state.step
+        const stateSaveStartTime = Date.now();
+        saveCallState(CallSid, state)
+          .then(() => {
+            const stateSaveTime = Date.now() - stateSaveStartTime;
+            callLogger.debug('STATE_SAVED_ASYNC', { 
+              step: state.step, 
+              timeMs: stateSaveTime 
+            });
+          })
+          .catch(err => {
+            logger.error('STATE_SAVE_FAILED_ASYNC', { 
+              error: err.message,
+              callSid: CallSid,
+              step: state.step
+            });
           });
-        });
       });
+      // Para pasos asíncronos, el tiempo es 0 (no bloquea)
+      performanceMetrics.stateSaveTime = 0;
     }
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
-      const saved = await saveReservation(state);
+      const saveReservationStartTime = Date.now();
+      const saved = await saveReservation(state, performanceMetrics);
+      performanceMetrics.saveReservationTime = Date.now() - saveReservationStartTime;
+      callLogger.info('RESERVATION_SAVE_COMPLETED', { 
+        saved,
+        timeMs: performanceMetrics.saveReservationTime 
+      });
       
       // Si no se pudo guardar por falta de disponibilidad, manejar el error
       if (!saved && state.availabilityError) {
@@ -455,14 +537,36 @@ module.exports = async function handler(req, res) {
     // Generar TwiML response
     const twiml = generateTwiML(response, state.language);
     
+    // PERFORMANCE: Calcular tiempo total y loggear métricas
+    performanceMetrics.totalTime = Date.now() - requestStartTime;
+    
+    callLogger.info('PERFORMANCE_METRICS', {
+      totalTimeMs: performanceMetrics.totalTime,
+      geminiTimeMs: performanceMetrics.geminiTime,
+      stateSaveTimeMs: performanceMetrics.stateSaveTime,
+      availabilityTimeMs: performanceMetrics.availabilityTime,
+      configLoadTimeMs: performanceMetrics.configLoadTime,
+      menuLoadTimeMs: performanceMetrics.menuLoadTime,
+      dbTimeMs: performanceMetrics.dbTime || 0,
+      processStepTimeMs: performanceMetrics.processStepTime || 0,
+      saveReservationTimeMs: performanceMetrics.saveReservationTime || 0,
+      step: state.step,
+      hasInput: Boolean(inputToProcess),
+      callSid: CallSid
+    });
+    
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
 
   } catch (error) {
+    // PERFORMANCE: Loggear tiempo total incluso en caso de error
+    const errorTotalTime = Date.now() - requestStartTime;
     logger.error('TWILIO_CALL_HANDLER_ERROR', {
       message: error.message,
       stack: error.stack,
-      name: error.name
+      name: error.name,
+      totalTimeMs: errorTotalTime,
+      callSid: CallSid
     });
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -485,6 +589,7 @@ module.exports = async function handler(req, res) {
  * Usa Gemini 2.5 Flash para extraer: comensales, fecha, hora, intolerancias, movilidad, nombre
  */
 async function analyzeReservationWithGemini(userInput, context = {}) {
+  const geminiStartTime = Date.now();
   try {
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     
@@ -492,7 +597,14 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
     const cacheKey = userInput.trim().toLowerCase();
     const cached = geminiAnalysisCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < GEMINI_CACHE_TTL_MS) {
-      geminiLogger.debug('GEMINI_CACHE_HIT', { cacheKey });
+      const cacheTime = Date.now() - geminiStartTime;
+      geminiLogger.debug('GEMINI_CACHE_HIT', { 
+        cacheKey, 
+        cacheTimeMs: cacheTime 
+      });
+      if (context.performanceMetrics) {
+        context.performanceMetrics.geminiTime = cacheTime;
+      }
       return cached.analysis;
     }
     
@@ -505,11 +617,19 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
 
     const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
+    // PERFORMANCE: Medir tiempo de carga de datos
+    const dataLoadStartTime = Date.now();
     // OPTIMIZACIÓN: Cargar configuración y menú en paralelo
     const [configResult, menuItems] = await Promise.all([
       configLoaded ? Promise.resolve(restaurantConfig) : loadRestaurantConfig(),
       loadMenuItems()
     ]);
+    const dataLoadTime = Date.now() - dataLoadStartTime;
+    if (context.performanceMetrics) {
+      context.performanceMetrics.configLoadTime += dataLoadTime;
+      context.performanceMetrics.menuLoadTime = dataLoadTime;
+    }
+    geminiLogger.debug('GEMINI_DATA_LOADED', { dataLoadTimeMs: dataLoadTime });
     
     // Asegurar que la configuración está cargada
     if (!configLoaded) {
@@ -641,11 +761,17 @@ NOTA SOBRE VALIDACIONES:
 
     geminiLogger.gemini('REQUEST_SENT', { promptLength: prompt.length });
     
+    // PERFORMANCE: Medir tiempo de llamada a Gemini API
+    const apiCallStartTime = Date.now();
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
+    const apiCallTime = Date.now() - apiCallStartTime;
     
-    geminiLogger.gemini('RAW_RESPONSE_RECEIVED', { text });
+    geminiLogger.gemini('RAW_RESPONSE_RECEIVED', { 
+      text,
+      apiCallTimeMs: apiCallTime 
+    });
     
     // Extraer JSON de la respuesta (puede venir con markdown o texto extra)
     let jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -655,7 +781,18 @@ NOTA SOBRE VALIDACIONES:
     }
     
     const analysis = JSON.parse(jsonMatch[0]);
-    geminiLogger.gemini('ANALYSIS_COMPLETED', analysis);
+    const totalGeminiTime = Date.now() - geminiStartTime;
+    
+    geminiLogger.gemini('ANALYSIS_COMPLETED', { 
+      ...analysis,
+      totalTimeMs: totalGeminiTime,
+      apiCallTimeMs: apiCallTime
+    });
+    
+    // PERFORMANCE: Actualizar métricas si están disponibles
+    if (context.performanceMetrics) {
+      context.performanceMetrics.geminiTime = totalGeminiTime;
+    }
     
     // OPTIMIZACIÓN: Guardar en cache
     if (analysis) {
@@ -670,7 +807,15 @@ NOTA SOBRE VALIDACIONES:
     return analysis;
     
   } catch (error) {
-    logger.error('GEMINI_ANALYSIS_ERROR', { message: error.message, stack: error.stack });
+    const errorTime = Date.now() - geminiStartTime;
+    logger.error('GEMINI_ANALYSIS_ERROR', { 
+      message: error.message, 
+      stack: error.stack,
+      timeMs: errorTime
+    });
+    if (context.performanceMetrics) {
+      context.performanceMetrics.geminiTime = errorTime;
+    }
     return null;
   }
 }
@@ -1304,8 +1449,12 @@ async function handleOrderIntent(state, analysis, callLogger, userInput) {
   };
 }
 
-async function handleOrderCollectItems(state, userInput, callLogger) {
-  const analysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+async function handleOrderCollectItems(state, userInput, callLogger, performanceMetrics = null) {
+  const analysis = await analyzeReservationWithGemini(userInput, { 
+    callSid: state.callSid, 
+    step: state.step,
+    performanceMetrics: performanceMetrics
+  });
   await updateOrderStateFromAnalysis(state, analysis || {}, userInput, callLogger);
   const order = ensureOrderState(state);
   const menuItems = await loadMenuItems();
@@ -1463,7 +1612,7 @@ async function handleOrderConfirm(state, userInput, callLogger) {
   };
 }
 
-async function processConversationStep(state, userInput, callLogger) {
+async function processConversationStep(state, userInput, callLogger, performanceMetrics = null) {
   const step = state.step;
   const text = userInput.toLowerCase();
 
@@ -1514,7 +1663,11 @@ async function processConversationStep(state, userInput, callLogger) {
     if (criticalReservationSteps.includes(step) && step !== 'confirm') {
       // Usar Gemini para verificar si hay datos válidos en la respuesta
       // Guardar el análisis para reutilizarlo más adelante y evitar llamadas duplicadas
-      geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+      geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
+        callSid: state.callSid, 
+        step: state.step,
+        performanceMetrics: performanceMetrics
+      });
       let isValidData = false;
       
       if (geminiAnalysis) {
@@ -1635,7 +1788,11 @@ async function processConversationStep(state, userInput, callLogger) {
         log.gemini('ANALYZE_GREETING_INPUT');
         
         // Usar Gemini para extraer TODO de la primera frase (incluye intención e idioma)
-        const analysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+        const analysis = await analyzeReservationWithGemini(userInput, { 
+          callSid: state.callSid, 
+          step: state.step,
+          performanceMetrics: performanceMetrics
+        });
         
         if (analysis) {
           // Actualizar idioma si se detectó
@@ -1784,7 +1941,11 @@ async function processConversationStep(state, userInput, callLogger) {
        // Analizar directamente con Gemini (ya detecta intención + datos en una sola llamada)
        console.log(`📝 [RESERVA] Analizando con Gemini (intención + datos): "${text}"`);
        
-      const analysis = await analyzeReservationWithGemini(text, { callSid: state.callSid, step: state.step });
+      const analysis = await analyzeReservationWithGemini(text, { 
+        callSid: state.callSid, 
+        step: state.step,
+        performanceMetrics: performanceMetrics
+      });
        
        if (analysis) {
          // Actualizar idioma si se detectó
@@ -1926,7 +2087,7 @@ async function processConversationStep(state, userInput, callLogger) {
        return await handleCancelNoReservations(state, userInput);
 
     case 'order_collect_items':
-      return await handleOrderCollectItems(state, userInput, callLogger);
+      return await handleOrderCollectItems(state, userInput, callLogger, performanceMetrics);
 
     case 'order_ask_address':
       return await handleOrderAddressStep(state, userInput);
@@ -1968,7 +2129,11 @@ async function processConversationStep(state, userInput, callLogger) {
        }
        
        // Usar Gemini para extraer información de la respuesta del usuario
-      const peopleAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+      const peopleAnalysis = await analyzeReservationWithGemini(userInput, { 
+        callSid: state.callSid, 
+        step: state.step,
+        performanceMetrics: performanceMetrics
+      });
        if (peopleAnalysis) {
          // Si Gemini retornó null pero tiene alta credibilidad, intentar extraer del texto
          if (!peopleAnalysis.comensales && parseInt(peopleAnalysis.comensales_porcentaje_credivilidad || '0%') >= 50) {
@@ -2068,7 +2233,11 @@ async function processConversationStep(state, userInput, callLogger) {
       // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
       // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_date'
       if (!geminiAnalysis && userInput && userInput.trim()) {
-        geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+        geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
+          callSid: state.callSid, 
+          step: state.step,
+          performanceMetrics: performanceMetrics
+        });
       }
       if (geminiAnalysis) {
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
@@ -2143,7 +2312,11 @@ async function processConversationStep(state, userInput, callLogger) {
       // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
       // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_time'
       if (!geminiAnalysis && userInput && userInput.trim()) {
-        geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+        geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
+          callSid: state.callSid, 
+          step: state.step,
+          performanceMetrics: performanceMetrics
+        });
       }
       if (geminiAnalysis) {
         // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
@@ -2225,7 +2398,11 @@ async function processConversationStep(state, userInput, callLogger) {
       // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
       // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_name'
       if (!geminiAnalysis && userInput && userInput.trim()) {
-        geminiAnalysis = await analyzeReservationWithGemini(userInput, { callSid: state.callSid, step: state.step });
+        geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
+          callSid: state.callSid, 
+          step: state.step,
+          performanceMetrics: performanceMetrics
+        });
       }
       if (geminiAnalysis) {
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
@@ -2261,7 +2438,7 @@ async function processConversationStep(state, userInput, callLogger) {
       if (confirmationResult.action === 'confirm') {
         // OPTIMIZACIÓN: Verificar disponibilidad antes de confirmar (con cache)
         const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
-        const disponibilidad = await validarDisponibilidadCached(dataCombinada, state.data.NumeroReserva);
+        const disponibilidad = await validarDisponibilidadCached(dataCombinada, state.data.NumeroReserva, performanceMetrics);
          
          if (!disponibilidad.disponible) {
            logger.capacity('No hay disponibilidad al confirmar', {
@@ -3368,13 +3545,15 @@ function generateTwiML(response, language = 'es', processingMessage = null) {
   }
 }
 
-async function saveReservation(state) {
+async function saveReservation(state, performanceMetrics = null) {
+  const saveStartTime = Date.now();
   try {
     logger.reservation('Guardando reserva en base de datos...', { data: state.data });
     
     const data = state.data;
     
     // Validar datos básicos
+    const validationStartTime = Date.now();
     const validacion = validarReserva(data);
     if (!validacion.valido) {
       logger.error('Validación básica fallida', { errores: validacion.errores });
@@ -3383,6 +3562,9 @@ async function saveReservation(state) {
 
     // Validar datos completos (incluye horarios, antelación, etc.)
     const validacionCompleta = await validarReservaCompleta(data);
+    const validationTime = Date.now() - validationStartTime;
+    logger.debug('VALIDATION_COMPLETED', { timeMs: validationTime });
+    
     if (!validacionCompleta.valido) {
       logger.error('Validación completa fallida', { errores: validacionCompleta.errores });
       return false;
@@ -3392,7 +3574,7 @@ async function saveReservation(state) {
     const dataCombinada = combinarFechaHora(data.FechaReserva, data.HoraReserva);
 
     // OPTIMIZACIÓN: Validar disponibilidad con cache
-    const disponibilidad = await validarDisponibilidadCached(dataCombinada, data.NumeroReserva);
+    const disponibilidad = await validarDisponibilidadCached(dataCombinada, data.NumeroReserva, performanceMetrics);
     if (!disponibilidad.disponible) {
       logger.capacity('No hay disponibilidad para la reserva', {
         fechaHora: dataCombinada,
@@ -3417,12 +3599,26 @@ async function saveReservation(state) {
     // Preparar conversación completa en formato Markdown
     const conversacionCompleta = generateMarkdownConversation(state);
 
+    // PERFORMANCE: Medir tiempo de operaciones de BD
+    const dbStartTime = Date.now();
     // Conectar a base de datos
     const connection = await createConnection();
+    const connectionTime = Date.now() - dbStartTime;
+    logger.debug('DB_CONNECTION_ESTABLISHED', { timeMs: connectionTime });
+    if (performanceMetrics) {
+      performanceMetrics.dbTime += connectionTime;
+    }
     
     try {
+      const transactionStartTime = Date.now();
       await connection.beginTransaction();
+      const transactionTime = Date.now() - transactionStartTime;
+      if (performanceMetrics) {
+        performanceMetrics.dbTime += transactionTime;
+      }
 
+      // PERFORMANCE: Medir tiempo de inserción de cliente
+      const clienteStartTime = Date.now();
       // 1. Insertar o actualizar cliente
       const clienteQuery = `
         INSERT INTO CLIENT (NOM_COMPLET, TELEFON, DATA_ULTIMA_RESERVA) 
@@ -3436,9 +3632,14 @@ async function saveReservation(state) {
         data.NomReserva,
         data.TelefonReserva
       ]);
+      const clienteTime = Date.now() - clienteStartTime;
+      logger.reservation('Cliente insertado/actualizado', { timeMs: clienteTime });
+      if (performanceMetrics) {
+        performanceMetrics.dbTime += clienteTime;
+      }
 
-      logger.reservation('Cliente insertado/actualizado');
-
+      // PERFORMANCE: Medir tiempo de inserción de reserva
+      const reservaStartTime = Date.now();
       // 2. Insertar reserva
       const reservaQuery = `
         INSERT INTO RESERVA 
@@ -3451,25 +3652,55 @@ async function saveReservation(state) {
         data.NumeroReserva,
         data.TelefonReserva,
         data.NomReserva,
-        'Reserva realizada por teléfono (Twilio)',
+        data.Observacions || null,
         conversacionCompleta
       ]);
 
       const idReserva = result.insertId;
-      logger.reservation('Reserva guardada exitosamente', { idReserva, dataCombinada, numPersonas: data.NumeroReserva });
+      const reservaTime = Date.now() - reservaStartTime;
+      logger.reservation('Reserva insertada', { idReserva, timeMs: reservaTime });
+      if (performanceMetrics) {
+        performanceMetrics.dbTime += reservaTime;
+      }
 
+      // PERFORMANCE: Medir tiempo de commit
+      const commitStartTime = Date.now();
       await connection.commit();
+      const commitTime = Date.now() - commitStartTime;
+      logger.reservation('Transacción confirmada', { timeMs: commitTime });
+      if (performanceMetrics) {
+        performanceMetrics.dbTime += commitTime;
+      }
+      
+      const totalSaveTime = Date.now() - saveStartTime;
+      logger.info('RESERVATION_SAVE_SUCCESS', { 
+        idReserva, 
+        totalTimeMs: totalSaveTime,
+        dbTimeMs: performanceMetrics ? performanceMetrics.dbTime : 0,
+        validationTimeMs: validationTime
+      });
+      
       return true;
 
     } catch (error) {
       await connection.rollback();
+      const dbErrorTime = Date.now() - dbStartTime;
+      logger.error('RESERVATION_SAVE_DB_ERROR', {
+        error: error.message,
+        dbTimeMs: dbErrorTime
+      });
       throw error;
     } finally {
       await connection.end();
     }
 
   } catch (error) {
-    logger.error('Error guardando reserva', { error: error.message, stack: error.stack });
+    const totalErrorTime = Date.now() - saveStartTime;
+    logger.error('RESERVATION_SAVE_ERROR', {
+      error: error.message,
+      stack: error.stack,
+      totalTimeMs: totalErrorTime
+    });
     return false;
   }
 }
