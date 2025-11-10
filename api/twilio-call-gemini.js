@@ -2137,41 +2137,43 @@ async function processConversationStep(state, userInput, callLogger, performance
            performanceMetrics: performanceMetrics
          }).then(async (analysis) => {
            // Cuando Gemini termine, cargar el estado actual, actualizarlo y guardarlo
+           const callSidToUse = state.callSid;
            try {
-             const currentState = await loadCallState(CallSid) || state;
+             const currentState = await loadCallState(callSidToUse) || state;
              currentState.geminiAnalysis = analysis;
              currentState.geminiProcessing = false;
              currentState.geminiProcessingEndTime = Date.now();
              
              // Guardar el estado con el análisis en la base de datos
-             await saveCallState(CallSid, currentState);
+             await saveCallState(callSidToUse, currentState);
              
              callLogger.info('GEMINI_ANALYSIS_COMPLETED_IN_BACKGROUND', { 
-               callSid: CallSid,
+               callSid: callSidToUse,
                timeMs: currentState.geminiProcessingEndTime - geminiStartTime 
              });
            } catch (error) {
              callLogger.error('GEMINI_ANALYSIS_SAVE_FAILED', { 
                error: error.message,
-               callSid: CallSid
+               callSid: callSidToUse
              });
            }
          }).catch(async (error) => {
            // Si Gemini falla, guardar el error en el estado
+           const callSidToUse = state.callSid;
            try {
-             const currentState = await loadCallState(CallSid) || state;
+             const currentState = await loadCallState(callSidToUse) || state;
              currentState.geminiProcessing = false;
              currentState.geminiError = error.message;
-             await saveCallState(CallSid, currentState);
+             await saveCallState(callSidToUse, currentState);
              callLogger.error('GEMINI_ANALYSIS_FAILED_IN_BACKGROUND', { 
                error: error.message,
-               callSid: CallSid
+               callSid: callSidToUse
              });
            } catch (saveError) {
              callLogger.error('GEMINI_ERROR_SAVE_FAILED', { 
                error: error.message,
                saveError: saveError.message,
-               callSid: CallSid
+               callSid: callSidToUse
              });
            }
          });
@@ -2181,7 +2183,7 @@ async function processConversationStep(state, userInput, callLogger, performance
          state.geminiProcessingStartTime = geminiStartTime;
          
          // Guardar el estado ANTES de responder para que esté disponible en el redirect
-         await saveCallState(CallSid, state);
+         await saveCallState(state.callSid, state);
          
          // Devolver TwiML con mensaje de procesamiento, Pause y redirect
          const processingMsg = getRandomMessage(getProcessingMessage(state.language));
@@ -2214,23 +2216,20 @@ async function processConversationStep(state, userInput, callLogger, performance
              ? state.conversationHistory[state.conversationHistory.length - 1].message 
              : '');
          
-         // Esperar un poco para que Gemini tenga tiempo de terminar (si aún no ha terminado)
-         // Si el estado indica que Gemini está procesando, esperar un momento
-         if (state.geminiProcessing || (!state.geminiAnalysis && !state.geminiError)) {
-           // Gemini aún no ha terminado, esperar un poco más
-           await new Promise(resolve => setTimeout(resolve, 500)); // Esperar 500ms
-           
-           // Recargar el estado por si Gemini ya terminó
-           const updatedState = await loadCallState(CallSid);
-           if (updatedState) {
-             Object.assign(state, updatedState);
-           }
+         // Recargar el estado para ver si Gemini ya terminó
+         const callSidToUse = state.callSid;
+         const updatedState = await loadCallState(callSidToUse);
+         if (updatedState) {
+           Object.assign(state, updatedState);
          }
          
-         // Si Gemini ya terminó, usar el análisis guardado
+         // Verificar si Gemini ya terminó (tiene análisis o error)
          if (state.geminiAnalysis) {
+           // Gemini terminó y tenemos el análisis
            callLogger.info('USING_CACHED_GEMINI_ANALYSIS', { 
-             analysisTime: state.geminiProcessingEndTime - state.geminiProcessingStartTime 
+             analysisTime: state.geminiProcessingEndTime && state.geminiProcessingStartTime
+               ? state.geminiProcessingEndTime - state.geminiProcessingStartTime 
+               : 'unknown'
            });
            var analysis = state.geminiAnalysis;
            // Limpiar el análisis del estado para no reutilizarlo
@@ -2238,19 +2237,39 @@ async function processConversationStep(state, userInput, callLogger, performance
            delete state.geminiProcessing;
            delete state.geminiProcessingStartTime;
            delete state.geminiProcessingEndTime;
+           delete state.geminiPromiseStarted;
          } else if (state.geminiError) {
-           // Gemini falló, continuar sin análisis
+           // Gemini falló
            callLogger.warn('GEMINI_ANALYSIS_FAILED', { error: state.geminiError });
            delete state.geminiError;
+           delete state.geminiProcessing;
            var analysis = null;
          } else {
-           // Gemini aún no ha terminado, ejecutarlo ahora de forma síncrona
-           callLogger.warn('GEMINI_STILL_PROCESSING_FALLBACK_TO_SYNC', { textToAnalyze });
-           var analysis = await analyzeReservationWithGemini(textToAnalyze, { 
-             callSid: state.callSid, 
-             step: state.step,
-             performanceMetrics: performanceMetrics
-           });
+           // Gemini aún no ha terminado (puede que el mensaje + pause no haya sido suficiente)
+           // Esperar un poco más y recargar el estado
+           callLogger.debug('GEMINI_STILL_PROCESSING_WAITING', { textToAnalyze });
+           await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo más
+           
+           // Recargar el estado nuevamente
+           const retryState = await loadCallState(callSidToUse);
+           if (retryState && retryState.geminiAnalysis) {
+             callLogger.info('USING_CACHED_GEMINI_ANALYSIS_AFTER_WAIT');
+             var analysis = retryState.geminiAnalysis;
+             Object.assign(state, retryState);
+             delete state.geminiAnalysis;
+             delete state.geminiProcessing;
+             delete state.geminiProcessingStartTime;
+             delete state.geminiProcessingEndTime;
+             delete state.geminiPromiseStarted;
+           } else {
+             // Gemini aún no ha terminado, ejecutarlo ahora de forma síncrona como fallback
+             callLogger.warn('GEMINI_STILL_PROCESSING_FALLBACK_TO_SYNC', { textToAnalyze });
+             var analysis = await analyzeReservationWithGemini(textToAnalyze, { 
+               callSid: state.callSid, 
+               step: state.step,
+               performanceMetrics: performanceMetrics
+             });
+           }
          }
        } else {
          // No hay input, mantener en ask_intention
