@@ -2209,27 +2209,96 @@ async function processConversationStep(state, userInput, callLogger, performance
          // Guardar el estado ANTES de responder para que esté disponible en el redirect
          await saveCallState(state.callSid, state);
          
-         // Devolver TwiML con mensaje de procesamiento, Pause y redirect
-         const processingMsg = getRandomMessage(getProcessingMessage(state.language));
-         const voiceConfig = {
-           es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-           en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-           de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-           it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-           fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-           pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-         };
-         const config = voiceConfig[state.language] || voiceConfig.es;
-         
-         // Calcular tiempo de Pause: mensaje tarda ~2-3s, Gemini tarda ~5s
-         // Pause de ~6 segundos para dar tiempo suficiente a Gemini mientras el usuario escucha
-         return {
-           message: processingMsg,
-           gather: false,
-           redirect: `/api/twilio-call-gemini?process=true`,
-           voiceConfig: config,
-           pauseLength: 6 // segundos de pausa después del mensaje (mensaje ~2-3s + pause 6s = ~8-9s total)
-         };
+        // Devolver TwiML con mensaje de procesamiento y redirect
+        // El mensaje se reproducirá mientras Gemini procesa en background
+        const processingMessagesObj = getProcessingMessage(state.language);
+        // getProcessingMessage devuelve un objeto { es: [...], en: [...] }
+        // Necesitamos extraer el array del idioma correcto
+        const processingMsgArray = processingMessagesObj && processingMessagesObj[state.language] 
+          ? processingMessagesObj[state.language] 
+          : (processingMessagesObj && processingMessagesObj.es ? processingMessagesObj.es : []);
+        
+        if (!processingMsgArray || processingMsgArray.length === 0) {
+          callLogger.error('NO_PROCESSING_MESSAGES_FOUND', { 
+            language: state.language,
+            availableKeys: processingMessagesObj ? Object.keys(processingMessagesObj) : []
+          });
+          // Fallback a mensaje hardcodeado
+          const processingMsg = 'Un momento por favor, que lo compruebo...';
+          callLogger.warn('USING_FALLBACK_PROCESSING_MESSAGE', { message: processingMsg });
+          
+          const voiceConfig = {
+            es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
+            en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
+            de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
+            it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
+            fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
+            pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+          };
+          const config = voiceConfig[state.language] || voiceConfig.es;
+          
+          return {
+            message: processingMsg,
+            gather: false,
+            redirect: `/api/twilio-call-gemini?process=true`,
+            voiceConfig: config
+          };
+        }
+        
+        const processingMsg = getRandomMessage(processingMsgArray);
+        
+        if (!processingMsg || !processingMsg.trim()) {
+          callLogger.error('PROCESSING_MESSAGE_EMPTY', { 
+            language: state.language,
+            arrayLength: processingMsgArray.length,
+            firstMessage: processingMsgArray[0]
+          });
+          // Fallback
+          const fallbackMsg = 'Un momento por favor, que lo compruebo...';
+          callLogger.warn('USING_FALLBACK_PROCESSING_MESSAGE_EMPTY', { message: fallbackMsg });
+          
+          const voiceConfig = {
+            es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
+            en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
+            de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
+            it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
+            fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
+            pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+          };
+          const config = voiceConfig[state.language] || voiceConfig.es;
+          
+          return {
+            message: fallbackMsg,
+            gather: false,
+            redirect: `/api/twilio-call-gemini?process=true`,
+            voiceConfig: config
+          };
+        }
+        
+        callLogger.debug('PROCESSING_MESSAGE_SELECTED', { 
+          message: processingMsg,
+          language: state.language,
+          availableMessages: processingMsgArray.length
+        });
+        
+        const voiceConfig = {
+          es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
+          en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
+          de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
+          it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
+          fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
+          pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+        };
+        const config = voiceConfig[state.language] || voiceConfig.es;
+        
+        // NO usar Pause - el mensaje se reproduce y cuando termine, hace redirect
+        // En el redirect esperaremos a que Gemini termine si aún no ha terminado
+        return {
+          message: processingMsg,
+          gather: false,
+          redirect: `/api/twilio-call-gemini?process=true`,
+          voiceConfig: config
+        };
        }
        
        // Si estamos procesando (isProcessing === true), verificar si Gemini ya terminó
@@ -2269,26 +2338,59 @@ async function processConversationStep(state, userInput, callLogger, performance
            delete state.geminiProcessing;
            var analysis = null;
          } else {
-           // Gemini aún no ha terminado (puede que el mensaje + pause no haya sido suficiente)
-           // Esperar un poco más y recargar el estado
-           callLogger.debug('GEMINI_STILL_PROCESSING_WAITING', { textToAnalyze });
-           await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo más
+           // Gemini aún no ha terminado - el mensaje de procesamiento terminó antes de que Gemini
+           // Esperar hasta que Gemini termine (máximo 10 segundos adicionales)
+           callLogger.debug('GEMINI_STILL_PROCESSING_WAITING', { 
+             textToAnalyze,
+             startTime: state.geminiProcessingStartTime,
+             elapsed: state.geminiProcessingStartTime ? Date.now() - state.geminiProcessingStartTime : 'unknown'
+           });
            
-           // Recargar el estado nuevamente
-           const retryState = await loadCallState(callSidToUse);
-           if (retryState && retryState.geminiAnalysis) {
-             callLogger.info('USING_CACHED_GEMINI_ANALYSIS_AFTER_WAIT');
-             var analysis = retryState.geminiAnalysis;
-             Object.assign(state, retryState);
-             delete state.geminiAnalysis;
-             delete state.geminiProcessing;
-             delete state.geminiProcessingStartTime;
-             delete state.geminiProcessingEndTime;
-             delete state.geminiPromiseStarted;
-           } else {
-             // Gemini aún no ha terminado, ejecutarlo ahora de forma síncrona como fallback
-             callLogger.warn('GEMINI_STILL_PROCESSING_FALLBACK_TO_SYNC', { textToAnalyze });
-             var analysis = await analyzeReservationWithGemini(textToAnalyze, { 
+           const maxWaitTime = 10000; // 10 segundos máximo
+           const checkInterval = 500; // Verificar cada 500ms
+           const startWaitTime = Date.now();
+           let analysis = null;
+           
+           // Esperar en loops cortos para verificar si Gemini terminó
+           while (!analysis && (Date.now() - startWaitTime) < maxWaitTime) {
+             await new Promise(resolve => setTimeout(resolve, checkInterval));
+             
+             // Recargar el estado para ver si Gemini terminó
+             const retryState = await loadCallState(callSidToUse);
+             if (retryState) {
+               Object.assign(state, retryState);
+               
+               if (state.geminiAnalysis) {
+                 callLogger.info('USING_CACHED_GEMINI_ANALYSIS_AFTER_WAIT', {
+                   waitTimeMs: Date.now() - startWaitTime,
+                   totalTimeMs: state.geminiProcessingEndTime && state.geminiProcessingStartTime
+                     ? state.geminiProcessingEndTime - state.geminiProcessingStartTime
+                     : 'unknown'
+                 });
+                 analysis = state.geminiAnalysis;
+                 delete state.geminiAnalysis;
+                 delete state.geminiProcessing;
+                 delete state.geminiProcessingStartTime;
+                 delete state.geminiProcessingEndTime;
+                 delete state.geminiPromiseStarted;
+                 break;
+               } else if (state.geminiError) {
+                 callLogger.warn('GEMINI_ANALYSIS_FAILED_AFTER_WAIT', { error: state.geminiError });
+                 delete state.geminiError;
+                 delete state.geminiProcessing;
+                 analysis = null;
+                 break;
+               }
+             }
+           }
+           
+           // Si después de esperar Gemini aún no terminó, ejecutarlo de forma síncrona como fallback
+           if (!analysis) {
+             callLogger.warn('GEMINI_STILL_PROCESSING_FALLBACK_TO_SYNC', { 
+               textToAnalyze,
+               waitTimeMs: Date.now() - startWaitTime
+             });
+             analysis = await analyzeReservationWithGemini(textToAnalyze, { 
                callSid: state.callSid, 
                step: state.step,
                performanceMetrics: performanceMetrics
@@ -4169,8 +4271,8 @@ function getProcessingMessage(language = 'es') {
     ]
   };
   
-  const langMessages = messages[language] || messages.es;
-  return getRandomMessage(langMessages);
+  // Devolver el objeto completo para que el llamador pueda elegir el mensaje
+  return messages;
 }
 
 // Función para obtener mensajes multilingües
