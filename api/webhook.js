@@ -81,10 +81,10 @@ module.exports = async function handler(req, res) {
       // 1. Insertar o actualizar cliente en tabla CLIENT
       console.log('🔍 Insertando/actualizando cliente...');
       const clienteQuery = `
-        INSERT INTO CLIENT (NOM_COMPLET, TELEFON, DATA_ULTIMA_RESERVA) 
+        INSERT INTO CLIENT (nom_persona_reserva, TELEFON, DATA_ULTIMA_RESERVA) 
         VALUES (?, ?, NOW()) 
         ON DUPLICATE KEY UPDATE 
-          NOM_COMPLET = VALUES(NOM_COMPLET), 
+          nom_persona_reserva = VALUES(nom_persona_reserva), 
           DATA_ULTIMA_RESERVA = NOW()
       `;
       

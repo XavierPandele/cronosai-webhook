@@ -154,7 +154,7 @@ Este documento presenta diagramas y visualizaciones de la arquitectura del siste
 │             Tabla: CLIENT               │
 ├─────────────────────────────────────────┤
 │ TELEFON (PK)           VARCHAR(20)      │
-│ NOM_COMPLET            VARCHAR(100)     │
+│ nom_persona_reserva    VARCHAR(100)     │
 │ DATA_ULTIMA_RESERVA    DATETIME         │
 └─────────────────────────────────────────┘
                    │
