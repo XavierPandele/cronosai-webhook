@@ -142,7 +142,7 @@ async function loadRestaurantConfig() {
   }
 }
 
-// ===== GEMINI 2.5 FLASH - INICIALIZACIÓN =====
+// ===== GEMINI 2.0 FLASH-LITE - INICIALIZACIÓN =====
 let geminiClient = null;
 function getGeminiClient() {
   if (!geminiClient) {
@@ -683,11 +683,11 @@ module.exports = async function handler(req, res) {
   }
 }
 
-// ===== GEMINI 2.5 FLASH - ANÁLISIS INTELIGENTE DE RESERVA =====
+// ===== GEMINI 2.0 FLASH-LITE - ANÁLISIS INTELIGENTE DE RESERVA =====
 
 /**
  * Analiza una frase del usuario para extraer TODA la información de reserva posible
- * Usa Gemini 2.5 Flash para extraer: comensales, fecha, hora, intolerancias, movilidad, nombre
+ * Usa Gemini 2.0 Flash-Lite para extraer: comensales, fecha, hora, intolerancias, movilidad, nombre
  */
 async function analyzeReservationWithGemini(userInput, context = {}) {
   const geminiStartTime = Date.now();
@@ -716,7 +716,7 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       return null;
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
     
     // PERFORMANCE: Medir tiempo de carga de datos
     const dataLoadStartTime = Date.now();
@@ -933,7 +933,7 @@ async function detectIntentionWithGemini(text, context = {}) {
       return { action: 'reservation' };
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
     
     const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
 Responde SOLO con una de estas opciones:
@@ -976,7 +976,7 @@ async function detectLanguageWithGemini(text) {
       return 'es'; // Fallback
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
     
     const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
 - "es" para español
