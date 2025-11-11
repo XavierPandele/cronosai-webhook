@@ -36,12 +36,12 @@ class DatabaseHandler:
             self.connection.close()
             print("🔌 Conexión a MySQL cerrada")
     
-    def insert_client(self, nom_complet, telefon):
+    def insert_client(self, nom_persona_reserva, telefon):
         """
         Inserta o actualiza cliente en tabla CLIENT
         
         Args:
-            nom_complet (str): Nombre completo del cliente
+            nom_persona_reserva (str): Nombre completo del cliente
             telefon (str): Teléfono del cliente
             
         Returns:
@@ -52,15 +52,15 @@ class DatabaseHandler:
             
             # Insertar o actualizar cliente
             query = """
-            INSERT INTO CLIENT (NOM_COMPLET, TELEFON, DATA_ULTIMA_RESERVA) 
+            INSERT INTO CLIENT (nom_persona_reserva, TELEFON, DATA_ULTIMA_RESERVA) 
             VALUES (%s, %s, NOW()) 
             ON DUPLICATE KEY UPDATE 
-                NOM_COMPLET = VALUES(NOM_COMPLET), 
+                nom_persona_reserva = VALUES(nom_persona_reserva), 
                 DATA_ULTIMA_RESERVA = NOW()
             """
             
-            cursor.execute(query, (nom_complet, telefon))
-            print(f"✅ Cliente insertado/actualizado: {nom_complet}")
+            cursor.execute(query, (nom_persona_reserva, telefon))
+            print(f"✅ Cliente insertado/actualizado: {nom_persona_reserva}")
             return True
             
         except Error as e:

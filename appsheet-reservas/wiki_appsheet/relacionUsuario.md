@@ -6,7 +6,7 @@ Guía completa para configurar la relación entre las tablas RESERVA y CLIENT en
 
 ## 🎯 Objetivo
 
-Cuando se crea una nueva reserva en la tabla **RESERVA** y se selecciona el campo `telefon`, automáticamente se debe mostrar en el campo `nom_persona_reserva` el valor del campo `nom_complet` de la tabla **CLIENT**, basándose en la relación entre `telefon` (RESERVA) y `telefon` (CLIENT).
+Cuando se crea una nueva reserva en la tabla **RESERVA** y se selecciona el campo `telefon`, automáticamente se debe mostrar en el campo `nom_persona_reserva` el valor del campo `nom_persona_reserva` de la tabla **CLIENT**, basándose en la relación entre `telefon` (RESERVA) y `telefon` (CLIENT).
 
 ---
 
@@ -28,13 +28,13 @@ Cuando se crea una nueva reserva en la tabla **RESERVA** y se selecciona el camp
 ### Tabla CLIENT
 ```
 - telefon (Primary Key) ← Campo de referencia
-- nom_complet (Text) ← Campo fuente para auto-completar
+- nom_persona_reserva (Text) ← Campo fuente para auto-completar
 - data_ultima_reserva (DateTime)
 ```
 
 ### Relación
 - **RESERVA.telefon** → Referencia a → **CLIENT.telefon**
-- **RESERVA.nom_persona_reserva** ← Obtiene valor de ← **CLIENT.nom_complet**
+- **RESERVA.nom_persona_reserva** ← Obtiene valor de ← **CLIENT.nom_persona_reserva**
 
 ---
 
@@ -63,14 +63,14 @@ Cuando se crea una nueva reserva en la tabla **RESERVA** y se selecciona el camp
    - **Reference Type:** `Table Reference` o `Lookup`
    - **Reference Table:** `CLIENT`
    - **Reference Key Column:** `telefon`
-   - **Display Column:** `nom_complet` (opcional, para mostrar en el selector)
+   - **Display Column:** `nom_persona_reserva` (opcional, para mostrar en el selector)
    - **Allow Lookup:** `Yes`
 
 **Sintaxis en AppSheet:**
 ```
 Reference Table: CLIENT
 Reference Key: CLIENT[telefon]
-Display: CLIENT[nom_complet]
+Display: CLIENT[nom_persona_reserva]
 ```
 
 ### Paso 4: Configurar Auto-completado en nom_persona_reserva
@@ -86,7 +86,7 @@ Display: CLIENT[nom_complet]
 IF(
   ISBLANK([telefon]),
   "",
-  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
 )
 ```
 
@@ -96,7 +96,7 @@ IF(
 IF(
   ISBLANK([telefon]),
   "",
-  ANY(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
+  ANY(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
 )
 ```
 
@@ -113,7 +113,7 @@ IF(
 3. Configura:
    - **Reference Table:** `CLIENT`
    - **Key Column:** `telefon`
-   - **Display Column:** `nom_complet` (para mostrar nombre al seleccionar)
+   - **Display Column:** `nom_persona_reserva` (para mostrar nombre al seleccionar)
    - **Show Search:** `Yes` (para buscar por nombre o teléfono)
    - **Allow Add New:** `Yes` (opcional, si quieres permitir agregar nuevos clientes)
 
@@ -132,7 +132,7 @@ O usa una fórmula reactiva:
 IF(
   ISBLANK([telefon]),
   "",
-  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
 )
 ```
 
@@ -151,7 +151,7 @@ LOOKUP(_value_, _dataset_, _column_, _return-column_)
 - `_value_`: El valor a buscar (ej: `[_THISROW].[telefon]`)
 - `_dataset_`: Nombre de la tabla como **texto literal** entre comillas (ej: `"CLIENT"`)
 - `_column_`: Nombre de la columna donde buscar como **texto literal** (ej: `"telefon"`)
-- `_return-column_`: Nombre de la columna a devolver como **texto literal** (ej: `"nom_complet"`)
+- `_return-column_`: Nombre de la columna a devolver como **texto literal** (ej: `"nom_persona_reserva"`)
 
 **⚠️ CRÍTICO:** Los parámetros `_dataset_`, `_column_`, y `_return-column_` **DEBEN** ser texto literal entre comillas, NO expresiones ni referencias de columna.
 
@@ -162,13 +162,13 @@ Esta es la forma correcta según la documentación oficial:
 IF(
   ISBLANK([telefon]),
   "",
-  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
 )
 ```
 
 **Cómo funciona:**
 - `LOOKUP()` busca en la tabla "CLIENT" el registro donde la columna "telefon" coincida con el valor de `[_THISROW].[telefon]`
-- Devuelve el valor de la columna "nom_complet" del registro encontrado
+- Devuelve el valor de la columna "nom_persona_reserva" del registro encontrado
 - `[_THISROW].[telefon]` referencia explícitamente la columna de la fila actual para evitar ambigüedades
 
 ### ✅ Fórmula 2: LOOKUP con Manejo de Errores
@@ -177,7 +177,7 @@ IF(
   ISBLANK([telefon]),
   "",
   IFERROR(
-    LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet"),
+    LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva"),
     ""
   )
 )
@@ -190,7 +190,7 @@ En algunos contextos puedes usar directamente `[telefon]` sin `[_THISROW]`:
 IF(
   ISBLANK([telefon]),
   "",
-  LOOKUP([telefon], "CLIENT", "telefon", "nom_complet")
+  LOOKUP([telefon], "CLIENT", "telefon", "nom_persona_reserva")
 )
 ```
 
@@ -203,7 +203,7 @@ Según la documentación, `LOOKUP()` es equivalente a usar `ANY(SELECT(...))`:
 IF(
   ISBLANK([telefon]),
   "",
-  ANY(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
+  ANY(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
 )
 ```
 
@@ -212,7 +212,7 @@ IF(
 IF(
   ISBLANK([telefon]),
   "",
-  FIRST(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
+  FIRST(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
 )
 ```
 
@@ -222,7 +222,7 @@ IF(
   ISBLANK([telefon]),
   "",
   COALESCE(
-    LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet"),
+    LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva"),
     "Cliente no encontrado"
   )
 )
@@ -230,13 +230,13 @@ IF(
 
 ### ❌ NO USAR: LOOKUP con sintaxis incorrecta
 ```
-❌ LOOKUP(CLIENT[nom_complet], CLIENT[telefon] = [telefon])  // ERROR
-❌ LOOKUP([telefon], CLIENT, telefon, nom_complet)  // ERROR - falta comillas
+❌ LOOKUP(CLIENT[nom_persona_reserva], CLIENT[telefon] = [telefon])  // ERROR
+❌ LOOKUP([telefon], CLIENT, telefon, nom_persona_reserva)  // ERROR - falta comillas
 ```
 
 **Razones:**
 - El segundo parámetro debe ser texto literal entre comillas: `"CLIENT"`
-- Los nombres de columnas deben ser texto literal entre comillas: `"telefon"`, `"nom_complet"`
+- Los nombres de columnas deben ser texto literal entre comillas: `"telefon"`, `"nom_persona_reserva"`
 - NO se pueden usar referencias de columna como `CLIENT[telefon]` en los parámetros de tabla/columna
 
 ---
@@ -255,9 +255,9 @@ IF(
 2. Configura:
    - **Control Type:** `Reference` o `Lookup`
    - **Reference Table:** `CLIENT`
-   - **Show:** `nom_complet` (nombre) y `telefon` (teléfono)
-   - **Search Fields:** `nom_complet`, `telefon`
-   - **Display Format:** `"[nom_complet] - [telefon]"`
+   - **Show:** `nom_persona_reserva` (nombre) y `telefon` (teléfono)
+   - **Search Fields:** `nom_persona_reserva`, `telefon`
+   - **Display Format:** `"[nom_persona_reserva] - [telefon]"`
 
 ### Paso 3: Configurar Campo nom_persona_reserva
 
@@ -277,7 +277,7 @@ IF(
 2. Crea una **Virtual Column** llamada `_nom_persona_auto`:
    ```
    Type: App Formula
-   Formula: LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+   Formula: LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
    ```
 3. En el campo `nom_persona_reserva`, usa:
    ```
@@ -294,7 +294,7 @@ IF(
    Action Type: Update Row
    Table: RESERVA
    Condition: [telefon] IS NOT BLANK
-   Update: [nom_persona_reserva] = LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+   Update: [nom_persona_reserva] = LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
    ```
 4. Configura esta acción para que se ejecute cuando cambie `telefon`
 
@@ -340,11 +340,11 @@ IF(
 **Causa:** Estás usando `LOOKUP()` con sintaxis incorrecta. Los parámetros de tabla y columna deben ser texto literal entre comillas.
 
 **Solución:**
-- **NO uses** `LOOKUP(CLIENT[nom_complet], CLIENT[telefon] = [telefon])` ❌
-- **NO uses** `LOOKUP([telefon], CLIENT, telefon, nom_complet)` ❌ (falta comillas)
-- **USA** `LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")` ✅
+- **NO uses** `LOOKUP(CLIENT[nom_persona_reserva], CLIENT[telefon] = [telefon])` ❌
+- **NO uses** `LOOKUP([telefon], CLIENT, telefon, nom_persona_reserva)` ❌ (falta comillas)
+- **USA** `LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")` ✅
 - Asegúrate de que el nombre de la tabla esté entre comillas: `"CLIENT"`
-- Asegúrate de que los nombres de columnas estén entre comillas: `"telefon"`, `"nom_complet"`
+- Asegúrate de que los nombres de columnas estén entre comillas: `"telefon"`, `"nom_persona_reserva"`
 - Referencia oficial: [AppSheet LOOKUP() Documentation](https://support.google.com/appsheet/answer/10107410)
 
 ### Problema 2: El nombre no se actualiza automáticamente
@@ -379,7 +379,7 @@ IF(
 
 **Solución:**
 - Configura el campo `telefon` como Reference con Display Column
-- Verifica que `nom_complet` esté disponible en CLIENT
+- Verifica que `nom_persona_reserva` esté disponible en CLIENT
 - Configura el formato de visualización en el selector
 
 ### Problema 6: Datos no se sincronizan
@@ -415,14 +415,14 @@ LOOKUP(_value_, _dataset_, _column_, _return-column_)
 
 **Ejemplo:**
 ```
-LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
 ```
 
 **Parámetros:**
 - `_value_`: Valor a buscar (ej: `[_THISROW].[telefon]` o `[telefon]`)
 - `_dataset_`: Nombre de la tabla como **texto literal entre comillas** (ej: `"CLIENT"`)
 - `_column_`: Nombre de la columna donde buscar como **texto literal entre comillas** (ej: `"telefon"`)
-- `_return-column_`: Nombre de la columna a devolver como **texto literal entre comillas** (ej: `"nom_complet"`)
+- `_return-column_`: Nombre de la columna a devolver como **texto literal entre comillas** (ej: `"nom_persona_reserva"`)
 
 **⚠️ CRÍTICO:**
 - Los parámetros `_dataset_`, `_column_`, y `_return-column_` **DEBEN** ser texto literal entre comillas
@@ -439,7 +439,7 @@ ANY(SELECT(CampoDeseado, Condición))
 
 **Ejemplo:**
 ```
-ANY(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
+ANY(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
 ```
 
 ### ✅ Sintaxis de SELECT
@@ -450,13 +450,13 @@ SELECT(CampoDeseado, Condición)
 
 **Ejemplo:**
 ```
-SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon])
+SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon])
 ```
 
 **Nota:** `SELECT()` devuelve una lista. Usa `ANY()` o `FIRST()` para obtener un solo valor:
 ```
-ANY(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
-FIRST(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
+ANY(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
+FIRST(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
 ```
 
 ### 📖 Referencia Oficial
@@ -493,11 +493,11 @@ Type: Text
 Reference: Yes
 Reference Table: CLIENT
 Reference Key: CLIENT[telefon]
-Display Column: CLIENT[nom_complet]
+Display Column: CLIENT[nom_persona_reserva]
 Show Search: Yes
-Search Fields: CLIENT[nom_complet], CLIENT[telefon]
+Search Fields: CLIENT[nom_persona_reserva], CLIENT[telefon]
 Allow Add New: Yes
-Display Format: "[nom_complet] - [telefon]"
+Display Format: "[nom_persona_reserva] - [telefon]"
 ```
 
 ### Configuración del Campo nom_persona_reserva
@@ -506,7 +506,7 @@ Display Format: "[nom_complet] - [telefon]"
 Table: RESERVA
 Column: nom_persona_reserva
 Type: Text
-Initial Value: IF(ISBLANK([telefon]), "", LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet"))
+Initial Value: IF(ISBLANK([telefon]), "", LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva"))
 Read Only: Yes (opcional)
 Refresh When: [telefon] changes
 ```
@@ -542,8 +542,8 @@ Si recibes el error: `"LOOKUP() requires the second argument to be a table name 
 
 **❌ NO uses esto:**
 ```
-LOOKUP(CLIENT[nom_complet], CLIENT[telefon] = [telefon])  // ERROR
-LOOKUP([telefon], CLIENT, telefon, nom_complet)  // ERROR - falta comillas
+LOOKUP(CLIENT[nom_persona_reserva], CLIENT[telefon] = [telefon])  // ERROR
+LOOKUP([telefon], CLIENT, telefon, nom_persona_reserva)  // ERROR - falta comillas
 ```
 
 **✅ USA esto (Sintaxis oficial correcta):**
@@ -551,7 +551,7 @@ LOOKUP([telefon], CLIENT, telefon, nom_complet)  // ERROR - falta comillas
 IF(
   ISBLANK([telefon]),
   "",
-  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_complet")
+  LOOKUP([_THISROW].[telefon], "CLIENT", "telefon", "nom_persona_reserva")
 )
 ```
 
@@ -560,7 +560,7 @@ IF(
 IF(
   ISBLANK([telefon]),
   "",
-  ANY(SELECT(CLIENT[nom_complet], CLIENT[telefon] = [_THISROW].[telefon]))
+  ANY(SELECT(CLIENT[nom_persona_reserva], CLIENT[telefon] = [_THISROW].[telefon]))
 )
 ```
 
@@ -568,7 +568,7 @@ IF(
 
 **Puntos clave:**
 - El segundo parámetro debe ser texto literal entre comillas: `"CLIENT"`
-- Los nombres de columnas deben estar entre comillas: `"telefon"`, `"nom_complet"`
+- Los nombres de columnas deben estar entre comillas: `"telefon"`, `"nom_persona_reserva"`
 - Usa `[_THISROW].[telefon]` para referenciar explícitamente la columna de la fila actual
 
 ---
