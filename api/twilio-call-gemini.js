@@ -142,7 +142,7 @@ async function loadRestaurantConfig() {
   }
 }
 
-// ===== GEMINI 2.0 FLASH-LITE - INICIALIZACIÓN =====
+// ===== GEMINI 2.0 FLASH - INICIALIZACIÓN =====
 let geminiClient = null;
 function getGeminiClient() {
   if (!geminiClient) {
@@ -177,11 +177,11 @@ function getGeminiClient() {
  * Llama a Gemini con retry automático para manejar rate limiting (429) y otros errores temporales
  * @param {Object} model - Modelo de Gemini
  * @param {string} prompt - Prompt a enviar
- * @param {number} retries - Número máximo de reintentos (default: 3)
+ * @param {number} retries - Número máximo de reintentos (default: 5)
  * @param {Object} logger - Logger opcional para registrar intentos
  * @returns {Promise<Object>} Resultado de generateContent
  */
-async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
+async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
   let lastError = null;
   
   for (let i = 0; i < retries; i++) {
@@ -191,7 +191,8 @@ async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
       if (i > 0 && logger) {
         logger.debug('GEMINI_RETRY_SUCCESS', { 
           attempt: i + 1, 
-          totalAttempts: i + 1 
+          totalAttempts: i + 1,
+          reasoning: `Llamada exitosa después de ${i} reintentos. El rate limit se resolvió.`
         });
       }
       return result;
@@ -207,16 +208,18 @@ async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
       
       // Solo reintentar en errores 429 (rate limit) o 503 (service unavailable)
       if (isRateLimit || isTemporary) {
-        // Backoff exponencial: 500ms, 1000ms, 2000ms, etc. (máximo 5 segundos)
-        const baseDelay = 500;
-        const wait = Math.min(baseDelay * Math.pow(2, i), 5000);
+        // Backoff exponencial mejorado: 1000ms, 2000ms, 4000ms, 8000ms, 10000ms (máximo 10 segundos)
+        // Aumentado para dar más tiempo al rate limit de resetearse
+        const baseDelay = 1000;
+        const wait = Math.min(baseDelay * Math.pow(2, i), 10000);
         
         if (logger) {
           logger.warn('GEMINI_RETRY_ATTEMPT', {
             attempt: i + 1,
             maxRetries: retries,
             waitMs: wait,
-            error: errorMessage.substring(0, 100)
+            error: errorMessage.substring(0, 100),
+            reasoning: `Rate limit detectado. Esperando ${wait}ms antes del reintento ${i + 1}/${retries}. El nuevo proyecto puede tener límites más bajos.`
           });
         } else {
           console.warn(`⚠️ [GEMINI] Rate limited (intento ${i + 1}/${retries}). Esperando ${wait}ms...`);
@@ -230,7 +233,8 @@ async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
         if (logger) {
           logger.error('GEMINI_NON_RETRYABLE_ERROR', {
             error: errorMessage,
-            stack: error.stack
+            stack: error.stack,
+            reasoning: 'Error no relacionado con rate limiting. No se reintentará.'
           });
         }
         throw error;
@@ -239,11 +243,12 @@ async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
   }
   
   // Si llegamos aquí, todos los reintentos fallaron
-  const errorMsg = `Gemini API overloaded after ${retries} retries. Last error: ${lastError?.message || 'Unknown error'}`;
+  const errorMsg = `Gemini API overloaded after ${retries} retries. Last error: ${lastError?.message || 'Unknown error'}. Verificar que la API key esté correctamente configurada en Vercel y que el proyecto tenga facturación activada.`;
   if (logger) {
     logger.error('GEMINI_RETRY_EXHAUSTED', {
       retries,
-      lastError: lastError?.message
+      lastError: lastError?.message,
+      reasoning: `Todos los reintentos fallaron. Posibles causas: 1) API key no actualizada en Vercel, 2) Proyecto sin facturación activada, 3) Límites muy bajos en el nuevo proyecto. Verificar ACTUALIZAR_API_KEY_VERCEL.md para actualizar la API key en Vercel.`
     });
   }
   throw new Error(errorMsg);
@@ -805,11 +810,12 @@ module.exports = async function handler(req, res) {
   }
 }
 
-// ===== GEMINI 2.0 FLASH-LITE - ANÁLISIS INTELIGENTE DE RESERVA =====
+// ===== GEMINI 2.0 FLASH - ANÁLISIS INTELIGENTE DE RESERVA =====
 
 /**
  * Analiza una frase del usuario para extraer TODA la información de reserva posible
- * Usa Gemini 2.0 Flash-Lite para extraer: comensales, fecha, hora, intolerancias, movilidad, nombre
+ * Usa Gemini 2.0 Flash (versión completa, no lite) para extraer: comensales, fecha, hora, intolerancias, movilidad, nombre
+ * La versión flash completa es más estable y tiene menos errores 429 que flash-lite
  */
 async function analyzeReservationWithGemini(userInput, context = {}) {
   const geminiStartTime = Date.now();
@@ -849,10 +855,10 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       return null;
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
     geminiLogger.debug('🤖 GEMINI_MODEL_INITIALIZED', { 
-      model: 'gemini-2.0-flash-lite',
-      reasoning: 'Modelo de Gemini inicializado correctamente'
+      model: 'gemini-2.0-flash',
+      reasoning: 'Modelo de Gemini inicializado correctamente. Usando versión flash completa (no lite) para mayor estabilidad y menos errores 429.'
     });
     
     // PERFORMANCE: Medir tiempo de carga de datos
@@ -1020,7 +1026,7 @@ NOTA SOBRE VALIDACIONES:
     
     // PERFORMANCE: Medir tiempo de llamada a Gemini API
     const apiCallStartTime = Date.now();
-    const result = await callGeminiWithRetry(model, prompt, 3, geminiLogger);
+    const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger);
     const response = await result.response;
     const text = response.text();
     const apiCallTime = Date.now() - apiCallStartTime;
@@ -1135,7 +1141,7 @@ async function detectIntentionWithGemini(text, context = {}) {
       return { action: 'reservation' };
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
     
     const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
 Responde SOLO con una de estas opciones:
@@ -1151,7 +1157,7 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     geminiLogger.gemini('INTENTION_ANALYSIS_START', { text });
 
-    const result = await callGeminiWithRetry(model, prompt, 3, geminiLogger);
+    const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger);
     const response = await result.response;
     const detectedIntention = response.text().trim().toLowerCase();
     
@@ -1178,7 +1184,7 @@ async function detectLanguageWithGemini(text) {
       return 'es'; // Fallback
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
     
     const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
 - "es" para español
@@ -1192,7 +1198,7 @@ Texto: "${text}"
 
 Responde SOLO con el código de 2 letras, sin explicaciones.`;
 
-    const result = await callGeminiWithRetry(model, prompt, 3);
+    const result = await callGeminiWithRetry(model, prompt, 5);
     const response = await result.response;
     const detectedLang = response.text().trim().toLowerCase().substring(0, 2);
     
@@ -1502,27 +1508,80 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   }
 
   // Fallback: intentar extraer hora del texto original si Gemini no la detectó
-  // IMPORTANTE: Solo aplicar fallback si NO hay hora existente válida
+  // IMPORTANTE: Solo aplicar fallback si:
+  // 1. NO hay hora existente válida
+  // 2. El texto contiene indicadores claros de hora (no solo un número)
+  // 3. El número NO está relacionado con personas/mesas
   if (!timeApplied && originalText) {
-    const fallbackTime = extractTime(originalText.toLowerCase());
-    if (fallbackTime) {
-      const existingTime = state.data.HoraReserva;
-      // Solo sobrescribir si NO hay hora existente O si la hora existente tiene error
-      const shouldOverride = !existingTime || state.data.horaError;
-      if (shouldOverride) {
-        state.data.HoraReserva = fallbackTime;
-        delete state.data.horaError;
-        log.reservation('TIME_APPLIED_FALLBACK', { 
-          hora: fallbackTime,
-          horaAnterior: existingTime,
-          reason: existingTime ? 'hora_error' : 'no_existing_time'
-        });
-        timeApplied = true;
+    const textLower = originalText.toLowerCase();
+    
+    // Verificar que NO sea un número de personas/mesas
+    const peopleIndicators = ['personas', 'persona', 'mesas', 'mesa', 'comensales', 'comensal', 'gente', 'invitados', 'invitado'];
+    const isPeopleCount = peopleIndicators.some(indicator => {
+      // Verificar que el indicador esté cerca del número (dentro de 5 palabras)
+      const words = textLower.split(/\s+/);
+      const indicatorIndex = words.indexOf(indicator);
+      if (indicatorIndex === -1) return false;
+      
+      // Verificar si hay un número cerca (antes o después)
+      const nearbyWords = words.slice(Math.max(0, indicatorIndex - 3), indicatorIndex + 4);
+      const hasNumberNearby = nearbyWords.some(word => {
+        // Verificar si es un número (palabra o dígito)
+        const numberWords = ['una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce'];
+        return numberWords.includes(word) || /^\d+$/.test(word);
+      });
+      
+      return hasNumberNearby;
+    });
+    
+    // Si es un número de personas, NO aplicar fallback de hora
+    if (isPeopleCount) {
+      log.debug('TIME_FALLBACK_SKIPPED_PEOPLE_COUNT', {
+        originalText: originalText.substring(0, 50),
+        reasoning: 'El texto contiene un número de personas, no una hora. No se aplicará fallback de hora.'
+      });
+    } else {
+      // Verificar que haya indicadores claros de hora
+      const timeIndicators = [
+        'a las', 'a la', 'de la tarde', 'de la noche', 'de la mañana',
+        'por la tarde', 'por la noche', 'por la mañana',
+        'hora', 'horas', 'pm', 'am', 'p.m.', 'a.m.',
+        'en punto', 'y media', 'y cuarto', 'menos cuarto'
+      ];
+      const hasTimeIndicator = timeIndicators.some(indicator => textLower.includes(indicator));
+      
+      // Solo aplicar fallback si hay indicadores de hora O si la hora tiene formato digital claro
+      const hasDigitalTime = /\b\d{1,2}:\d{2}\b/.test(textLower);
+      
+      if (hasTimeIndicator || hasDigitalTime) {
+        const fallbackTime = extractTime(textLower);
+        if (fallbackTime) {
+          const existingTime = state.data.HoraReserva;
+          // Solo sobrescribir si NO hay hora existente O si la hora existente tiene error
+          const shouldOverride = !existingTime || state.data.horaError;
+          if (shouldOverride) {
+            state.data.HoraReserva = fallbackTime;
+            delete state.data.horaError;
+            log.reservation('TIME_APPLIED_FALLBACK', { 
+              hora: fallbackTime,
+              horaAnterior: existingTime,
+              reason: existingTime ? 'hora_error' : 'no_existing_time',
+              originalText: originalText.substring(0, 50),
+              reasoning: 'Hora extraída del texto con indicadores claros de tiempo.'
+            });
+            timeApplied = true;
+          } else {
+            log.debug('TIME_FALLBACK_SKIPPED', {
+              fallbackTime: fallbackTime,
+              horaExistente: existingTime,
+              reason: 'existing_valid_time'
+            });
+          }
+        }
       } else {
-        log.debug('TIME_FALLBACK_SKIPPED', {
-          fallbackTime: fallbackTime,
-          horaExistente: existingTime,
-          reason: 'existing_valid_time'
+        log.debug('TIME_FALLBACK_SKIPPED_NO_INDICATORS', {
+          originalText: originalText.substring(0, 50),
+          reasoning: 'No hay indicadores claros de hora en el texto. No se aplicará fallback.'
         });
       }
     }
