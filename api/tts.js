@@ -115,12 +115,15 @@ async function generateAudioWithServiceAccount(text, language = 'es') {
   }
 
   try {
-    // Obtener token de acceso
+    // Obtener token de acceso OAuth2 desde Service Account (NO usamos API key)
     const accessToken = await getAccessToken();
     
     console.log(`🎤 [TTS] Generando audio para: "${text.substring(0, 50)}..." (${languageCode})`);
+    console.log(`🔐 [TTS] Usando autenticación OAuth2 con Service Account (NO API key)`);
 
-    // Construir request para Text-to-Speech API REST (igual que en la imagen del usuario)
+    // Construir request para Text-to-Speech API REST
+    // IMPORTANTE: Usamos OAuth2 token (Bearer) en lugar de API key (X-Goog-Api-Key)
+    // Esto permite usar Service Account sin necesidad de crear una API key adicional
     const requestBody = {
       audioConfig: {
         audioEncoding: 'MP3', // MP3 es mejor para Twilio (más compatible y menor tamaño)
