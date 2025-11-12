@@ -21,7 +21,9 @@ const languageCodes = {
 
 // Configuración de la voz Algieba
 const VOICE_NAME = 'Algieba';
-const MODEL_NAME = 'gemini-2.5-pro-tts';
+// NOTA: No usamos modelName porque gemini-2.5-pro-tts requiere Vertex AI.
+// La voz Algieba funcionará con el modelo por defecto de la API estándar de Text-to-Speech.
+const MODEL_NAME = null; // Usar modelo por defecto
 
 // Cache simple en memoria (para producción, usar Redis o similar)
 const audioCache = new Map();
@@ -132,21 +134,24 @@ async function generateAudioWithServiceAccount(text, language = 'es') {
         sampleRateHertz: 24000 // Calidad de audio optimizada para voz
       },
       input: {
-        prompt: getPromptForLanguage(language),
         text: text
+        // NOTA: No incluimos "prompt" porque no es necesario para la API estándar de Text-to-Speech.
+        // El campo "prompt" es para modelos avanzados que requieren Vertex AI.
       },
       voice: {
         languageCode: languageCode, // Formato minúsculas (es-es, en-us, etc.)
-        modelName: MODEL_NAME,
         name: VOICE_NAME
+        // NOTA: No incluimos modelName porque gemini-2.5-pro-tts requiere Vertex AI.
+        // La voz Algieba funcionará con el modelo por defecto de la API estándar.
       }
     };
 
     console.log(`🔍 [TTS] Request config:`, {
       languageCode: languageCode,
       voiceName: VOICE_NAME,
-      modelName: MODEL_NAME,
-      url: 'https://texttospeech.googleapis.com/v1beta1/text:synthesize'
+      modelName: 'default (no especificado - usa modelo por defecto)',
+      url: 'https://texttospeech.googleapis.com/v1beta1/text:synthesize',
+      note: 'No usamos gemini-2.5-pro-tts porque requiere Vertex AI. Usamos modelo por defecto de Text-to-Speech API.'
     });
 
     // Llamar a la API REST con token de acceso
@@ -263,7 +268,7 @@ module.exports = async function handler(req, res) {
       res.setHeader('X-Audio-Hash', audioData.hash);
       res.setHeader('X-Audio-Language', language);
       res.setHeader('X-Voice-Name', VOICE_NAME);
-      res.setHeader('X-Model-Name', MODEL_NAME);
+      res.setHeader('X-Model-Name', 'default');
       
       return res.status(200).send(audioData.audio);
     } catch (error) {
@@ -299,7 +304,7 @@ module.exports = async function handler(req, res) {
       res.setHeader('X-Audio-Hash', audioData.hash);
       res.setHeader('X-Audio-Language', language);
       res.setHeader('X-Voice-Name', VOICE_NAME);
-      res.setHeader('X-Model-Name', MODEL_NAME);
+      res.setHeader('X-Model-Name', 'default');
 
       return res.status(200).send(audioData.audio);
     } catch (error) {
