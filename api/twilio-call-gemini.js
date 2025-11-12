@@ -156,6 +156,83 @@ function getGeminiClient() {
   return geminiClient;
 }
 
+// ===== FUNCIÓN DE RETRY PARA LLAMADAS A GEMINI =====
+/**
+ * Llama a Gemini con retry automático para manejar rate limiting (429) y otros errores temporales
+ * @param {Object} model - Modelo de Gemini
+ * @param {string} prompt - Prompt a enviar
+ * @param {number} retries - Número máximo de reintentos (default: 3)
+ * @param {Object} logger - Logger opcional para registrar intentos
+ * @returns {Promise<Object>} Resultado de generateContent
+ */
+async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
+  let lastError = null;
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await model.generateContent(prompt);
+      // Si llegamos aquí, la llamada fue exitosa
+      if (i > 0 && logger) {
+        logger.debug('GEMINI_RETRY_SUCCESS', { 
+          attempt: i + 1, 
+          totalAttempts: i + 1 
+        });
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      const errorMessage = error.message || String(error);
+      const isRateLimit = errorMessage.includes('429') || 
+                         errorMessage.includes('Resource exhausted') ||
+                         errorMessage.includes('overloaded');
+      const isTemporary = errorMessage.includes('503') || 
+                         errorMessage.includes('Service Unavailable') ||
+                         errorMessage.includes('temporarily unavailable');
+      
+      // Solo reintentar en errores 429 (rate limit) o 503 (service unavailable)
+      if (isRateLimit || isTemporary) {
+        // Backoff exponencial: 500ms, 1000ms, 2000ms, etc. (máximo 5 segundos)
+        const baseDelay = 500;
+        const wait = Math.min(baseDelay * Math.pow(2, i), 5000);
+        
+        if (logger) {
+          logger.warn('GEMINI_RETRY_ATTEMPT', {
+            attempt: i + 1,
+            maxRetries: retries,
+            waitMs: wait,
+            error: errorMessage.substring(0, 100)
+          });
+        } else {
+          console.warn(`⚠️ [GEMINI] Rate limited (intento ${i + 1}/${retries}). Esperando ${wait}ms...`);
+        }
+        
+        // Esperar antes de reintentar
+        await new Promise(resolve => setTimeout(resolve, wait));
+        continue; // Reintentar
+      } else {
+        // Error no recuperable, lanzar inmediatamente
+        if (logger) {
+          logger.error('GEMINI_NON_RETRYABLE_ERROR', {
+            error: errorMessage,
+            stack: error.stack
+          });
+        }
+        throw error;
+      }
+    }
+  }
+  
+  // Si llegamos aquí, todos los reintentos fallaron
+  const errorMsg = `Gemini API overloaded after ${retries} retries. Last error: ${lastError?.message || 'Unknown error'}`;
+  if (logger) {
+    logger.error('GEMINI_RETRY_EXHAUSTED', {
+      retries,
+      lastError: lastError?.message
+    });
+  }
+  throw new Error(errorMsg);
+}
+
 // ===== CACHE DE ANÁLISIS DE GEMINI =====
 // Cache en memoria para análisis recientes (30 segundos TTL)
 const geminiAnalysisCache = new Map();
@@ -198,26 +275,50 @@ async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMe
   const cacheKey = `${fechaHora}:${numPersonas}`;
   const cached = availabilityCache.get(cacheKey);
   
+  logger.capacity('🔍 AVAILABILITY_CHECK_START', {
+    fechaHora: fechaHora,
+    numPersonas: numPersonas,
+    cacheKey: cacheKey,
+    reasoning: `Iniciando verificación de disponibilidad para ${numPersonas} personas el ${fechaHora}`
+  });
+  
   if (cached && (Date.now() - cached.timestamp) < AVAILABILITY_CACHE_TTL_MS) {
     const cacheTime = Date.now() - availabilityStartTime;
-    logger.debug('AVAILABILITY_CACHE_HIT', { 
+    const cacheAge = Date.now() - cached.timestamp;
+    
+    logger.capacity('✅ AVAILABILITY_CACHE_HIT', { 
       cacheKey, 
-      cacheTimeMs: cacheTime 
+      cacheTimeMs: cacheTime,
+      cacheAgeMs: cacheAge,
+      cachedResult: cached.result,
+      reasoning: `Resultado encontrado en cache (edad: ${Math.round(cacheAge/1000)}s). Disponible: ${cached.result.disponible}`
     });
+    
     if (performanceMetrics) {
       performanceMetrics.availabilityTime = cacheTime;
     }
     return cached.result;
   }
   
+  logger.capacity('🔄 AVAILABILITY_CHECKING_DB', {
+    fechaHora: fechaHora,
+    numPersonas: numPersonas,
+    reasoning: 'No hay resultado en cache. Consultando base de datos para verificar disponibilidad...'
+  });
+  
   const result = await validarDisponibilidad(fechaHora, numPersonas);
   const availabilityTime = Date.now() - availabilityStartTime;
   
-  logger.debug('AVAILABILITY_CHECKED', { 
-    fechaHora, 
-    numPersonas,
+  logger.capacity('✅ AVAILABILITY_CHECKED', { 
+    fechaHora: fechaHora, 
+    numPersonas: numPersonas,
     disponible: result.disponible,
-    timeMs: availabilityTime 
+    capacidadDisponible: result.capacidadDisponible || null,
+    capacidadTotal: result.capacidadTotal || null,
+    reservasExistentes: result.reservasExistentes || null,
+    timeMs: availabilityTime,
+    reasoning: `Verificación completada en ${availabilityTime}ms. Disponible: ${result.disponible}. ` +
+               `${result.disponible ? `Capacidad disponible: ${result.capacidadDisponible || 'N/A'}` : 'No hay disponibilidad para esta fecha/hora.'}`
   });
   
   if (performanceMetrics) {
@@ -227,6 +328,11 @@ async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMe
   availabilityCache.set(cacheKey, {
     result,
     timestamp: Date.now()
+  });
+  
+  logger.debug('💾 AVAILABILITY_CACHED', {
+    cacheKey: cacheKey,
+    reasoning: `Resultado guardado en cache para futuras consultas (TTL: ${AVAILABILITY_CACHE_TTL_MS/1000}s)`
   });
   
   cleanAvailabilityCache();
@@ -709,14 +815,29 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       return cached.analysis;
     }
     
-    geminiLogger.gemini('ANALYSIS_START', { userInput });
+    geminiLogger.info('🧠 GEMINI_ANALYSIS_START', { 
+      userInput: userInput,
+      inputLength: userInput.length,
+      context: {
+        step: context.step || 'unknown',
+        callSid: context.callSid || 'unknown'
+      },
+      reasoning: `Iniciando análisis de Gemini para extraer información de: "${userInput.substring(0, 100)}"`
+    });
+    
     const client = getGeminiClient();
     if (!client) {
-      geminiLogger.warn('GEMINI_CLIENT_NOT_AVAILABLE');
+      geminiLogger.warn('⚠️ GEMINI_CLIENT_NOT_AVAILABLE', {
+        reasoning: 'Cliente de Gemini no disponible. Verificar GOOGLE_API_KEY en variables de entorno.'
+      });
       return null;
     }
 
     const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    geminiLogger.debug('🤖 GEMINI_MODEL_INITIALIZED', { 
+      model: 'gemini-2.0-flash-lite',
+      reasoning: 'Modelo de Gemini inicializado correctamente'
+    });
     
     // PERFORMANCE: Medir tiempo de carga de datos
     const dataLoadStartTime = Date.now();
@@ -730,7 +851,22 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       context.performanceMetrics.configLoadTime += dataLoadTime;
       context.performanceMetrics.menuLoadTime = dataLoadTime;
     }
-    geminiLogger.debug('GEMINI_DATA_LOADED', { dataLoadTimeMs: dataLoadTime });
+    
+    geminiLogger.info('📊 CONFIGURATION_LOADED', {
+      dataLoadTimeMs: dataLoadTime,
+      config: {
+        maxPersonas: configResult.maxPersonasMesa,
+        minPersonas: configResult.minPersonas,
+        horarios: {
+          horario1: configResult.horario1Inicio && configResult.horario1Fin ? `${configResult.horario1Inicio}-${configResult.horario1Fin}` : null,
+          horario2: configResult.horario2Inicio && configResult.horario2Fin ? `${configResult.horario2Inicio}-${configResult.horario2Fin}` : null,
+          horario3: configResult.horario3Inicio && configResult.horario3Fin ? `${configResult.horario3Inicio}-${configResult.horario3Fin}` : null
+        },
+        minAntelacionHoras: configResult.minAntelacionHoras
+      },
+      menuItemsCount: menuItems.length,
+      reasoning: `Configuración del restaurante cargada. ${menuItems.length} items en el menú.`
+    });
     
     // Asegurar que la configuración está cargada
     if (!configLoaded) {
@@ -860,34 +996,84 @@ NOTA SOBRE VALIDACIONES:
 
   IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
 
-    geminiLogger.gemini('REQUEST_SENT', { promptLength: prompt.length });
+    geminiLogger.info('📤 GEMINI_REQUEST_SENT', { 
+      promptLength: prompt.length,
+      promptPreview: prompt.substring(0, 200) + '...',
+      reasoning: `Enviando prompt a Gemini (${prompt.length} caracteres) para analizar el input del usuario`
+    });
     
     // PERFORMANCE: Medir tiempo de llamada a Gemini API
     const apiCallStartTime = Date.now();
-    const result = await model.generateContent(prompt);
+    const result = await callGeminiWithRetry(model, prompt, 3, geminiLogger);
     const response = await result.response;
     const text = response.text();
     const apiCallTime = Date.now() - apiCallStartTime;
     
-    geminiLogger.gemini('RAW_RESPONSE_RECEIVED', { 
-      text,
-      apiCallTimeMs: apiCallTime 
+    geminiLogger.info('📥 GEMINI_RAW_RESPONSE_RECEIVED', { 
+      responseLength: text.length,
+      responsePreview: text.substring(0, 300),
+      apiCallTimeMs: apiCallTime,
+      reasoning: `Respuesta recibida de Gemini en ${apiCallTime}ms. Extrayendo JSON...`
     });
     
     // Extraer JSON de la respuesta (puede venir con markdown o texto extra)
     let jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      geminiLogger.error('JSON_EXTRACTION_FAILED', { text });
+      geminiLogger.error('❌ JSON_EXTRACTION_FAILED', { 
+        text: text.substring(0, 500),
+        reasoning: 'No se pudo extraer JSON de la respuesta de Gemini. La respuesta puede estar mal formateada.'
+      });
       return null;
     }
     
-    const analysis = JSON.parse(jsonMatch[0]);
+    let analysis;
+    try {
+      analysis = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      geminiLogger.error('❌ JSON_PARSE_ERROR', {
+        error: parseError.message,
+        jsonPreview: jsonMatch[0].substring(0, 500),
+        reasoning: 'Error al parsear el JSON extraído de la respuesta de Gemini'
+      });
+      return null;
+    }
+    
     const totalGeminiTime = Date.now() - geminiStartTime;
     
-    geminiLogger.gemini('ANALYSIS_COMPLETED', { 
-      ...analysis,
+    // ===== LOG DETALLADO DEL ANÁLISIS COMPLETO =====
+    geminiLogger.info('✅ GEMINI_ANALYSIS_COMPLETED', { 
       totalTimeMs: totalGeminiTime,
-      apiCallTimeMs: apiCallTime
+      apiCallTimeMs: apiCallTime,
+      dataLoadTimeMs: dataLoadTime,
+      extractedData: {
+        intencion: analysis.intencion,
+        comensales: analysis.comensales,
+        comensales_confidence: analysis.comensales_porcentaje_credivilidad,
+        comensales_validos: analysis.comensales_validos,
+        comensales_error: analysis.comensales_error,
+        fecha: analysis.fecha,
+        fecha_confidence: analysis.fecha_porcentaje_credivilidad,
+        hora: analysis.hora,
+        hora_confidence: analysis.hora_porcentaje_credivilidad,
+        hora_disponible: analysis.hora_disponible,
+        hora_error: analysis.hora_error,
+        nombre: analysis.nombre,
+        nombre_confidence: analysis.nombre_porcentaje_credivilidad,
+        idioma_detectado: analysis.idioma_detectado,
+        intolerancias: analysis.intolerancias,
+        movilidad: analysis.movilidad,
+        pedido_items_count: analysis.pedido_items?.length || 0
+      },
+      reasoning: `Análisis completado. Intención: ${analysis.intencion}, Idioma: ${analysis.idioma_detectado}. ` +
+                 `Extraídos: ${analysis.comensales ? `${analysis.comensales} personas` : 'sin personas'}, ` +
+                 `${analysis.fecha ? `fecha ${analysis.fecha}` : 'sin fecha'}, ` +
+                 `${analysis.hora ? `hora ${analysis.hora}` : 'sin hora'}, ` +
+                 `${analysis.nombre ? `nombre ${analysis.nombre}` : 'sin nombre'}`
+    });
+    
+    geminiLogger.debug('🔍 GEMINI_ANALYSIS_DETAILS', {
+      fullAnalysis: analysis,
+      reasoning: 'Análisis completo de Gemini con todos los campos extraídos'
     });
     
     // PERFORMANCE: Actualizar métricas si están disponibles
@@ -949,7 +1135,7 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     geminiLogger.gemini('INTENTION_ANALYSIS_START', { text });
 
-    const result = await model.generateContent(prompt);
+    const result = await callGeminiWithRetry(model, prompt, 3, geminiLogger);
     const response = await result.response;
     const detectedIntention = response.text().trim().toLowerCase();
     
@@ -990,7 +1176,7 @@ Texto: "${text}"
 
 Responde SOLO con el código de 2 letras, sin explicaciones.`;
 
-    const result = await model.generateContent(prompt);
+    const result = await callGeminiWithRetry(model, prompt, 3);
     const response = await result.response;
     const detectedLang = response.text().trim().toLowerCase().substring(0, 2);
     
@@ -1074,17 +1260,31 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
         debug: (message, data) => logger.debug(message, attach(data))
       };
   
-  // RESTAURADO: Log del análisis recibido
-  log.info('GEMINI_ANALYSIS_APPLY_START', {
+  // ===== LOG DETALLADO DE APLICACIÓN DE ANÁLISIS =====
+  log.info('🔄 APPLYING_GEMINI_ANALYSIS', {
     analysis: {
+      intencion: analysis.intencion,
       comensales: analysis.comensales,
+      comensales_confidence: analysis.comensales_porcentaje_credivilidad,
+      comensales_validos: analysis.comensales_validos,
+      comensales_error: analysis.comensales_error,
       fecha: analysis.fecha,
+      fecha_confidence: analysis.fecha_porcentaje_credivilidad,
       hora: analysis.hora,
+      hora_confidence: analysis.hora_porcentaje_credivilidad,
+      hora_disponible: analysis.hora_disponible,
+      hora_error: analysis.hora_error,
       nombre: analysis.nombre,
-      intencion: analysis.intencion
+      nombre_confidence: analysis.nombre_porcentaje_credivilidad,
+      idioma_detectado: analysis.idioma_detectado
     },
     stateBefore: stateBefore,
-    originalText: originalText
+    originalText: originalText.substring(0, 100),
+    reasoning: `Aplicando análisis de Gemini al estado. Estado actual: ${JSON.stringify(stateBefore)}. ` +
+               `Análisis contiene: ${analysis.comensales ? `${analysis.comensales} personas` : 'sin personas'}, ` +
+               `${analysis.fecha ? `fecha ${analysis.fecha}` : 'sin fecha'}, ` +
+               `${analysis.hora ? `hora ${analysis.hora}` : 'sin hora'}, ` +
+               `${analysis.nombre ? `nombre ${analysis.nombre}` : 'sin nombre'}`
   });
   
   // Aplicar solo si el porcentaje de credibilidad es >= 50%
@@ -1112,12 +1312,22 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   
   // Si tenemos un número válido, validar y aplicar
   if (peopleCount !== null && !isNaN(peopleCount)) {
+    log.debug('👥 PROCESSING_PEOPLE_COUNT', {
+      peopleCount: peopleCount,
+      comensales_validos: analysis.comensales_validos,
+      comensales_error: analysis.comensales_error,
+      maxPersonas: restaurantConfig.maxPersonasMesa,
+      minPersonas: restaurantConfig.minPersonas,
+      reasoning: `Procesando número de personas: ${peopleCount}. Verificando validación de Gemini y límites del restaurante.`
+    });
+    
     // Primero verificar si Gemini ya validó (nuevos campos)
     if (analysis.comensales_validos === 'false') {
       if (analysis.comensales_error === 'max_exceeded') {
-        log.warn('PEOPLE_MAX_EXCEEDED_GEMINI', { 
+        log.warn('❌ PEOPLE_MAX_EXCEEDED_GEMINI', { 
           peopleCount, 
-          maxPersonas: restaurantConfig.maxPersonasMesa 
+          maxPersonas: restaurantConfig.maxPersonasMesa,
+          reasoning: `Gemini detectó que ${peopleCount} personas excede el máximo permitido (${restaurantConfig.maxPersonasMesa}). Rechazando.`
         });
         return { 
           success: false, 
@@ -1126,9 +1336,10 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
           message: `El máximo de personas por reserva es ${restaurantConfig.maxPersonasMesa}`
         };
       } else if (analysis.comensales_error === 'min_not_met') {
-        log.warn('PEOPLE_MIN_NOT_MET_GEMINI', { 
+        log.warn('❌ PEOPLE_MIN_NOT_MET_GEMINI', { 
           peopleCount, 
-          minPersonas: restaurantConfig.minPersonas 
+          minPersonas: restaurantConfig.minPersonas,
+          reasoning: `Gemini detectó que ${peopleCount} personas es menor al mínimo permitido (${restaurantConfig.minPersonas}). Rechazando.`
         });
         return { 
           success: false, 
@@ -1924,7 +2135,33 @@ async function processConversationStep(state, userInput, callLogger, performance
         reservation: (message, data) => logger.reservation(message, attachStep(data))
       };
 
-  log.debug('PROCESS_STEP', { input: userInput });
+  // ===== LOG COMPLETO DEL ESTADO ACTUAL =====
+  log.info('🤖 BOT_STATE_OVERVIEW', {
+    currentStep: step,
+    userInput: userInput || '(vacío)',
+    inputLength: userInput ? userInput.length : 0,
+    language: state.language,
+    isProcessing: isProcessing,
+    hasPendingGeminiText: !!state.pendingGeminiText,
+    currentData: {
+      personas: state.data?.NumeroReserva || null,
+      fecha: state.data?.FechaReserva || null,
+      hora: state.data?.HoraReserva || null,
+      nombre: state.data?.NomReserva || null,
+      telefono: state.data?.TelefonReserva || state.phone || null,
+      horaError: state.data?.horaError || null,
+      comensalesError: state.data?.comensalesError || null
+    },
+    conversationHistoryLength: state.conversationHistory?.length || 0,
+    geminiAnalysisAvailable: !!state.geminiAnalysis,
+    geminiProcessing: state.geminiProcessing || false
+  });
+
+  log.debug('PROCESS_STEP_START', { 
+    input: userInput,
+    step: step,
+    reasoning: `Iniciando procesamiento del paso '${step}' con input del usuario`
+  });
 
   // PASOS CRÍTICOS donde debemos ser más cuidadosos al detectar cancelación
   // para evitar falsos positivos (por ejemplo, "15 de enero" contiene "no")
@@ -1933,48 +2170,109 @@ async function processConversationStep(state, userInput, callLogger, performance
   // Variable para almacenar el análisis de Gemini y reutilizarlo
   let geminiAnalysis = null;
   
-  // Verificar si el usuario quiere cancelar la reserva
+  // ===== VERIFICACIÓN DE CANCELACIÓN CON LÓGICA DETALLADA =====
   // OPTIMIZACIÓN: Solo verificar cancelación si el input es suficientemente largo
   // para evitar falsos positivos con respuestas cortas como "no" que pueden ser válidas
   if (userInput && userInput.trim() && userInput.trim().length > 2) {
     let shouldCheckCancellation = true;
     
+    log.debug('🔍 CANCELATION_CHECK_START', {
+      step: step,
+      inputLength: userInput.trim().length,
+      isCriticalStep: criticalReservationSteps.includes(step),
+      reasoning: `Verificando si el usuario quiere cancelar. Paso actual: ${step}, input: "${userInput.substring(0, 50)}"`
+    });
+    
     // En pasos críticos de reserva, verificar primero si la respuesta es un dato válido usando Gemini
     if (criticalReservationSteps.includes(step) && step !== 'confirm') {
+      log.info('📊 CRITICAL_STEP_DETECTED', {
+        step: step,
+        reasoning: `Paso crítico detectado. Usando Gemini para verificar si hay datos válidos antes de buscar cancelación`,
+        expectedField: step === 'ask_date' ? 'fecha' : step === 'ask_time' ? 'hora' : step === 'ask_name' ? 'nombre' : 'unknown'
+      });
+      
       // Usar Gemini para verificar si hay datos válidos en la respuesta
       // Guardar el análisis para reutilizarlo más adelante y evitar llamadas duplicadas
+      const analysisStartTime = Date.now();
       geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
         callSid: state.callSid, 
         step: state.step,
         performanceMetrics: performanceMetrics
       });
+      const analysisTime = Date.now() - analysisStartTime;
+      
       let isValidData = false;
+      let extractedValue = null;
+      let confidence = null;
       
       if (geminiAnalysis) {
+        log.gemini('✅ GEMINI_ANALYSIS_RECEIVED', {
+          analysisTimeMs: analysisTime,
+          intencion: geminiAnalysis.intencion,
+          reasoning: `Gemini analizó el input y extrajo información. Revisando si hay datos válidos para el paso '${step}'`
+        });
+        
         // Verificar según el paso actual
         switch (step) {
           case 'ask_date':
             isValidData = geminiAnalysis.fecha !== null && geminiAnalysis.fecha_porcentaje_credivilidad !== '0%';
+            extractedValue = geminiAnalysis.fecha;
+            confidence = geminiAnalysis.fecha_porcentaje_credivilidad;
             break;
           case 'ask_time':
             isValidData = geminiAnalysis.hora !== null && geminiAnalysis.hora_porcentaje_credivilidad !== '0%';
+            extractedValue = geminiAnalysis.hora;
+            confidence = geminiAnalysis.hora_porcentaje_credivilidad;
             break;
           case 'ask_name':
             isValidData = geminiAnalysis.nombre !== null && geminiAnalysis.nombre_porcentaje_credivilidad !== '0%';
+            extractedValue = geminiAnalysis.nombre;
+            confidence = geminiAnalysis.nombre_porcentaje_credivilidad;
             break;
         }
+        
+        log.gemini('🔎 DATA_VALIDATION_RESULT', {
+          step: step,
+          isValidData: isValidData,
+          extractedValue: extractedValue,
+          confidence: confidence,
+          reasoning: isValidData 
+            ? `Se detectó un dato válido (${extractedValue}) con confianza ${confidence}. NO es cancelación.`
+            : `No se detectó un dato válido para el paso '${step}'. Continuar verificando cancelación.`
+        });
+      } else {
+        log.warn('⚠️ GEMINI_ANALYSIS_NULL', {
+          reasoning: 'Gemini no devolvió análisis. Continuar con verificación de cancelación por defecto.'
+        });
       }
       
       // Si se detectó un dato válido, NO buscar cancelación
       if (isValidData) {
-        log.debug('CRITICAL_DATA_DETECTED_SKIP_CANCEL_CHECK');
+        log.info('✅ CRITICAL_DATA_DETECTED_SKIP_CANCEL_CHECK', {
+          step: step,
+          extractedValue: extractedValue,
+          confidence: confidence,
+          reasoning: `Dato válido detectado (${extractedValue}). Saltando verificación de cancelación para evitar falsos positivos.`
+        });
         shouldCheckCancellation = false;
       }
     } else if (step === 'confirm') {
+      log.debug('✅ CONFIRMATION_STEP_DETECTED', {
+        reasoning: 'Estamos en paso de confirmación. Usando handleConfirmationResponse para verificar respuesta.'
+      });
+      
       // Las confirmaciones usan handleConfirmationResponse
       const confirmResult = handleConfirmationResponse(text);
+      log.debug('📋 CONFIRMATION_RESPONSE_ANALYZED', {
+        action: confirmResult.action,
+        reasoning: `Respuesta de confirmación analizada: ${confirmResult.action}`
+      });
+      
       if (confirmResult.action !== 'clarify') {
-        log.debug('CRITICAL_CONFIRMATION_DETECTED');
+        log.info('✅ CRITICAL_CONFIRMATION_DETECTED', {
+          action: confirmResult.action,
+          reasoning: 'Confirmación válida detectada. Saltando verificación de cancelación.'
+        });
         shouldCheckCancellation = false;
       }
     }
@@ -1982,17 +2280,49 @@ async function processConversationStep(state, userInput, callLogger, performance
     // Verificar cancelación solo si es apropiado y el input es suficientemente largo
     // EXCLUIR 'greeting' y 'ask_intention' porque usan detectIntentionWithGemini que es más preciso
     // También excluir 'ask_people' porque "no" puede ser una respuesta válida (negativa)
-    if (shouldCheckCancellation && step !== 'greeting' && step !== 'ask_intention' && step !== 'ask_people' && isCancellationRequest(userInput)) {
-      log.info('CANCELLATION_REQUEST_DETECTED');
+    const excludedSteps = ['greeting', 'ask_intention', 'ask_people'];
+    const canCheckCancellation = shouldCheckCancellation && !excludedSteps.includes(step);
+    
+    log.debug('🔍 CANCELATION_CHECK_DECISION', {
+      shouldCheckCancellation: shouldCheckCancellation,
+      step: step,
+      isExcludedStep: excludedSteps.includes(step),
+      canCheckCancellation: canCheckCancellation,
+      reasoning: canCheckCancellation 
+        ? `Verificando cancelación porque: paso no excluido (${step}), shouldCheckCancellation=${shouldCheckCancellation}`
+        : `NO verificando cancelación porque: ${excludedSteps.includes(step) ? `paso excluido (${step})` : `shouldCheckCancellation=false`}`
+    });
+    
+    if (canCheckCancellation && isCancellationRequest(userInput)) {
+      log.info('🚫 CANCELLATION_REQUEST_DETECTED', {
+        userInput: userInput,
+        currentStep: step,
+        reasoning: `El usuario expresó intención de cancelar. Input: "${userInput}"`
+      });
       
       // Si ya está en proceso de cancelación, confirmar
       if (step === 'cancelling') {
+        log.info('🔄 CANCELLATION_CONFIRMATION', {
+          reasoning: 'Ya estamos en proceso de cancelación. Confirmando cancelación.'
+        });
         return await handleCancellationConfirmation(state, userInput);
       }
       
       // Iniciar proceso de cancelación
+      log.info('🚫 STARTING_CANCELLATION_PROCESS', {
+        reasoning: 'Iniciando proceso de cancelación de reserva.'
+      });
       return await handleCancellationRequest(state, userInput);
+    } else if (canCheckCancellation) {
+      log.debug('✅ NO_CANCELLATION_DETECTED', {
+        reasoning: `Verificación de cancelación completada. No se detectó intención de cancelar.`
+      });
     }
+  } else {
+    log.debug('⏭️ SKIP_CANCELATION_CHECK', {
+      inputLength: userInput ? userInput.trim().length : 0,
+      reasoning: `Input muy corto (${userInput ? userInput.trim().length : 0} caracteres). Saltando verificación de cancelación para evitar falsos positivos.`
+    });
   }
 
   // NO resetear el estado si estamos en un paso de reserva y el input es muy corto
@@ -2061,11 +2391,18 @@ async function processConversationStep(state, userInput, callLogger, performance
   switch (step) {
     case 'greeting':
       // Primera interacción - saludo general
-      log.debug('GREETING_STEP', { language: state.language, userInput });
+      log.info('👋 GREETING_STEP_START', { 
+        language: state.language, 
+        userInput: userInput || '(vacío)',
+        reasoning: `Iniciando paso de saludo. ${userInput ? 'Usuario ha proporcionado input, analizando con Gemini...' : 'Sin input, mostrando saludo estándar.'}`
+      });
       
       // Si hay input del usuario, analizar directamente con Gemini (ya detecta intención e idioma)
       if (userInput && userInput.trim()) {
-        log.gemini('ANALYZE_GREETING_INPUT');
+        log.info('🧠 ANALYZING_GREETING_INPUT_WITH_GEMINI', {
+          userInput: userInput,
+          reasoning: `Usuario proporcionó input en el saludo: "${userInput}". Usando Gemini para extraer toda la información posible (intención, idioma, datos de reserva).`
+        });
         
         // Usar Gemini para extraer TODO de la primera frase (incluye intención e idioma)
         const analysis = await analyzeReservationWithGemini(userInput, { 
@@ -2075,15 +2412,35 @@ async function processConversationStep(state, userInput, callLogger, performance
         });
         
         if (analysis) {
+          log.info('✅ GEMINI_ANALYSIS_RECEIVED_IN_GREETING', {
+            intencion: analysis.intencion,
+            idioma_detectado: analysis.idioma_detectado,
+            datos_extraidos: {
+              comensales: analysis.comensales,
+              fecha: analysis.fecha,
+              hora: analysis.hora,
+              nombre: analysis.nombre
+            },
+            reasoning: `Gemini completó el análisis. Intención: ${analysis.intencion}, Idioma: ${analysis.idioma_detectado}. Procesando...`
+          });
+          
           // Actualizar idioma si se detectó
           if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
+            const oldLanguage = state.language;
             state.language = analysis.idioma_detectado;
-            log.gemini('LANGUAGE_UPDATED', { language: analysis.idioma_detectado });
+            log.info('🌐 LANGUAGE_UPDATED', { 
+              oldLanguage: oldLanguage,
+              newLanguage: analysis.idioma_detectado,
+              reasoning: `Idioma detectado por Gemini: ${analysis.idioma_detectado}. Actualizando estado del idioma.`
+            });
           }
           
           // Verificar intención
           const intention = analysis.intencion || 'reservation';
-          log.gemini('INTENTION_DETECTED', { intention });
+          log.info('🎯 INTENTION_DETECTED_IN_GREETING', { 
+            intention: intention,
+            reasoning: `Intención detectada: ${intention}. ${intention === 'reservation' ? 'Procesando como nueva reserva...' : intention === 'modify' ? 'Procesando como modificación...' : intention === 'cancel' ? 'Procesando como cancelación...' : 'Procesando como pedido...'}`
+          });
           
           if (intention === 'reservation') {
           
@@ -2114,26 +2471,61 @@ async function processConversationStep(state, userInput, callLogger, performance
             // Determinar qué falta
             const missing = determineMissingFields(analysis, state.data);
             
+            log.info('🔍 CHECKING_MISSING_FIELDS', {
+              missingFields: missing,
+              currentData: {
+                personas: state.data?.NumeroReserva || null,
+                fecha: state.data?.FechaReserva || null,
+                hora: state.data?.HoraReserva || null,
+                nombre: state.data?.NomReserva || null,
+                telefono: state.data?.TelefonReserva || state.phone || null
+              },
+              reasoning: `Verificando qué campos faltan. Campos actuales: ${JSON.stringify(state.data)}. Faltan: ${missing.join(', ') || 'ninguno'}`
+            });
+            
             // Priorizar fecha si solo tenemos hora
             if (missing.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
               missing.splice(missing.indexOf('date'), 1);
               missing.unshift('date');
-              log.debug('PRIORITIZING_DATE_BEFORE_TIME');
+              log.info('📅 PRIORITIZING_DATE_BEFORE_TIME', {
+                reasoning: 'Tenemos hora pero no fecha. Priorizando pedir fecha antes que otros campos.'
+              });
             }
             
-            log.gemini('MISSING_FIELDS', { missing });
+            log.info('📋 MISSING_FIELDS_DETERMINED', { 
+              missing: missing,
+              missingCount: missing.length,
+              reasoning: `Se determinaron ${missing.length} campos faltantes: ${missing.join(', ') || 'ninguno'}`
+            });
             
             // Si tenemos todo lo esencial, usar teléfono de la llamada directamente y confirmar
             if (missing.length === 0) {
+              log.info('✅ ALL_FIELDS_COMPLETE', {
+                currentData: state.data,
+                reasoning: 'Todos los campos necesarios están completos. Procediendo directamente a confirmación.'
+              });
+              
               // Asegurar que tenemos teléfono (usar el de la llamada)
               if (!state.data.TelefonReserva) {
                 state.data.TelefonReserva = state.phone;
+                log.debug('📞 PHONE_AUTO_FILLED', {
+                  phone: state.phone,
+                  reasoning: 'Teléfono no estaba en los datos. Usando teléfono de la llamada automáticamente.'
+                });
               }
               
               // Ir directamente a confirmación con mensaje completo
+              const oldStep = state.step;
               state.step = 'confirm';
               const confirmMessage = getConfirmationMessage(state.data, state.language);
-              log.info('INFO_COMPLETE_AT_GREETING');
+              
+              log.info('✅ TRANSITIONING_TO_CONFIRMATION', {
+                oldStep: oldStep,
+                newStep: state.step,
+                data: state.data,
+                reasoning: `Todos los datos están completos. Cambiando de paso '${oldStep}' a 'confirm' y mostrando mensaje de confirmación.`
+              });
+              
               return {
                 message: confirmMessage,
                 gather: true
@@ -2141,6 +2533,13 @@ async function processConversationStep(state, userInput, callLogger, performance
             } else {
               // Falta información, confirmar lo que tenemos y preguntar por lo que falta
               const nextField = missing[0];
+              
+              log.info('❓ ASKING_FOR_MISSING_FIELD', {
+                nextField: nextField,
+                allMissing: missing,
+                currentData: state.data,
+                reasoning: `Faltan ${missing.length} campos. Preguntando primero por: ${nextField}. Campos restantes: ${missing.slice(1).join(', ') || 'ninguno'}`
+              });
               
               try {
                 // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
@@ -3021,12 +3420,25 @@ async function processConversationStep(state, userInput, callLogger, performance
       if (confirmationResult.action === 'confirm') {
         // OPTIMIZACIÓN: Verificar disponibilidad antes de confirmar (con cache)
         const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+        
+        log.info('🔍 CHECKING_AVAILABILITY_BEFORE_CONFIRM', {
+          fechaHora: dataCombinada,
+          numPersonas: state.data.NumeroReserva,
+          fecha: state.data.FechaReserva,
+          hora: state.data.HoraReserva,
+          reasoning: `Usuario confirmó la reserva. Verificando disponibilidad antes de finalizar...`
+        });
+        
         const disponibilidad = await validarDisponibilidadCached(dataCombinada, state.data.NumeroReserva, performanceMetrics);
          
          if (!disponibilidad.disponible) {
-           logger.capacity('No hay disponibilidad al confirmar', {
+           log.warn('❌ NO_AVAILABILITY_AT_CONFIRM', {
              fechaHora: dataCombinada,
-             numPersonas: state.data.NumeroReserva
+             numPersonas: state.data.NumeroReserva,
+             capacidadDisponible: disponibilidad.capacidadDisponible || null,
+             capacidadTotal: disponibilidad.capacidadTotal || null,
+             reservasExistentes: disponibilidad.reservasExistentes || null,
+             reasoning: `No hay disponibilidad para ${state.data.NumeroReserva} personas el ${dataCombinada}. Buscando alternativas...`
            });
            
            // Obtener alternativas
@@ -4145,16 +4557,44 @@ async function saveReservation(state, performanceMetrics = null) {
     const data = state.data;
     
     // Validar datos básicos
+    logger.reservation('🔍 VALIDATION_START', {
+      data: data,
+      reasoning: 'Iniciando validación de datos de la reserva antes de guardar en base de datos'
+    });
+    
     const validationStartTime = Date.now();
     const validacion = validarReserva(data);
+    
     if (!validacion.valido) {
-      logger.error('Validación básica fallida', { errores: validacion.errores });
+      logger.error('❌ BASIC_VALIDATION_FAILED', { 
+        errores: validacion.errores,
+        data: data,
+        reasoning: `Validación básica falló. Errores encontrados: ${validacion.errores.join(', ')}`
+      });
       return false;
     }
+    
+    logger.reservation('✅ BASIC_VALIDATION_PASSED', {
+      data: data,
+      reasoning: 'Validación básica pasó. Procediendo con validación completa...'
+    });
 
     // Validar datos completos (incluye horarios, antelación, etc.)
+    logger.reservation('🔍 FULL_VALIDATION_START', {
+      data: data,
+      reasoning: 'Iniciando validación completa (horarios, antelación, disponibilidad, etc.)'
+    });
+    
     const validacionCompleta = await validarReservaCompleta(data);
     const validationTime = Date.now() - validationStartTime;
+    
+    logger.reservation('✅ FULL_VALIDATION_COMPLETED', {
+      validationTimeMs: validationTime,
+      valida: validacionCompleta.valida,
+      errores: validacionCompleta.errores || [],
+      advertencias: validacionCompleta.advertencias || [],
+      reasoning: `Validación completa completada en ${validationTime}ms. Válida: ${validacionCompleta.valida}`
+    });
     logger.debug('VALIDATION_COMPLETED', { timeMs: validationTime });
     
     if (!validacionCompleta.valido) {
@@ -4166,13 +4606,27 @@ async function saveReservation(state, performanceMetrics = null) {
     const dataCombinada = combinarFechaHora(data.FechaReserva, data.HoraReserva);
 
     // OPTIMIZACIÓN: Validar disponibilidad con cache
+    logger.reservation('🔍 CHECKING_AVAILABILITY_BEFORE_SAVE', {
+      fechaHora: dataCombinada,
+      numPersonas: data.NumeroReserva,
+      fecha: data.FechaReserva,
+      hora: data.HoraReserva,
+      reasoning: 'Verificando disponibilidad final antes de guardar la reserva en base de datos...'
+    });
+    
     const disponibilidad = await validarDisponibilidadCached(dataCombinada, data.NumeroReserva, performanceMetrics);
+    
     if (!disponibilidad.disponible) {
-      logger.capacity('No hay disponibilidad para la reserva', {
+      logger.capacity('❌ NO_AVAILABILITY_AT_SAVE', {
         fechaHora: dataCombinada,
         numPersonas: data.NumeroReserva,
-        detalles: disponibilidad.detalles
+        capacidadDisponible: disponibilidad.capacidadDisponible || null,
+        capacidadTotal: disponibilidad.capacidadTotal || null,
+        reservasExistentes: disponibilidad.reservasExistentes || null,
+        detalles: disponibilidad.detalles,
+        reasoning: `No hay disponibilidad para ${data.NumeroReserva} personas el ${dataCombinada}. La reserva no se puede guardar.`
       });
+      
       // Guardar información de disponibilidad en el estado para mostrar mensaje
       state.availabilityError = {
         mensaje: disponibilidad.mensaje,
@@ -4181,11 +4635,14 @@ async function saveReservation(state, performanceMetrics = null) {
       return false;
     }
 
-    logger.capacity('Disponibilidad confirmada', {
+    logger.capacity('✅ AVAILABILITY_CONFIRMED_AT_SAVE', {
       fechaHora: dataCombinada,
       numPersonas: data.NumeroReserva,
-      personasOcupadas: disponibilidad.detalles.personasOcupadas,
-      capacidad: disponibilidad.detalles.capacidad
+      capacidadDisponible: disponibilidad.capacidadDisponible || null,
+      capacidadTotal: disponibilidad.capacidadTotal || null,
+      personasOcupadas: disponibilidad.detalles?.personasOcupadas || null,
+      capacidad: disponibilidad.detalles?.capacidad || null,
+      reasoning: `Disponibilidad confirmada. Hay espacio para ${data.NumeroReserva} personas el ${dataCombinada}. Procediendo a guardar...`
     });
 
     // Preparar conversación completa en formato Markdown
