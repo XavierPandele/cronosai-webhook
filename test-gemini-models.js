@@ -6,10 +6,29 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// Modelos a probar (solo los disponibles en v1beta)
+// Modelos a probar (todos los modelos de Gemini disponibles hasta 2026)
+// Lista completa de modelos según documentación oficial de Google
 const MODELS_TO_TEST = [
+  // Gemini 1.5 (versiones estables)
+  'gemini-1.5-pro',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-flash-latest',
+  
+  // Gemini 2.0 (versiones estables y experimentales)
+  'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
-  'gemini-2.5-flash'
+  'gemini-2.0-flash-exp',
+  'gemini-2.0-flash-thinking-exp',
+  
+  // Gemini 2.5 (versiones más recientes)
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash-lite',
+  
+  // Modelos experimentales adicionales
+  'gemini-pro',
+  'gemini-pro-vision',
 ];
 
 // Textos de prueba (simulando diferentes casos reales)
@@ -168,8 +187,58 @@ NOTA SOBRE VALIDACIONES:
   IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`;
 }
 
+// Función para verificar si un modelo está disponible
+async function checkModelAvailability(modelName, apiKey, maxRetries = 2) {
+  try {
+    const client = new GoogleGenerativeAI(apiKey);
+    const model = client.getGenerativeModel({ model: modelName });
+    
+    // Intentar una consulta simple para verificar disponibilidad
+    const testPrompt = 'Responde con "OK"';
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const result = await model.generateContent(testPrompt);
+        await result.response;
+        return { available: true, error: null };
+      } catch (err) {
+        const errorMsg = err.message || String(err);
+        
+        // Si es error 404 o similar, el modelo no existe
+        if (errorMsg.includes('404') || 
+            errorMsg.includes('not found') || 
+            errorMsg.includes('invalid model') ||
+            errorMsg.includes('Model not found')) {
+          return { available: false, error: 'Modelo no encontrado' };
+        }
+        
+        // Si es error 429, el modelo existe pero está rate limited
+        if (errorMsg.includes('429') || errorMsg.includes('Resource exhausted')) {
+          return { available: true, error: 'Rate limited (pero modelo disponible)' };
+        }
+        
+        // Si es error 503, el modelo existe pero está sobrecargado
+        if (errorMsg.includes('503') || errorMsg.includes('overloaded')) {
+          return { available: true, error: 'Sobrecargado (pero modelo disponible)' };
+        }
+        
+        // Otros errores, intentar de nuevo
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        
+        // Si no es un error conocido y no quedan reintentos, asumir que no está disponible
+        return { available: false, error: errorMsg.substring(0, 100) };
+      }
+    }
+    return { available: false, error: 'Timeout al verificar disponibilidad' };
+  } catch (err) {
+    return { available: false, error: (err.message || String(err)).substring(0, 100) };
+  }
+}
+
 // Función para probar un modelo con un texto (con retry para errores 429)
-async function testModel(modelName, userInput, restaurantConfig, maxRetries = 3) {
+async function testModel(modelName, userInput, restaurantConfig, maxRetries = 5) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     throw new Error('GOOGLE_API_KEY no está configurado en .env');
@@ -183,12 +252,12 @@ async function testModel(modelName, userInput, restaurantConfig, maxRetries = 3)
   const startTime = Date.now();
   let lastError = null;
   
-  // Intentar con retry exponencial para errores 429
+  // Intentar con retry exponencial para errores 429, 503, etc.
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        // Esperar antes de reintentar (backoff exponencial: 2s, 4s, 8s)
-        const waitTime = Math.min(2000 * Math.pow(2, attempt - 1), 10000);
+        // Esperar antes de reintentar (backoff exponencial: 1s, 2s, 4s, 8s, 10s)
+        const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
         console.log(`      ⏳ Reintentando en ${waitTime/1000}s... (intento ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
@@ -225,7 +294,7 @@ async function testModel(modelName, userInput, restaurantConfig, maxRetries = 3)
             timeMs: Date.now() - startTime,
             apiTimeMs: apiTime,
             result: null,
-            responseText: responseText.substring(0, 200),
+            responseText: responseText.substring(0, 500),
             retries: attempt
           };
         }
@@ -239,25 +308,49 @@ async function testModel(modelName, userInput, restaurantConfig, maxRetries = 3)
           timeMs: Date.now() - startTime,
           apiTimeMs: apiTime,
           result: null,
-          responseText: responseText.substring(0, 200),
+          responseText: responseText.substring(0, 500),
           retries: attempt
         };
       }
     } catch (err) {
       lastError = err.message;
       
-      // Si es error 429 y quedan reintentos, continuar
-      if (err.message.includes('429') && attempt < maxRetries - 1) {
+      // Si es error 404 o similar, el modelo no existe
+      if (err.message.includes('404') || err.message.includes('not found') || err.message.includes('invalid model')) {
+        return {
+          model: modelName,
+          userInput,
+          success: false,
+          error: 'Modelo no encontrado o no disponible',
+          parseError: false,
+          modelNotFound: true,
+          timeMs: Date.now() - startTime,
+          apiTimeMs: 0,
+          result: null,
+          responseText: '',
+          retries: attempt
+        };
+      }
+      
+      // Si es error 429, 503 o similar y quedan reintentos, continuar
+      const isRetryable = err.message.includes('429') || 
+                         err.message.includes('503') || 
+                         err.message.includes('overloaded') ||
+                         err.message.includes('Resource exhausted') ||
+                         err.message.includes('temporarily unavailable');
+      
+      if (isRetryable && attempt < maxRetries - 1) {
         continue;
       }
       
-      // Si no es 429 o no quedan reintentos, retornar error
+      // Si no es retryable o no quedan reintentos, retornar error
       return {
         model: modelName,
         userInput,
         success: false,
         error: lastError,
         parseError: false,
+        modelNotFound: false,
         timeMs: Date.now() - startTime,
         apiTimeMs: 0,
         result: null,
@@ -274,6 +367,7 @@ async function testModel(modelName, userInput, restaurantConfig, maxRetries = 3)
     success: false,
     error: lastError || 'Todos los reintentos fallaron',
     parseError: false,
+    modelNotFound: false,
     timeMs: Date.now() - startTime,
     apiTimeMs: 0,
     result: null,
@@ -328,9 +422,49 @@ async function runTests() {
   console.log(`🤖 Modelos a probar: ${MODELS_TO_TEST.length}\n`);
   console.log('='.repeat(80));
   
-  const results = [];
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error('GOOGLE_API_KEY no está configurado en .env');
+  }
+  
+  // Primero verificar qué modelos están disponibles
+  console.log('\n🔍 Verificando disponibilidad de modelos...\n');
+  const availableModels = [];
+  const unavailableModels = [];
   
   for (const modelName of MODELS_TO_TEST) {
+    process.stdout.write(`  Verificando ${modelName}... `);
+    const check = await checkModelAvailability(modelName, apiKey);
+    if (check.available) {
+      availableModels.push(modelName);
+      console.log('✅ Disponible');
+    } else {
+      unavailableModels.push({ model: modelName, error: check.error });
+      console.log(`❌ No disponible: ${check.error}`);
+    }
+    // Pequeña pausa entre verificaciones
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  console.log(`\n✅ Modelos disponibles: ${availableModels.length}/${MODELS_TO_TEST.length}`);
+  if (unavailableModels.length > 0) {
+    console.log(`❌ Modelos no disponibles: ${unavailableModels.length}`);
+    unavailableModels.forEach(m => {
+      console.log(`   - ${m.model}: ${m.error}`);
+    });
+  }
+  
+  if (availableModels.length === 0) {
+    console.log('\n❌ No hay modelos disponibles para probar');
+    return;
+  }
+  
+  console.log('\n' + '='.repeat(80));
+  console.log('🧪 INICIANDO PRUEBAS\n');
+  
+  const results = [];
+  
+  for (const modelName of availableModels) {
     console.log(`\n📊 Probando modelo: ${modelName}`);
     console.log('-'.repeat(80));
     
@@ -353,15 +487,21 @@ async function runTests() {
         if (result.success) {
           const quality = evaluateQuality(result.result);
           console.log(`    ✅ Éxito - Tiempo: ${result.timeMs}ms - Calidad: ${quality.score.toFixed(1)}%`);
+          if (result.retries > 0) {
+            console.log(`    🔄 Reintentos: ${result.retries}`);
+          }
           if (quality.issues.length > 0) {
             console.log(`    ⚠️  Issues: ${quality.issues.join(', ')}`);
           }
         } else {
-          console.log(`    ❌ Error: ${result.error}`);
+          if (result.modelNotFound) {
+            console.log(`    ❌ Modelo no encontrado: ${result.error}`);
+          } else {
+            console.log(`    ❌ Error: ${result.error}`);
+          }
         }
         
         // Esperar más tiempo entre requests para evitar rate limiting
-        // Esperar más tiempo entre modelos diferentes
         const waitTime = 3000; // 3 segundos entre tests
         await new Promise(resolve => setTimeout(resolve, waitTime));
       } catch (error) {
@@ -371,7 +511,8 @@ async function runTests() {
           userInput: testText,
           success: false,
           error: error.message,
-          timeMs: 0
+          timeMs: 0,
+          modelNotFound: false
         });
       }
     }
@@ -475,10 +616,27 @@ async function runTests() {
   
   // Guardar resultados en archivo
   const fs = require('fs');
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0] + '_' + 
+                    new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
   const filename = `gemini-test-results-${timestamp}.json`;
-  fs.writeFileSync(filename, JSON.stringify({ summary, detailed: results }, null, 2));
+  
+  const fullResults = {
+    timestamp: new Date().toISOString(),
+    availableModels: availableModels,
+    unavailableModels: unavailableModels,
+    summary: summary,
+    detailed: results,
+    testConfig: {
+      testTextsCount: TEST_TEXTS.length,
+      restaurantConfig: restaurantConfig,
+      modelsTested: availableModels.length,
+      modelsTotal: MODELS_TO_TEST.length
+    }
+  };
+  
+  fs.writeFileSync(filename, JSON.stringify(fullResults, null, 2));
   console.log(`\n💾 Resultados guardados en: ${filename}`);
+  console.log(`\n💡 Para analizar los resultados, ejecuta: node analyze-gemini-results.js ${filename}`);
 }
 
 // Ejecutar

@@ -738,7 +738,11 @@ module.exports = async function handler(req, res) {
           });
         });
         
-        const twiml = generateTwiML({ message, gather: true }, state.language);
+        // Obtener URL base para generar URLs públicas de audio TTS
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
+        const baseUrl = `${protocol}://${host}`;
+        const twiml = generateTwiML({ message, gather: true }, state.language, null, baseUrl);
         res.setHeader('Content-Type', 'text/xml');
         return res.status(200).send(twiml);
       }
@@ -762,8 +766,13 @@ module.exports = async function handler(req, res) {
       callLogger.info('ORDER_COMPLETED');
     }
 
+    // Obtener URL base para generar URLs públicas de audio TTS
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
+    const baseUrl = `${protocol}://${host}`;
+    
     // Generar TwiML response
-    const twiml = generateTwiML(response, state.language);
+    const twiml = generateTwiML(response, state.language, null, baseUrl);
     
     // PERFORMANCE: Calcular tiempo total y loggear métricas
     performanceMetrics.totalTime = Date.now() - requestStartTime;
@@ -4334,14 +4343,133 @@ async function handleCancelNoReservations(state, userInput) {
   };
 }
 
-function generateTwiML(response, language = 'es', processingMessage = null) {
-  const { message, gather = true, redirect, voiceConfig: responseVoiceConfig } = response;
+/**
+ * Genera la URL del endpoint TTS para el audio
+ * CRÍTICO: Twilio necesita URLs absolutas, no relativas
+ * MEJORADO: Usa texto completo en URL (hasta 2000 caracteres) para evitar problemas con hash
+ */
+function getTtsAudioUrl(text, language, baseUrl) {
+  // CRÍTICO: Siempre usar URL absoluta para Twilio
+  // Si no hay baseUrl, intentar construirla desde variables de entorno o usar localhost
+  let absoluteUrl;
+  
+  if (!baseUrl) {
+    // Intentar obtener desde variables de entorno de Vercel
+    const vercelUrl = process.env.VERCEL_URL;
+    if (vercelUrl) {
+      absoluteUrl = `https://${vercelUrl}`;
+    } else {
+      // Fallback a localhost (solo para desarrollo)
+      absoluteUrl = 'http://localhost:3000';
+      console.warn('⚠️ [TTS] No se encontró baseUrl. Usando localhost como fallback (solo desarrollo)');
+    }
+  } else {
+    absoluteUrl = baseUrl;
+  }
+  
+  // Limpiar URL (remover trailing slash)
+  const cleanUrl = absoluteUrl.replace(/\/$/, '');
+  
+  // Codificar texto para URL
+  // NOTA: Las URLs tienen un límite de ~2000 caracteres, pero Twilio puede manejar URLs más largas
+  // Si el texto es muy largo, el endpoint TTS lo manejará correctamente
+  const encodedText = encodeURIComponent(text);
+  
+  // Construir URL absoluta con texto codificado
+  // El endpoint TTS generará el audio si no está en cache
+  const audioUrl = `${cleanUrl}/api/tts?text=${encodedText}&language=${language}`;
+  
+  // Validar longitud de URL (opcional, solo para logging)
+  if (audioUrl.length > 2000) {
+    console.warn(`⚠️ [TTS] URL muy larga (${audioUrl.length} caracteres). Twilio debería poder manejarla, pero puede haber problemas.`);
+  }
+  
+  return audioUrl;
+}
+
+/**
+ * Genera TwiML usando la voz Algieba de Google Cloud Text-to-Speech
+ * Usa <Play> en lugar de <Say> para reproducir audio generado por TTS
+ */
+function generateTwiML(response, language = 'es', processingMessage = null, baseUrl = null) {
+  const { message, gather = true, redirect, voiceConfig: responseVoiceConfig, useAlgieba = true } = response;
 
   console.log(`🎤 [DEBUG] generateTwiML - Idioma recibido: ${language}`);
   console.log(`🎤 [DEBUG] generateTwiML - Mensaje: "${message}"`);
   console.log(`🎤 [DEBUG] generateTwiML - ProcessingMessage: ${processingMessage ? '"' + processingMessage + '"' : 'null'}`);
   console.log(`🎤 [DEBUG] generateTwiML - Redirect: ${redirect ? '"' + redirect + '"' : 'null'}`);
+  console.log(`🎤 [DEBUG] generateTwiML - UseAlgieba: ${useAlgieba}`);
+  console.log(`🎤 [DEBUG] generateTwiML - BaseUrl: ${baseUrl || 'null (usando relativa)'}`);
 
+  // MEJORADO: Usar voz Algieba de Google Cloud Text-to-Speech
+  // Si useAlgieba es true, usar <Play> con endpoint TTS
+  // Si es false, usar <Say> con voces de Twilio (fallback)
+  if (useAlgieba !== false) {
+    // Obtener URL del audio desde el endpoint TTS
+    const audioUrl = getTtsAudioUrl(message, language, baseUrl);
+    console.log(`🎤 [DEBUG] generateTwiML - Audio URL: ${audioUrl}`);
+
+    // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
+    if (redirect) {
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${escapeXml(audioUrl)}</Play>
+  <Redirect method="POST">${escapeXml(redirect)}</Redirect>
+</Response>`;
+    }
+
+    if (gather) {
+      // Configuración de idioma para Gather (necesario para speech recognition)
+      const languageCodes = {
+        es: 'es-ES',
+        en: 'en-US',
+        de: 'de-DE',
+        it: 'it-IT',
+        fr: 'fr-FR',
+        pt: 'pt-BR'
+      };
+      const gatherLanguage = languageCodes[language] || languageCodes.es;
+      
+      // Usar Gather para capturar la respuesta del usuario
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather 
+    input="speech" 
+    action="/api/twilio-call-gemini" 
+    method="POST"
+    language="${gatherLanguage}"
+    speechTimeout="1"
+    timeout="4">
+    <Play>${escapeXml(audioUrl)}</Play>
+  </Gather>
+  <Play>${escapeXml(getTtsAudioUrl(
+    getRandomMessage(language === 'es' ? [
+      'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
+      'Perdón, no he oído nada. ¿Sigue en la línea?',
+      '¿Está ahí? No he escuchado su respuesta.',
+      'Disculpe, ¿sigue ahí? No he oído nada.',
+      'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
+      'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
+      'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
+      'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
+    ] : ['Sorry, I didn\'t hear your response. Are you still there?']),
+    language,
+    baseUrl
+  ))}</Play>
+  <Redirect>/api/twilio-call-gemini</Redirect>
+</Response>`;
+    } else {
+      // Solo decir el mensaje y colgar
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${escapeXml(audioUrl)}</Play>
+  <Pause length="1"/>
+  <Hangup/>
+</Response>`;
+    }
+  }
+
+  // FALLBACK: Usar voces de Twilio si useAlgieba es false
   // Configuración de voz por idioma - Google Neural cuando esté disponible
   const voiceConfig = {
     es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
@@ -4353,7 +4481,7 @@ function generateTwiML(response, language = 'es', processingMessage = null) {
   };
 
   const config = responseVoiceConfig || voiceConfig[language] || voiceConfig.es;
-  console.log(`🎤 [DEBUG] Configuración de voz seleccionada:`, config);
+  console.log(`🎤 [DEBUG] Configuración de voz seleccionada (fallback):`, config);
 
   // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
   if (redirect) {
