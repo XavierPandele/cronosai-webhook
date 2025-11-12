@@ -1,7 +1,8 @@
 /**
  * API endpoint para generar audio usando Google Cloud Text-to-Speech
- * Usa la voz Algieba con el modelo gemini-2.5-pro-tts
+ * Usa la voz Algieba con el modelo gemini-2.5-flash-tts
  * MEJORADO: Usa Service Account con credenciales JSON mediante API REST
+ * NOTA: gemini-2.5-flash-tts NO requiere Vertex AI (a diferencia de gemini-2.5-pro-tts)
  */
 
 const crypto = require('crypto');
