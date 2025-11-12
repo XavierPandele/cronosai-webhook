@@ -1,9 +1,12 @@
 /**
  * API endpoint para generar audio usando Google Cloud Text-to-Speech
  * Usa la voz Algieba con el modelo gemini-2.5-pro-tts
+ * MEJORADO: Usa Service Account con credenciales JSON
  */
 
 const crypto = require('crypto');
+const textToSpeech = require('@google-cloud/text-to-speech');
+const { GoogleAuth } = require('google-auth-library');
 require('dotenv').config();
 
 // Mapeo de idiomas a códigos de idioma para Algieba
@@ -24,6 +27,49 @@ const MODEL_NAME = 'gemini-2.5-pro-tts';
 const audioCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
+// Cliente de Text-to-Speech (inicializado una vez)
+let ttsClient = null;
+
+/**
+ * Inicializa el cliente de Text-to-Speech con Service Account
+ */
+function getTtsClient() {
+  if (!ttsClient) {
+    try {
+      const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      
+      if (!credentialsJson) {
+        throw new Error('❌ GOOGLE_APPLICATION_CREDENTIALS_JSON no está configurada. Verifica que la variable de entorno esté configurada en Vercel.');
+      }
+
+      // Parsear las credenciales JSON
+      let credentials;
+      try {
+        credentials = typeof credentialsJson === 'string' 
+          ? JSON.parse(credentialsJson) 
+          : credentialsJson;
+      } catch (parseError) {
+        throw new Error(`❌ Error parseando credenciales JSON: ${parseError.message}`);
+      }
+
+      // Configurar autenticación
+      const auth = new GoogleAuth({
+        credentials: credentials
+      });
+
+      // Crear cliente de Text-to-Speech
+      ttsClient = new textToSpeech.TextToSpeechClient({ auth });
+      
+      console.log(`✅ [TTS] Cliente inicializado con Service Account: ${credentials.client_email || 'unknown'}`);
+    } catch (error) {
+      console.error('❌ [TTS] Error inicializando cliente:', error);
+      throw error;
+    }
+  }
+  
+  return ttsClient;
+}
+
 /**
  * Genera un hash del texto para usar como identificador único
  */
@@ -32,30 +78,10 @@ function generateHash(text, language) {
 }
 
 /**
- * Obtiene el prompt apropiado para el idioma
+ * Genera audio usando Google Cloud Text-to-Speech SDK
+ * (Usa Service Account con credenciales JSON)
  */
-function getPromptForLanguage(language) {
-  const prompts = {
-    es: 'Lee en voz alta con un tono cálido y acogedor.',
-    en: 'Read aloud in a warm, welcoming tone.',
-    de: 'Lies laut mit einem warmen, einladenden Ton vor.',
-    it: 'Leggi ad alta voce con un tono caloroso e accogliente.',
-    fr: 'Lisez à haute voix avec un ton chaleureux et accueillant.',
-    pt: 'Leia em voz alta com um tom caloroso e acolhedor.'
-  };
-  return prompts[language] || prompts.es;
-}
-
-/**
- * Genera audio usando Google Cloud Text-to-Speech API REST
- * (Usamos REST porque la API key funciona mejor con fetch)
- */
-async function generateAudioWithAPIKey(text, language = 'es') {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    throw new Error('GOOGLE_API_KEY no está configurada');
-  }
-
+async function generateAudioWithServiceAccount(text, language = 'es') {
   const languageCode = languageCodes[language] || languageCodes.es;
   const hash = generateHash(text, languageCode);
   
@@ -67,51 +93,37 @@ async function generateAudioWithAPIKey(text, language = 'es') {
   }
 
   try {
-    const url = `https://texttospeech.googleapis.com/v1beta1/text:synthesize`;
+    const client = getTtsClient();
     
-    const requestBody = {
+    console.log(`🎤 [TTS] Generando audio para: "${text.substring(0, 50)}..." (${languageCode})`);
+
+    // Construir request para Text-to-Speech
+    const request = {
+      input: {
+        text: text
+      },
+      voice: {
+        languageCode: languageCode,
+        name: VOICE_NAME,
+        modelName: MODEL_NAME
+      },
       audioConfig: {
         audioEncoding: 'MP3', // MP3 es mejor para Twilio (más compatible y menor tamaño)
         pitch: 0,
         speakingRate: 1,
         sampleRateHertz: 24000 // Calidad de audio optimizada para voz
-      },
-      input: {
-        prompt: getPromptForLanguage(language),
-        text: text
-      },
-      voice: {
-        languageCode: languageCode,
-        modelName: MODEL_NAME,
-        name: VOICE_NAME
       }
     };
 
-    console.log(`🎤 [TTS] Generando audio para: "${text.substring(0, 50)}..." (${languageCode})`);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ [TTS] Error en API: ${response.status} - ${errorText}`);
-      throw new Error(`Error en Text-to-Speech API: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
+    // Generar audio usando el SDK
+    const [response] = await client.synthesizeSpeech(request);
     
-    if (!data.audioContent) {
+    if (!response.audioContent) {
       throw new Error('No se recibió audioContent en la respuesta');
     }
 
-    // Decodificar audio base64
-    const audioBuffer = Buffer.from(data.audioContent, 'base64');
+    // Convertir audio a Buffer
+    const audioBuffer = Buffer.from(response.audioContent);
 
     // Guardar en cache usando hash como key
     audioCache.set(hash, {
@@ -126,7 +138,31 @@ async function generateAudioWithAPIKey(text, language = 'es') {
     return { audio: audioBuffer, hash };
   } catch (error) {
     console.error('❌ [TTS] Error generando audio:', error);
-    throw error;
+    
+    // Mensajes de error más descriptivos
+    let errorMessage = error.message;
+    
+    if (error.message && (error.message.includes('PERMISSION_DENIED') || error.code === 7)) {
+      errorMessage = `❌ Permisos denegados. Verifica que:
+1. El Service Account tiene el rol "Cloud Text-to-Speech API User"
+2. La API "Cloud Text-to-Speech API" está habilitada
+3. Las credenciales JSON son correctas
+Error: ${error.message}`;
+    } else if (error.message && (error.message.includes('NOT_FOUND') || error.code === 5)) {
+      errorMessage = `❌ Recurso no encontrado. Verifica que:
+1. El código de idioma es correcto (${languageCode})
+2. La voz "Algieba" está disponible para el idioma ${languageCode}
+3. El modelo "gemini-2.5-pro-tts" es válido
+Error: ${error.message}`;
+    } else if (error.message && (error.message.includes('UNAUTHENTICATED') || error.code === 16)) {
+      errorMessage = `❌ Autenticación fallida. Verifica que:
+1. Las credenciales JSON son correctas
+2. El Service Account existe y está activo
+3. Las credenciales no han expirado
+Error: ${error.message}`;
+    }
+    
+    throw new Error(errorMessage);
   }
 }
 
@@ -160,7 +196,7 @@ module.exports = async function handler(req, res) {
         }
       } else if (text) {
         // Generar audio desde texto
-        audioData = await generateAudioWithAPIKey(decodeURIComponent(text), language);
+        audioData = await generateAudioWithServiceAccount(decodeURIComponent(text), language);
       }
       
       if (!audioData || !audioData.audio) {
@@ -202,7 +238,7 @@ module.exports = async function handler(req, res) {
       }
 
       // Generar audio
-      const audioData = await generateAudioWithAPIKey(text, language);
+      const audioData = await generateAudioWithServiceAccount(text, language);
 
       // Devolver audio y hash
       res.setHeader('Content-Type', 'audio/mpeg'); // MP3 para Twilio
