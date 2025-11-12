@@ -149,8 +149,24 @@ function getGeminiClient() {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       console.warn('⚠️ GOOGLE_API_KEY no configurado. Gemini no estará disponible.');
+      logger.error('GEMINI_API_KEY_MISSING', {
+        reasoning: 'GOOGLE_API_KEY no está configurado en las variables de entorno. Verificar .env o variables de entorno de Vercel.'
+      });
       return null;
     }
+    
+    // Log de la API key (solo primeros y últimos caracteres por seguridad)
+    const apiKeyPreview = apiKey.length > 10 
+      ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}`
+      : '***';
+    
+    logger.info('🔑 GEMINI_CLIENT_INITIALIZED', {
+      apiKeyPreview: apiKeyPreview,
+      apiKeyLength: apiKey.length,
+      apiKeyStartsWith: apiKey.substring(0, 6),
+      reasoning: `Cliente de Gemini inicializado con API key del proyecto. Verificar que esta sea la nueva API key del proyecto CronosRestaurants (1053536347405).`
+    });
+    
     geminiClient = new GoogleGenerativeAI(apiKey);
   }
   return geminiClient;
