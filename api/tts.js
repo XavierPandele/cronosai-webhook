@@ -21,9 +21,9 @@ const languageCodes = {
 
 // Configuración de la voz Algieba
 const VOICE_NAME = 'Algieba';
-// NOTA: No usamos modelName porque gemini-2.5-pro-tts requiere Vertex AI.
-// La voz Algieba funcionará con el modelo por defecto de la API estándar de Text-to-Speech.
-const MODEL_NAME = null; // Usar modelo por defecto
+// NOTA: La voz Algieba requiere un modelo específico.
+// Usamos gemini-2.5-flash-tts que NO requiere Vertex AI (a diferencia de gemini-2.5-pro-tts).
+const MODEL_NAME = 'gemini-2.5-flash-tts';
 
 // Cache simple en memoria (para producción, usar Redis o similar)
 const audioCache = new Map();
@@ -140,18 +140,17 @@ async function generateAudioWithServiceAccount(text, language = 'es') {
       },
       voice: {
         languageCode: languageCode, // Formato minúsculas (es-es, en-us, etc.)
-        name: VOICE_NAME
-        // NOTA: No incluimos modelName porque gemini-2.5-pro-tts requiere Vertex AI.
-        // La voz Algieba funcionará con el modelo por defecto de la API estándar.
+        name: VOICE_NAME,
+        modelName: MODEL_NAME // gemini-2.5-flash-tts (NO requiere Vertex AI)
       }
     };
 
     console.log(`🔍 [TTS] Request config:`, {
       languageCode: languageCode,
       voiceName: VOICE_NAME,
-      modelName: 'default (no especificado - usa modelo por defecto)',
+      modelName: MODEL_NAME,
       url: 'https://texttospeech.googleapis.com/v1beta1/text:synthesize',
-      note: 'No usamos gemini-2.5-pro-tts porque requiere Vertex AI. Usamos modelo por defecto de Text-to-Speech API.'
+      note: 'Usamos gemini-2.5-flash-tts que NO requiere Vertex AI (a diferencia de gemini-2.5-pro-tts).'
     });
 
     // Llamar a la API REST con token de acceso
@@ -188,7 +187,8 @@ Error: ${errorText}`;
         errorMessage = `❌ Solicitud inválida. Verifica que:
 1. El código de idioma es correcto (${languageCode})
 2. La voz "Algieba" está disponible para el idioma ${languageCode}
-3. El modelo "gemini-2.5-pro-tts" es válido
+3. El modelo "${MODEL_NAME}" es válido y está disponible
+4. La API "Cloud Text-to-Speech API" está habilitada
 Error: ${errorText}`;
       } else {
         errorMessage = `Error en Text-to-Speech API: ${response.status} - ${errorText}`;
@@ -268,7 +268,7 @@ module.exports = async function handler(req, res) {
       res.setHeader('X-Audio-Hash', audioData.hash);
       res.setHeader('X-Audio-Language', language);
       res.setHeader('X-Voice-Name', VOICE_NAME);
-      res.setHeader('X-Model-Name', 'default');
+      res.setHeader('X-Model-Name', MODEL_NAME);
       
       return res.status(200).send(audioData.audio);
     } catch (error) {
@@ -304,7 +304,7 @@ module.exports = async function handler(req, res) {
       res.setHeader('X-Audio-Hash', audioData.hash);
       res.setHeader('X-Audio-Language', language);
       res.setHeader('X-Voice-Name', VOICE_NAME);
-      res.setHeader('X-Model-Name', 'default');
+      res.setHeader('X-Model-Name', MODEL_NAME);
 
       return res.status(200).send(audioData.audio);
     } catch (error) {
