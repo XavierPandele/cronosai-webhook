@@ -1417,45 +1417,15 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       peopleExistente: state.data.NumeroReserva
     });
     
-    // Fallback: intentar extraer número del texto original si no hay comensales
-    // Solo si NO hay número ya guardado en el estado
-    if (!state.data.NumeroReserva && originalText) {
-      const textLower = originalText.toLowerCase();
-      
-      // Buscar patrones como "una mesa", "dos mesas", etc.
-      const mesaPattern = /(?:una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+mesa/i;
-      const mesaMatch = textLower.match(mesaPattern);
-      if (mesaMatch) {
-        const mesaWord = mesaMatch[0].toLowerCase();
-        const wordToNumber = {
-          'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
-          'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10
-        };
-        const extractedNumber = wordToNumber[mesaWord.split(' ')[0]];
-        if (extractedNumber && extractedNumber >= 1 && extractedNumber <= restaurantConfig.maxPersonasMesa) {
-          state.data.NumeroReserva = extractedNumber;
-          log.reservation('PEOPLE_APPLIED_FALLBACK_MESA', {
-            peopleCount: extractedNumber,
-            originalText: originalText.substring(0, 50),
-            reason: 'mesa_pattern_found'
-          });
-        }
-      } else {
-        // Intentar extraer cualquier número en el texto
-        const numberMatch = originalText.match(/\b(\d{1,2})\b/);
-        if (numberMatch) {
-          const extractedNumber = parseInt(numberMatch[1]);
-          // Solo aplicar si es un número razonable (1-20) y no hay número ya guardado
-          if (extractedNumber >= 1 && extractedNumber <= restaurantConfig.maxPersonasMesa) {
-            state.data.NumeroReserva = extractedNumber;
-            log.reservation('PEOPLE_APPLIED_FALLBACK_NUMBER', {
-              peopleCount: extractedNumber,
-              originalText: originalText.substring(0, 50),
-              reason: 'number_in_text'
-            });
-          }
-        }
-      }
+    // ELIMINADO: Fallback problemático que extraía números incorrectamente
+    // Ahora confiamos 100% en Gemini para extraer el número de personas
+    // Si Gemini no lo extrae, simplemente no lo aplicamos y preguntamos al usuario
+    if (!state.data.NumeroReserva) {
+      log.debug('PEOPLE_NOT_EXTRACTED_BY_GEMINI', {
+        comensales: analysis.comensales,
+        credibilidad: analysis.comensales_porcentaje_credivilidad,
+        reasoning: 'Gemini no extrajo número de personas o credibilidad muy baja. Se preguntará al usuario en el siguiente paso.'
+      });
     }
   }
   
@@ -1507,84 +1477,16 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
     });
   }
 
-  // Fallback: intentar extraer hora del texto original si Gemini no la detectó
-  // IMPORTANTE: Solo aplicar fallback si:
-  // 1. NO hay hora existente válida
-  // 2. El texto contiene indicadores claros de hora (no solo un número)
-  // 3. El número NO está relacionado con personas/mesas
-  if (!timeApplied && originalText) {
-    const textLower = originalText.toLowerCase();
-    
-    // Verificar que NO sea un número de personas/mesas
-    const peopleIndicators = ['personas', 'persona', 'mesas', 'mesa', 'comensales', 'comensal', 'gente', 'invitados', 'invitado'];
-    const isPeopleCount = peopleIndicators.some(indicator => {
-      // Verificar que el indicador esté cerca del número (dentro de 5 palabras)
-      const words = textLower.split(/\s+/);
-      const indicatorIndex = words.indexOf(indicator);
-      if (indicatorIndex === -1) return false;
-      
-      // Verificar si hay un número cerca (antes o después)
-      const nearbyWords = words.slice(Math.max(0, indicatorIndex - 3), indicatorIndex + 4);
-      const hasNumberNearby = nearbyWords.some(word => {
-        // Verificar si es un número (palabra o dígito)
-        const numberWords = ['una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce'];
-        return numberWords.includes(word) || /^\d+$/.test(word);
-      });
-      
-      return hasNumberNearby;
+  // ELIMINADO: Fallback problemático de hora que extraía "05:00" de "cinco personas"
+  // Ahora confiamos 100% en Gemini para extraer la hora
+  // Si Gemini no la extrae, simplemente no la aplicamos y preguntamos al usuario
+  if (!timeApplied) {
+    log.debug('TIME_NOT_EXTRACTED_BY_GEMINI', {
+      hora: analysis.hora,
+      credibilidad: analysis.hora_porcentaje_credivilidad,
+      horaExistente: state.data.HoraReserva,
+      reasoning: 'Gemini no extrajo hora o credibilidad muy baja. Se preguntará al usuario en el siguiente paso.'
     });
-    
-    // Si es un número de personas, NO aplicar fallback de hora
-    if (isPeopleCount) {
-      log.debug('TIME_FALLBACK_SKIPPED_PEOPLE_COUNT', {
-        originalText: originalText.substring(0, 50),
-        reasoning: 'El texto contiene un número de personas, no una hora. No se aplicará fallback de hora.'
-      });
-    } else {
-      // Verificar que haya indicadores claros de hora
-      const timeIndicators = [
-        'a las', 'a la', 'de la tarde', 'de la noche', 'de la mañana',
-        'por la tarde', 'por la noche', 'por la mañana',
-        'hora', 'horas', 'pm', 'am', 'p.m.', 'a.m.',
-        'en punto', 'y media', 'y cuarto', 'menos cuarto'
-      ];
-      const hasTimeIndicator = timeIndicators.some(indicator => textLower.includes(indicator));
-      
-      // Solo aplicar fallback si hay indicadores de hora O si la hora tiene formato digital claro
-      const hasDigitalTime = /\b\d{1,2}:\d{2}\b/.test(textLower);
-      
-      if (hasTimeIndicator || hasDigitalTime) {
-        const fallbackTime = extractTime(textLower);
-        if (fallbackTime) {
-          const existingTime = state.data.HoraReserva;
-          // Solo sobrescribir si NO hay hora existente O si la hora existente tiene error
-          const shouldOverride = !existingTime || state.data.horaError;
-          if (shouldOverride) {
-            state.data.HoraReserva = fallbackTime;
-            delete state.data.horaError;
-            log.reservation('TIME_APPLIED_FALLBACK', { 
-              hora: fallbackTime,
-              horaAnterior: existingTime,
-              reason: existingTime ? 'hora_error' : 'no_existing_time',
-              originalText: originalText.substring(0, 50),
-              reasoning: 'Hora extraída del texto con indicadores claros de tiempo.'
-            });
-            timeApplied = true;
-          } else {
-            log.debug('TIME_FALLBACK_SKIPPED', {
-              fallbackTime: fallbackTime,
-              horaExistente: existingTime,
-              reason: 'existing_valid_time'
-            });
-          }
-        }
-      } else {
-        log.debug('TIME_FALLBACK_SKIPPED_NO_INDICATORS', {
-          originalText: originalText.substring(0, 50),
-          reasoning: 'No hay indicadores claros de hora en el texto. No se aplicará fallback.'
-        });
-      }
-    }
   }
   
   // Nombre - Solo aplicar si el análisis tiene nombre Y credibilidad >= 50%
@@ -2691,338 +2593,138 @@ async function processConversationStep(state, userInput, callLogger, performance
          gather: true
        };
 
-     case 'ask_intention':
-       // Si hay input del usuario pero NO estamos procesando, mostrar mensaje y hacer redirect
-       if (userInput && userInput.trim() && !isProcessing) {
-         callLogger.info('SHOWING_PROCESSING_MESSAGE_AND_STARTING_GEMINI', { userInput });
-         
-         // GUARDAR el texto completo del usuario en el estado para usarlo después
-         state.pendingGeminiText = userInput.trim();
-         state.geminiProcessing = true;
-         state.geminiProcessingStartTime = Date.now();
-         
-         // INICIAR Gemini de forma asíncrona (sin await) para que se ejecute en paralelo
-         const geminiStartTime = Date.now();
-         const callSidToUse = state.callSid;
-         const textToAnalyze = state.pendingGeminiText;
-         
-         // Validar que tenemos el texto necesario
-         if (!textToAnalyze || !textToAnalyze.trim()) {
-           callLogger.error('GEMINI_NO_TEXT_TO_ANALYZE', { 
-             callSid: callSidToUse,
-             pendingGeminiText: state.pendingGeminiText
-           });
-           // No iniciar Gemini si no hay texto
-         } else {
-           // Asegurarse de que performanceMetrics esté definido
-           const metrics = performanceMetrics || {};
-           
-           // Ejecutar Gemini en background - NO usar await para no bloquear la respuesta
-           // Envolver en Promise.resolve() para manejar errores síncronos
-           (async () => {
-             try {
-               callLogger.debug('GEMINI_BACKGROUND_START', { 
-                 textToAnalyze: textToAnalyze.substring(0, 100),
-                 callSid: callSidToUse
-               });
-               
-               const analysis = await analyzeReservationWithGemini(textToAnalyze, { 
-                 callSid: callSidToUse, 
-                 step: state.step,
-                 performanceMetrics: metrics
-               });
-               
-               // Guardar el análisis en el estado (incluso si es null)
-               const currentState = await loadCallState(callSidToUse);
-               if (currentState) {
-                 if (analysis) {
-                   currentState.geminiAnalysis = analysis;
-                   currentState.geminiProcessing = false;
-                   currentState.geminiProcessingEndTime = Date.now();
-                   await saveCallState(callSidToUse, currentState);
-                   callLogger.info('GEMINI_ANALYSIS_COMPLETED_IN_BACKGROUND', { 
-                     callSid: callSidToUse,
-                     timeMs: currentState.geminiProcessingEndTime - geminiStartTime 
-                   });
-                 } else {
-                   // Gemini retornó null (error o sin análisis)
-                   currentState.geminiProcessing = false;
-                   currentState.geminiError = 'Gemini returned null analysis';
-                   await saveCallState(callSidToUse, currentState);
-                   callLogger.warn('GEMINI_ANALYSIS_NULL', { 
-                     callSid: callSidToUse,
-                     timeMs: Date.now() - geminiStartTime 
-                   });
-                 }
-               } else {
-                 callLogger.warn('GEMINI_STATE_NOT_FOUND', { callSid: callSidToUse });
-               }
-             } catch (error) {
-               // Log del error con toda la información disponible
-               callLogger.error('GEMINI_BACKGROUND_ERROR', { 
-                 error: error.message,
-                 stack: error.stack,
-                 callSid: callSidToUse,
-                 textToAnalyze: textToAnalyze.substring(0, 100)
-               });
-               
-               try {
-                 // Intentar guardar el error en el estado
-                 const currentState = await loadCallState(callSidToUse);
-                 if (currentState) {
-                   currentState.geminiProcessing = false;
-                   currentState.geminiError = error.message || 'Unknown error';
-                   await saveCallState(callSidToUse, currentState);
-                 }
-               } catch (saveError) {
-                 // Si falla guardar el error, al menos loguearlo
-                 callLogger.error('GEMINI_ERROR_SAVE_FAILED', { 
-                   error: error.message,
-                   saveError: saveError.message,
-                   callSid: callSidToUse
-                 });
-               }
-             }
-           })().catch((unhandledError) => {
-             // Capturar cualquier error no manejado en la IIFE
-             callLogger.error('GEMINI_UNHANDLED_PROMISE_ERROR', { 
-               error: unhandledError.message,
-               stack: unhandledError.stack,
-               callSid: callSidToUse
-             });
-           });
-         }
-         
-         // Guardar el estado con el texto pendiente
-         await saveCallState(state.callSid, state);
-         
-         // Obtener mensaje de procesamiento
-         const processingMessagesObj = getProcessingMessage(state.language);
-         const processingMsgArray = processingMessagesObj && processingMessagesObj[state.language] 
-           ? processingMessagesObj[state.language] 
-           : (processingMessagesObj && processingMessagesObj.es ? processingMessagesObj.es : []);
-         
-         const processingMsg = processingMsgArray && processingMsgArray.length > 0
-           ? getRandomMessage(processingMsgArray)
-           : 'Un momento por favor, que lo compruebo...';
-         
-         const voiceConfig = {
-           es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-           en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-           de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-           it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-           fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-           pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-         };
-         const config = voiceConfig[state.language] || voiceConfig.es;
-         
-         return {
-           message: processingMsg,
-           gather: false,
-           redirect: `/api/twilio-call-gemini?process=true`,
-           voiceConfig: config
-         };
-       }
-       
-       // Si estamos procesando (isProcessing === true), recuperar análisis de Gemini
-       if (isProcessing) {
-         // Recuperar el texto completo guardado
-         const textToAnalyze = state.pendingGeminiText || 
-           (state.conversationHistory.length > 0 
-             ? state.conversationHistory[state.conversationHistory.length - 1].message 
-             : '');
-         
-         // Recargar el estado para ver si Gemini ya terminó
-         const callSidToUse = state.callSid;
-         const updatedState = await loadCallState(callSidToUse);
-         if (updatedState) {
-           Object.assign(state, updatedState);
-         }
-         
-         let analysis = null;
-         
-         // Verificar si Gemini ya terminó
-         if (state.geminiAnalysis) {
-           callLogger.info('USING_CACHED_GEMINI_ANALYSIS', { 
-             analysisTime: state.geminiProcessingEndTime && state.geminiProcessingStartTime
-               ? state.geminiProcessingEndTime - state.geminiProcessingStartTime 
-               : 'unknown'
-           });
-           analysis = state.geminiAnalysis;
-           // Limpiar campos temporales
-           delete state.geminiAnalysis;
-           delete state.geminiProcessing;
-           delete state.geminiProcessingStartTime;
-           delete state.geminiProcessingEndTime;
-           delete state.pendingGeminiText;
-         } else if (state.geminiError) {
-           callLogger.warn('GEMINI_ANALYSIS_FAILED', { error: state.geminiError });
-           delete state.geminiError;
-           delete state.geminiProcessing;
-           delete state.pendingGeminiText;
-           analysis = null;
-         } else {
-           // Gemini aún no ha terminado - esperar hasta que termine (máximo 10 segundos)
-           callLogger.debug('GEMINI_STILL_PROCESSING_WAITING', { 
-             textToAnalyze,
-             startTime: state.geminiProcessingStartTime,
-             elapsed: state.geminiProcessingStartTime ? Date.now() - state.geminiProcessingStartTime : 'unknown'
-           });
-           
-           const maxWaitTime = 10000;
-           const checkInterval = 500;
-           const startWaitTime = Date.now();
-           
-           while (!analysis && (Date.now() - startWaitTime) < maxWaitTime) {
-             await new Promise(resolve => setTimeout(resolve, checkInterval));
-             
-             const retryState = await loadCallState(callSidToUse);
-             if (retryState) {
-               Object.assign(state, retryState);
-               
-               if (state.geminiAnalysis) {
-                 callLogger.info('USING_CACHED_GEMINI_ANALYSIS_AFTER_WAIT', {
-                   waitTimeMs: Date.now() - startWaitTime,
-                   totalTimeMs: state.geminiProcessingEndTime && state.geminiProcessingStartTime
-                     ? state.geminiProcessingEndTime - state.geminiProcessingStartTime
-                     : 'unknown'
-                 });
-                 analysis = state.geminiAnalysis;
-                 delete state.geminiAnalysis;
-                 delete state.geminiProcessing;
-                 delete state.geminiProcessingStartTime;
-                 delete state.geminiProcessingEndTime;
-                 delete state.pendingGeminiText;
-                 break;
-               } else if (state.geminiError) {
-                 callLogger.warn('GEMINI_ANALYSIS_FAILED_AFTER_WAIT', { error: state.geminiError });
-                 delete state.geminiError;
-                 delete state.geminiProcessing;
-                 delete state.pendingGeminiText;
-                 analysis = null;
-                 break;
-               }
-             }
-           }
-           
-           // Si después de esperar Gemini aún no terminó, ejecutarlo de forma síncrona
-           if (!analysis && textToAnalyze) {
-             callLogger.warn('GEMINI_STILL_PROCESSING_FALLBACK_TO_SYNC', { 
-               textToAnalyze,
-               waitTimeMs: Date.now() - startWaitTime
-             });
-             analysis = await analyzeReservationWithGemini(textToAnalyze, { 
-               callSid: state.callSid, 
-               step: state.step,
-               performanceMetrics: performanceMetrics
-             });
-             delete state.pendingGeminiText;
-           }
-         }
-         
-         // Si tenemos análisis, procesarlo
-         if (analysis) {
-           // Actualizar idioma si se detectó
-           if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
-             state.language = analysis.idioma_detectado;
-           }
-           
-           const intention = analysis.intencion || 'reservation';
-           
-           if (intention === 'reservation') {
-             // USAR el texto completo guardado para aplicar el análisis
-             const textForAnalysis = state.pendingGeminiText || textToAnalyze || '';
-             const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, textForAnalysis);
-             
-             // Limpiar el texto pendiente después de usarlo
-             delete state.pendingGeminiText;
-             
-             // Si hay error de validación (ej: demasiadas personas), manejar
-             if (!applyResult.success && applyResult.error === 'people_too_many') {
-               const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
-               return {
-                 message: getRandomMessage(maxPeopleMessages),
-                 gather: true
-               };
-             }
-             
-             // Verificar si hay error de horario (validado por Gemini)
-             if (state.data.horaError === 'fuera_horario') {
-               const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
-               delete state.data.HoraReserva;
-               delete state.data.horaError;
-               return {
-                 message: getRandomMessage(timeErrorMessages),
-                 gather: true
-               };
-             }
-             
-             // Determinar qué campos faltan
-             const missingFields = determineMissingFields(analysis, state.data);
-             
-             // Priorizar fecha si solo tenemos hora
-             if (missingFields.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
-               missingFields.splice(missingFields.indexOf('date'), 1);
-               missingFields.unshift('date');
-             }
-             
-             console.log(`📊 [RESERVA] Campos faltantes:`, missingFields);
-             
-             // Si no falta nada, ir directamente a confirmación
-             if (missingFields.length === 0) {
-               if (!state.data.TelefonReserva) {
-                 state.data.TelefonReserva = state.phone;
-               }
-               state.step = 'confirm';
-               const confirmMessage = getConfirmationMessage(state.data, state.language);
-               return {
-                 message: confirmMessage,
-                 gather: true
-               };
-             }
-             
-             // Si falta información, confirmar lo que tenemos y preguntar por lo que falta
-             const nextField = missingFields[0];
-             state.step = `ask_${nextField}`;
-             
-             try {
-               const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
-               return {
-                 message: partialMessage,
-                 gather: true
-               };
-             } catch (error) {
-               console.error('❌ [ERROR] Error generando mensaje parcial de confirmación:', error);
-               const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
-               return {
-                 message: getRandomMessage(fieldMessages),
-                 gather: true
-               };
-             }
-           } else if (intention === 'modify') {
-             return await handleModificationRequest(state, textToAnalyze);
-           } else if (intention === 'cancel') {
-             return await handleCancellationRequest(state, textToAnalyze);
-           } else if (intention === 'order') {
-             return await handleOrderIntent(state, analysis, callLogger, textToAnalyze);
-           }
-         }
-         
-         // Si no hay análisis, fallback
-         state.step = 'ask_people';
-         const reservationMessages = getMultilingualMessages('reservation', state.language);
-         return {
-           message: getRandomMessage(reservationMessages),
-           gather: true
-         };
-       }
-       
-       // Si no hay input y no estamos procesando, mantener en ask_intention
-       const greetingMsgs = getMultilingualMessages('greeting', state.language);
-       return {
-         message: getRandomMessage(greetingMsgs),
-         gather: true
-       };
+    case 'ask_intention':
+      // SIMPLIFICADO: Llamar a Gemini de forma síncrona y directa
+      // Eliminado todo el procesamiento asíncrono complejo que causaba problemas
+      if (userInput && userInput.trim()) {
+        log.info('🧠 ANALYZING_INTENTION_WITH_GEMINI', {
+          userInput: userInput,
+          reasoning: `Analizando intención del usuario con Gemini de forma síncrona: "${userInput}"`
+        });
+        
+        // Llamar a Gemini de forma síncrona (esperar el resultado directamente)
+        const analysis = await analyzeReservationWithGemini(userInput, { 
+          callSid: state.callSid, 
+          step: state.step,
+          performanceMetrics: performanceMetrics
+        });
+        
+        if (analysis) {
+          // Actualizar idioma si se detectó
+          if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
+            state.language = analysis.idioma_detectado;
+            log.info('🌐 LANGUAGE_UPDATED', { 
+              oldLanguage: state.language,
+              newLanguage: analysis.idioma_detectado
+            });
+          }
+          
+          const intention = analysis.intencion || 'reservation';
+          
+          if (intention === 'reservation') {
+            // Aplicar análisis de Gemini al estado
+            const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+            
+            // Si hay error de validación (ej: demasiadas personas), manejar
+            if (!applyResult.success && applyResult.error === 'people_too_many') {
+              const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+              return {
+                message: getRandomMessage(maxPeopleMessages),
+                gather: true
+              };
+            }
+            
+            // Verificar si hay error de horario (validado por Gemini)
+            if (state.data.horaError === 'fuera_horario') {
+              const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+              delete state.data.HoraReserva;
+              delete state.data.horaError;
+              return {
+                message: getRandomMessage(timeErrorMessages),
+                gather: true
+              };
+            }
+            
+            // Determinar qué campos faltan
+            const missingFields = determineMissingFields(analysis, state.data);
+            
+            // Priorizar fecha si solo tenemos hora
+            if (missingFields.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
+              missingFields.splice(missingFields.indexOf('date'), 1);
+              missingFields.unshift('date');
+            }
+            
+            log.info('📊 MISSING_FIELDS_DETERMINED', { 
+              missing: missingFields,
+              missingCount: missingFields.length
+            });
+            
+            // Si no falta nada, ir directamente a confirmación
+            if (missingFields.length === 0) {
+              if (!state.data.TelefonReserva) {
+                state.data.TelefonReserva = state.phone;
+              }
+              state.step = 'confirm';
+              const confirmMessage = getConfirmationMessage(state.data, state.language);
+              return {
+                message: confirmMessage,
+                gather: true
+              };
+            }
+            
+            // Si falta información, confirmar lo que tenemos y preguntar por lo que falta
+            const nextField = missingFields[0];
+            state.step = `ask_${nextField}`;
+            
+            try {
+              const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+              return {
+                message: partialMessage,
+                gather: true
+              };
+            } catch (error) {
+              log.error('ERROR_GENERATING_PARTIAL_MESSAGE', { error: error.message });
+              const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+              return {
+                message: getRandomMessage(fieldMessages),
+                gather: true
+              };
+            }
+          } else if (intention === 'modify') {
+            return await handleModificationRequest(state, userInput);
+          } else if (intention === 'cancel') {
+            return await handleCancellationRequest(state, userInput);
+          } else if (intention === 'order') {
+            return await handleOrderIntent(state, analysis, callLogger, userInput);
+          } else {
+            // Intención no reconocida o 'clarify'
+            const clarifyMessages = getMultilingualMessages('clarify', state.language);
+            return {
+              message: getRandomMessage(clarifyMessages),
+              gather: true
+            };
+          }
+        } else {
+          // Gemini falló - usar fallback simple
+          log.warn('GEMINI_ANALYSIS_FAILED', { 
+            reasoning: 'Gemini no devolvió análisis. Usando fallback: preguntar por personas.'
+          });
+          
+          state.step = 'ask_people';
+          const reservationMessages = getMultilingualMessages('reservation', state.language);
+          return {
+            message: getRandomMessage(reservationMessages),
+            gather: true
+          };
+        }
+      }
+      
+      // Si no hay input, simplemente preguntar por la intención
+      const intentionMessages = getMultilingualMessages('ask_intention', state.language);
+      return {
+        message: getRandomMessage(intentionMessages),
+        gather: true
+      };
 
      // ===== NUEVOS CASOS PARA MODIFICACIÓN DE RESERVAS =====
     case 'modify_ask_phone_choice':
