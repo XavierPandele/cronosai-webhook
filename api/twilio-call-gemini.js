@@ -1515,8 +1515,13 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
     const textLower = originalText.toLowerCase();
     // Verificar si el texto contiene indicadores de que el usuario está dando su nombre
     const nameIndicators = [
-      /(?:^|\s)(?:mi nombre es|me llamo|soy|a nombre de|nombre de|llamado|llamo)\s+/i,
-      /(?:^|\s)(?:my name is|i am|i'm|call me|named)\s+/i
+      /(?:^|\s)(?:mi nombre es|me llamo|soy|a nombre de|nombre de|los nombres de|el nombre de|llamado|llamo)\s+/i,
+      /(?:^|\s)(?:my name is|i am|i'm|call me|named)\s+/i,
+      // Patrones específicos para frases incompletas
+      /^a nombre de\s*$/i,
+      /^nombre de\s*$/i,
+      /^los nombres de\s*$/i,
+      /^el nombre de\s*$/i
     ];
     
     const hasNameIndicator = nameIndicators.some(pattern => pattern.test(textLower));
@@ -2206,6 +2211,53 @@ async function processConversationStep(state, userInput, callLogger, performance
             isValidData = geminiAnalysis.nombre !== null && geminiAnalysis.nombre_porcentaje_credivilidad !== '0%';
             extractedValue = geminiAnalysis.nombre;
             confidence = geminiAnalysis.nombre_porcentaje_credivilidad;
+            
+            // MEJORADO: Si no hay nombre válido, verificar si el texto contiene frases relacionadas con nombres
+            // En este caso, NO es cancelación, sino una frase incompleta
+            if (!isValidData) {
+              const textLower = (userInput || '').toLowerCase().trim();
+              const nameRelatedPatterns = [
+                /a nombre de/i,
+                /nombre de/i,
+                /los nombres de/i,
+                /el nombre de/i,
+                /un nombre de/i,
+                /una nombre de/i,
+                /mi nombre de/i,
+                /su nombre de/i,
+                /sus nombres de/i,
+                /^a nombre de\s*$/i,
+                /^nombre de\s*$/i,
+                /^los nombres de\s*$/i,
+                /^el nombre de\s*$/i,
+                /me llamo/i,
+                /se llama/i,
+                /se llaman/i,
+                /llamarse/i,
+                /llamarnos/i,
+                /mi nombre/i,
+                /su nombre/i,
+                /sus nombres/i,
+                /como.*nombre/i,
+                /que.*nombre/i,
+                /cual.*nombre/i
+              ];
+              
+              const isNameRelated = nameRelatedPatterns.some(pattern => pattern.test(textLower));
+              
+              if (isNameRelated) {
+                log.info('✅ NAME_RELATED_PHRASE_DETECTED', {
+                  step: step,
+                  userInput: userInput,
+                  reasoning: `Se detectó una frase relacionada con nombres ("${userInput}"). NO es cancelación, sino una frase incompleta. Continuar pidiendo el nombre.`
+                });
+                // Marcar como dato válido (aunque no haya nombre) para evitar buscar cancelación
+                // Esto hace que el sistema simplemente pida el nombre de nuevo
+                isValidData = true; // Esto hace que shouldCheckCancellation = false
+                extractedValue = null; // No hay nombre extraído, pero no es cancelación
+                confidence = '0%'; // Baja confianza porque no hay nombre
+              }
+            }
             break;
         }
         
@@ -3154,7 +3206,28 @@ async function processConversationStep(state, userInput, callLogger, performance
        const nameIndicators = [
          /^a\s+nombre\s+de\s*$/i,
          /^nombre\s+de\s*$/i,
-         /^a\s+nombre\s+de\s*$/i
+         /^los\s+nombres\s+de\s*$/i,
+         /^el\s+nombre\s+de\s*$/i,
+         /^un\s+nombre\s+de\s*$/i,
+         /^una\s+nombre\s+de\s*$/i,
+         /^mi\s+nombre\s+de\s*$/i,
+         /^su\s+nombre\s+de\s*$/i,
+         /^sus\s+nombres\s+de\s*$/i,
+         /a nombre de/i,
+         /nombre de/i,
+         /los nombres de/i,
+         /el nombre de/i,
+         /me llamo/i,
+         /se llama/i,
+         /se llaman/i,
+         /llamarse/i,
+         /llamarnos/i,
+         /mi nombre/i,
+         /su nombre/i,
+         /sus nombres/i,
+         /como.*nombre/i,
+         /que.*nombre/i,
+         /cual.*nombre/i
        ];
        
        const isIncompleteNamePhrase = nameIndicators.some(pattern => pattern.test(textLower));
@@ -8958,89 +9031,339 @@ function isCancellationRequest(text) {
   }
   
   // Excluir frases que contienen "no" pero no son cancelaciones
+  // MEJORADO: Agregar patrones para TODOS los idiomas para evitar falsos positivos
   const falsePositivePatterns = [
-    // Patrones relacionados con nombres
+    // ===== ESPAÑOL - Patrones relacionados con nombres =====
     /a nombre de/i,
     /nombre de/i,
     /a nombre/i,
     /el nombre/i,
+    /los nombres/i,
+    /los nombres de/i,
+    /un nombre/i,
+    /una nombre/i,
     /mi nombre/i,
     /su nombre/i,
+    /sus nombres/i,
     /cual.*nombre/i,
     /que nombre/i,
+    /que nombres/i,
     /nombre.*es/i,
+    /nombres.*son/i,
     /nombre.*ser/i,
+    /nombres.*ser/i,
     /nombre.*llama/i,
+    /nombres.*llaman/i,
     /me llamo/i,
     /se llama/i,
+    /se llaman/i,
     /llamarse/i,
-    // Patrones relacionados con "no puedo"
-    /no puedo definir/i,
-    /no puedo decir/i,
-    /no puedo especificar/i,
-    /no puedo indicar/i,
-    /no puedo determinar/i,
-    /no puedo precisar/i,
-    /no puedo confirmar/i,
-    /no puedo recordar/i,
-    /no puedo pensar/i,
-    /no puedo decidir/i,
-    /no puedo elegir/i,
-    /no puedo seleccionar/i,
-    /no puedo encontrar/i,
-    /no puedo localizar/i,
-    /no puedo ver/i,
-    /no puedo escuchar/i,
-    /no puedo oír/i,
-    /no puedo entender/i,
-    /no puedo comprender/i,
-    /no puedo procesar/i,
-    /no puedo calcular/i,
-    /no puedo resolver/i,
-    /no puedo solucionar/i,
-    /no puedo hacer/i,
-    /no puedo realizar/i,
-    /no puedo ejecutar/i,
-    /no puedo completar/i,
-    /no puedo terminar/i,
-    /no puedo finalizar/i,
-    /no puedo acabar/i,
-    /no puedo concluir/i,
-    /no puedo cerrar/i,
-    /no puedo abrir/i,
-    /no puedo iniciar/i,
-    /no puedo comenzar/i,
-    /no puedo empezar/i,
-    /no puedo continuar/i,
-    /no puedo seguir/i,
-    /no puedo avanzar/i,
-    /no puedo proseguir/i,
+    /llamarnos/i,
+    /^a nombre de\s*$/i,
+    /^nombre de\s*$/i,
+    /^los nombres de\s*$/i,
+    /^el nombre de\s*$/i,
+    /^un nombre de\s*$/i,
+    /^una nombre de\s*$/i,
+    /^mi nombre de\s*$/i,
+    /^su nombre de\s*$/i,
+    /^sus nombres de\s*$/i,
+    
+    // ===== INGLÉS - Patrones relacionados con nombres =====
+    /under.*name/i,
+    /name.*of/i,
+    /my name/i,
+    /your name/i,
+    /his name/i,
+    /her name/i,
+    /their name/i,
+    /their names/i,
+    /what.*name/i,
+    /which.*name/i,
+    /name.*is/i,
+    /names.*are/i,
+    /name.*to/i,
+    /call.*me/i,
+    /i am/i,
+    /i'm/i,
+    /my name is/i,
+    /call me/i,
+    /named/i,
+    /^under name\s*$/i,
+    /^name of\s*$/i,
+    /^my name\s*$/i,
+    /^your name\s*$/i,
+    /^the name\s*$/i,
+    /^a name\s*$/i,
+    /^the name of\s*$/i,
+    /^a name of\s*$/i,
+    
+    // ===== ALEMÁN - Patrones relacionados con nombres =====
+    /unter.*namen/i,
+    /name.*von/i,
+    /mein name/i,
+    /dein name/i,
+    /sein name/i,
+    /ihr name/i,
+    /ihre name/i,
+    /welcher.*name/i,
+    /was.*name/i,
+    /name.*ist/i,
+    /namen.*sind/i,
+    /ich heiße/i,
+    /ich heisse/i,
+    /heiße/i,
+    /heisse/i,
+    /^unter namen\s*$/i,
+    /^name von\s*$/i,
+    /^mein name\s*$/i,
+    /^dein name\s*$/i,
+    /^der name\s*$/i,
+    /^ein name\s*$/i,
+    /^der name von\s*$/i,
+    /^ein name von\s*$/i,
+    
+    // ===== ITALIANO - Patrones relacionados con nombres =====
+    /sotto.*nome/i,
+    /nome.*di/i,
+    /il nome/i,
+    /i nomi/i,
+    /un nome/i,
+    /una nome/i,
+    /mio nome/i,
+    /tuo nome/i,
+    /suo nome/i,
+    /loro nome/i,
+    /loro nomi/i,
+    /qual.*nome/i,
+    /che nome/i,
+    /nome.*è/i,
+    /nomi.*sono/i,
+    /mi chiamo/i,
+    /si chiama/i,
+    /si chiamano/i,
+    /chiamarsi/i,
+    /chiamarci/i,
+    /^sotto nome\s*$/i,
+    /^nome di\s*$/i,
+    /^il nome\s*$/i,
+    /^i nomi\s*$/i,
+    /^un nome\s*$/i,
+    /^una nome\s*$/i,
+    /^mio nome\s*$/i,
+    /^tuo nome\s*$/i,
+    /^suo nome\s*$/i,
+    /^loro nome\s*$/i,
+    /^loro nomi\s*$/i,
+    
+    // ===== FRANCÉS - Patrones relacionados con nombres =====
+    /sous.*nom/i,
+    /nom.*de/i,
+    /le nom/i,
+    /les noms/i,
+    /un nom/i,
+    /une nom/i,
+    /mon nom/i,
+    /ton nom/i,
+    /son nom/i,
+    /leur nom/i,
+    /leurs noms/i,
+    /quel.*nom/i,
+    /que nom/i,
+    /nom.*est/i,
+    /noms.*sont/i,
+    /je m'appelle/i,
+    /je m'appelle/i,
+    /s'appelle/i,
+    /s'appellent/i,
+    /^sous nom\s*$/i,
+    /^nom de\s*$/i,
+    /^le nom\s*$/i,
+    /^les noms\s*$/i,
+    /^un nom\s*$/i,
+    /^une nom\s*$/i,
+    /^mon nom\s*$/i,
+    /^ton nom\s*$/i,
+    /^son nom\s*$/i,
+    /^leur nom\s*$/i,
+    /^leurs noms\s*$/i,
+    
+    // ===== PORTUGUÉS - Patrones relacionados con nombres =====
+    /sob.*nome/i,
+    /nome.*de/i,
+    /o nome/i,
+    /os nomes/i,
+    /um nome/i,
+    /uma nome/i,
+    /meu nome/i,
+    /seu nome/i,
+    /nosso nome/i,
+    /nossos nomes/i,
+    /qual.*nome/i,
+    /que nome/i,
+    /nome.*é/i,
+    /nomes.*são/i,
+    /me chamo/i,
+    /se chama/i,
+    /se chamam/i,
+    /chamar-se/i,
+    /chamar-nos/i,
+    /^sob nome\s*$/i,
+    /^nome de\s*$/i,
+    /^o nome\s*$/i,
+    /^os nomes\s*$/i,
+    /^um nome\s*$/i,
+    /^uma nome\s*$/i,
+    /^meu nome\s*$/i,
+    /^seu nome\s*$/i,
+    /^nosso nome\s*$/i,
+    /^nossos nomes\s*$/i,
+    
+    // ===== PATRONES DE "NO PUEDO" / "CAN'T" / "CANNOT" - TODOS LOS IDIOMAS =====
+    // Español
+    /no puedo definir/i, /no puedo decir/i, /no puedo especificar/i, /no puedo indicar/i,
+    /no puedo determinar/i, /no puedo precisar/i, /no puedo confirmar/i, /no puedo recordar/i,
+    /no puedo pensar/i, /no puedo decidir/i, /no puedo elegir/i, /no puedo seleccionar/i,
+    /no puedo encontrar/i, /no puedo localizar/i, /no puedo ver/i, /no puedo escuchar/i,
+    /no puedo oír/i, /no puedo entender/i, /no puedo comprender/i, /no puedo procesar/i,
+    /no puedo calcular/i, /no puedo resolver/i, /no puedo solucionar/i, /no puedo hacer/i,
+    /no puedo realizar/i, /no puedo ejecutar/i, /no puedo completar/i, /no puedo terminar/i,
+    /no puedo finalizar/i, /no puedo acabar/i, /no puedo concluir/i, /no puedo cerrar/i,
+    /no puedo abrir/i, /no puedo iniciar/i, /no puedo comenzar/i, /no puedo empezar/i,
+    /no puedo continuar/i, /no puedo seguir/i, /no puedo avanzar/i, /no puedo proseguir/i,
     /no puedo proceder/i,
-    /no puedo seguir adelante/i,
-    /no puedo seguir con/i,
-    /no puedo seguir haciendo/i,
-    /no puedo seguir realizando/i,
-    /no puedo seguir ejecutando/i,
-    /no puedo seguir completando/i,
-    /no puedo seguir terminando/i,
-    /no puedo seguir finalizando/i,
-    /no puedo seguir acabando/i,
-    /no puedo seguir concluyendo/i,
-    /no puedo seguir cerrando/i,
-    /no puedo seguir abriendo/i,
-    /no puedo seguir iniciando/i,
-    /no puedo seguir comenzando/i,
-    /no puedo seguir empezando/i,
-    /no puedo seguir continuando/i,
-    /no puedo seguir avanzando/i,
-    /no puedo seguir prosiguiendo/i,
-    /no puedo seguir procediendo/i,
+    
+    // Inglés
+    /can't define/i, /can't say/i, /can't specify/i, /can't indicate/i,
+    /can't determine/i, /can't confirm/i, /can't remember/i, /can't think/i,
+    /can't decide/i, /can't choose/i, /can't select/i, /can't find/i,
+    /can't locate/i, /can't see/i, /can't hear/i, /can't understand/i,
+    /can't comprehend/i, /can't process/i, /can't calculate/i, /can't solve/i,
+    /can't do/i, /can't perform/i, /can't execute/i, /can't complete/i,
+    /can't finish/i, /can't conclude/i, /can't close/i, /can't open/i,
+    /can't start/i, /can't begin/i, /can't continue/i, /can't proceed/i,
+    /cannot define/i, /cannot say/i, /cannot specify/i, /cannot indicate/i,
+    /cannot determine/i, /cannot confirm/i, /cannot remember/i, /cannot think/i,
+    /cannot decide/i, /cannot choose/i, /cannot select/i, /cannot find/i,
+    /cannot locate/i, /cannot see/i, /cannot hear/i, /cannot understand/i,
+    /cannot comprehend/i, /cannot process/i, /cannot calculate/i, /cannot solve/i,
+    /cannot do/i, /cannot perform/i, /cannot execute/i, /cannot complete/i,
+    /cannot finish/i, /cannot conclude/i, /cannot close/i, /cannot open/i,
+    /cannot start/i, /cannot begin/i, /cannot continue/i, /cannot proceed/i,
+    
+    // Alemán
+    /kann nicht definieren/i, /kann nicht sagen/i, /kann nicht angeben/i, /kann nicht bestimmen/i,
+    /kann nicht bestätigen/i, /kann nicht denken/i, /kann nicht entscheiden/i, /kann nicht wählen/i,
+    /kann nicht finden/i, /kann nicht sehen/i, /kann nicht hören/i, /kann nicht verstehen/i,
+    /kann nicht verarbeiten/i, /kann nicht berechnen/i, /kann nicht lösen/i, /kann nicht tun/i,
+    /kann nicht ausführen/i, /kann nicht abschließen/i, /kann nicht beenden/i, /kann nicht öffnen/i,
+    /kann nicht schließen/i, /kann nicht starten/i, /kann nicht beginnen/i, /kann nicht fortfahren/i,
+    
+    // Italiano
+    /non posso definire/i, /non posso dire/i, /non posso specificare/i, /non posso indicare/i,
+    /non posso determinare/i, /non posso confermare/i, /non posso ricordare/i, /non posso pensare/i,
+    /non posso decidere/i, /non posso scegliere/i, /non posso selezionare/i, /non posso trovare/i,
+    /non posso localizzare/i, /non posso vedere/i, /non posso sentire/i, /non posso capire/i,
+    /non posso comprendere/i, /non posso elaborare/i, /non posso calcolare/i, /non posso risolvere/i,
+    /non posso fare/i, /non posso eseguire/i, /non posso completare/i, /non posso terminare/i,
+    /non posso concludere/i, /non posso chiudere/i, /non posso aprire/i, /non posso iniziare/i,
+    /non posso cominciare/i, /non posso continuare/i, /non posso procedere/i,
+    
+    // Francés
+    /ne peux pas définir/i, /ne peux pas dire/i, /ne peux pas spécifier/i, /ne peux pas indiquer/i,
+    /ne peux pas déterminer/i, /ne peux pas confirmer/i, /ne peux pas me souvenir/i, /ne peux pas penser/i,
+    /ne peux pas décider/i, /ne peux pas choisir/i, /ne peux pas sélectionner/i, /ne peux pas trouver/i,
+    /ne peux pas localiser/i, /ne peux pas voir/i, /ne peux pas entendre/i, /ne peux pas comprendre/i,
+    /ne peux pas traiter/i, /ne peux pas calculer/i, /ne peux pas résoudre/i, /ne peux pas faire/i,
+    /ne peux pas exécuter/i, /ne peux pas compléter/i, /ne peux pas terminer/i, /ne peux pas conclure/i,
+    /ne peux pas fermer/i, /ne peux pas ouvrir/i, /ne peux pas commencer/i, /ne peux pas continuer/i,
+    /ne peux pas procéder/i,
+    
+    // Portugués
+    /não posso definir/i, /não posso dizer/i, /não posso especificar/i, /não posso indicar/i,
+    /não posso determinar/i, /não posso confirmar/i, /não posso lembrar/i, /não posso pensar/i,
+    /não posso decidir/i, /não posso escolher/i, /não posso selecionar/i, /não posso encontrar/i,
+    /não posso localizar/i, /não posso ver/i, /não posso ouvir/i, /não posso entender/i,
+    /não posso compreender/i, /não posso processar/i, /não posso calcular/i, /não posso resolver/i,
+    /não posso fazer/i, /não posso executar/i, /não posso completar/i, /não posso terminar/i,
+    /não posso concluir/i, /não posso fechar/i, /não posso abrir/i, /não posso iniciar/i,
+    /não posso começar/i, /não posso continuar/i, /não posso proceder/i,
   ];
   
   // Si coincide con un patrón de falso positivo, NO es cancelación
-  if (falsePositivePatterns.some(pattern => pattern.test(text))) {
+  // MEJORADO: Verificar primero los patrones más específicos (frases completas)
+  const isFalsePositive = falsePositivePatterns.some(pattern => {
+    const match = pattern.test(text);
+    if (match) {
+      console.log(`🔍 [DEBUG] Patrón de falso positivo detectado: ${pattern}, NO es cancelación`);
+    }
+    return match;
+  });
+  
+  if (isFalsePositive) {
     console.log(`🔍 [DEBUG] Patrón de falso positivo detectado, NO es cancelación`);
     return false;
+  }
+  
+  // MEJORADO: Verificar también si el texto contiene palabras relacionadas con nombres
+  // pero NO contiene palabras explícitas de cancelación
+  // Esto evita falsos positivos con "nombres", "nombre", "name", "nome", "nom", etc.
+  // EN TODOS LOS IDIOMAS
+  const nameRelatedWords = [
+    // Español
+    'nombre', 'nombres', 'llamo', 'llama', 'llamamos', 'llaman', 'llamarse', 'llamarnos',
+    // Inglés
+    'name', 'names', 'named', 'calling', 'call me', 'i am', 'i\'m',
+    // Alemán
+    'name', 'namen', 'heiße', 'heisse', 'heissen', 'heißt', 'heisst',
+    // Italiano
+    'nome', 'nomi', 'chiamo', 'chiama', 'chiamano', 'chiamarsi', 'chiamarci',
+    // Francés
+    'nom', 'noms', 'appelle', 'appelles', 'appellent', 's\'appelle', 's\'appellent',
+    // Portugués
+    'nome', 'nomes', 'chamo', 'chama', 'chamam', 'chamar-se', 'chamar-nos'
+  ];
+  
+  const hasNameRelatedWord = nameRelatedWords.some(word => {
+    // Para palabras compuestas (como "call me", "i am"), buscar la frase completa
+    if (word.includes(' ') || word.includes('\'')) {
+      // Frase compuesta, buscar como substring pero con contexto
+      return lowerText.includes(word.toLowerCase());
+    } else {
+      // Palabra simple, buscar como palabra completa (no substring)
+      // Esto evita que "nombres" detecte "no" dentro de "nombres"
+      const wordRegex = new RegExp(`(^|\\s)${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$|[.,!?;:])`, 'i');
+      return wordRegex.test(lowerText);
+    }
+  });
+  
+  // Si contiene palabras relacionadas con nombres Y NO contiene palabras explícitas de cancelación,
+  // NO es cancelación
+  if (hasNameRelatedWord) {
+    // Palabras explícitas de cancelación en TODOS los idiomas
+    const explicitCancellationWords = [
+      // Español
+      'cancelar', 'cancelación', 'cancelar reserva', 'cancelar mesa',
+      // Inglés
+      'cancel', 'cancellation', 'cancel reservation', 'cancel table',
+      // Alemán
+      'stornieren', 'stornierung', 'storniere', 'reservierung stornieren',
+      // Italiano
+      'cancellare', 'cancellazione', 'cancellare prenotazione', 'cancellare tavolo',
+      // Francés
+      'annuler', 'annulation', 'annuler réservation', 'annuler table',
+      // Portugués
+      'cancelar', 'cancelamento', 'cancelar reserva', 'cancelar mesa'
+    ];
+    
+    const hasExplicitCancellation = explicitCancellationWords.some(word => 
+      lowerText.includes(word.toLowerCase())
+    );
+    
+    if (!hasExplicitCancellation) {
+      console.log(`🔍 [DEBUG] Texto contiene palabras relacionadas con nombres ("${text}"), pero NO contiene palabras explícitas de cancelación. NO es cancelación.`);
+      return false;
+    }
   }
   
   const cancellationWords = [
@@ -9068,7 +9391,9 @@ function isCancellationRequest(text) {
     'mejor me voy a retirar', 'mejor me voy a retirar ahora', 'mejor me voy a retirar aquí', 'mejor me voy a retirar acá',
     
     // PALABRAS SIMPLES Y COMUNES QUE LA GENTE USA
-    'no', 'no quiero', 'no necesito', 'no voy', 'no voy a', 'no voy a hacer',
+    // NOTA: 'no' está removido de la lista para evitar falsos positivos con "nombres", "nombre", etc.
+    // Solo se buscan patrones con contexto como "no quiero", "no necesito", etc.
+    'no quiero', 'no necesito', 'no voy', 'no voy a', 'no voy a hacer',
     'mejor no', 'mejor no hago', 'mejor no reservo', 'mejor no hago reserva',
     'al final no', 'al final no quiero', 'al final no necesito', 'al final no voy',
     'ya no', 'ya no quiero', 'ya no necesito', 'ya no voy', 'ya no voy a',
@@ -9146,13 +9471,116 @@ function isCancellationRequest(text) {
     'meglio ritirarsi', 'meglio ritirarsi ora'
   ];
   
-  const lowerText = text.toLowerCase();
+  const lowerText = text.toLowerCase().trim();
   
   console.log(`🔍 [DEBUG] isCancellationRequest - Analizando: "${text}"`);
   console.log(`🔍 [DEBUG] Texto en minúsculas: "${lowerText}"`);
   
-  // Buscar coincidencias exactas de palabras
-  const hasCancellationWords = cancellationWords.some(word => lowerText.includes(word));
+  // CRÍTICO: Verificar que "no" no esté dentro de palabras relacionadas con nombres
+  // Esta verificación debe hacerse ANTES de buscar palabras de cancelación
+  // Por ejemplo, "nombres" contiene "no", pero "no" no es una palabra completa aquí
+  // EN TODOS LOS IDIOMAS - Solo palabras que REALMENTE contienen "no" o "nom"
+  // NOTA: "name" NO contiene "no", así que NO se incluye aquí
+  const nameWordsContainingNoPattern = /(^|\s)(nombres?|nomi|noms|nomes|nom)(\s|$|[.,!?;:])/i;
+  const hasNameWordContainingNo = nameWordsContainingNoPattern.test(text);
+  
+  if (hasNameWordContainingNo) {
+    // Si el texto contiene palabras de nombres que incluyen "no" o "nom", 
+    // pero NO contiene palabras explícitas de cancelación, NO es cancelación
+    const explicitCancellationWords = [
+      // Español
+      'cancelar', 'cancelación', 'cancelar reserva', 'cancelar mesa',
+      // Inglés
+      'cancel', 'cancellation', 'cancel reservation', 'cancel table',
+      // Alemán
+      'stornieren', 'stornierung', 'storniere', 'reservierung stornieren',
+      // Italiano
+      'cancellare', 'cancellazione', 'cancellare prenotazione', 'cancellare tavolo',
+      // Francés
+      'annuler', 'annulation', 'annuler réservation', 'annuler table',
+      // Portugués
+      'cancelar', 'cancelamento', 'cancelar reserva', 'cancelar mesa'
+    ];
+    const hasExplicitCancellation = explicitCancellationWords.some(word => 
+      lowerText.includes(word.toLowerCase())
+    );
+    
+    if (!hasExplicitCancellation) {
+      console.log(`🔍 [DEBUG] Texto contiene palabras de nombres que incluyen "no" o "nom" ("${text}"), pero NO contiene palabras explícitas de cancelación. NO es cancelación.`);
+      return false;
+    }
+  }
+  
+  // MEJORADO: Buscar palabras completas, no substrings, para evitar falsos positivos
+  // Por ejemplo, "nombres" contiene "no", pero "no" no es una palabra completa en "nombres"
+  // Crear regex para buscar palabras completas (separadas por espacios o al inicio/final)
+  const hasCancellationWords = cancellationWords.some(word => {
+    // Si la palabra es muy corta (1-2 caracteres), usar búsqueda más estricta
+    // CRÍTICO: Si la palabra es "no" o contiene "no", verificar que NO esté dentro de una palabra de nombre
+    if (word.length <= 2) {
+      // Para palabras cortas como "no", "non", "nein", "não", buscar solo si está al inicio o después de un espacio
+      // y seguida de un espacio o al final, PERO verificar que NO esté dentro de una palabra de nombre
+      const wordRegex = new RegExp(`(^|\\s)${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$|[.,!?;:])`, 'i');
+      const matches = wordRegex.test(lowerText);
+      
+      // Si coincide con "no", "non", "nein", "não", verificar que NO esté dentro de una palabra de nombre
+      // EN TODOS LOS IDIOMAS
+      if (matches && (word === 'no' || word === 'non' || word === 'nein' || word === 'não')) {
+        // Verificar si hay palabras de nombres en el texto (solo las que contienen "no" o "nom")
+        // NOTA: "name" NO contiene "no", así que NO se incluye aquí
+        const nameWordsPattern = /(^|\s)(nombres?|nomi|noms|nomes|nom)(\s|$|[.,!?;:])/i;
+        if (nameWordsPattern.test(text)) {
+          // Si hay palabras de nombres, verificar que "no" no esté cerca de ellas
+          const words = text.toLowerCase().split(/\s+/);
+          const nameWordIndices = words
+            .map((w, i) => /^(nombres?|nomi|noms|nomes|nom)$/.test(w) ? i : -1)
+            .filter(i => i !== -1);
+          const noWordIndex = words.findIndex(w => w === word.toLowerCase());
+          
+          // Si "no" está cerca de una palabra de nombre (dentro de 2 palabras), probablemente es parte del nombre
+          if (noWordIndex !== -1 && nameWordIndices.some(idx => Math.abs(idx - noWordIndex) <= 2)) {
+            // Verificar si hay palabras explícitas de cancelación
+            const explicitCancellationWords = [
+              // Español
+              'cancelar', 'cancelación', 'cancelar reserva', 'cancelar mesa',
+              // Inglés
+              'cancel', 'cancellation', 'cancel reservation', 'cancel table',
+              // Alemán
+              'stornieren', 'stornierung', 'storniere', 'reservierung stornieren',
+              // Italiano
+              'cancellare', 'cancellazione', 'cancellare prenotazione', 'cancellare tavolo',
+              // Francés
+              'annuler', 'annulation', 'annuler réservation', 'annuler table',
+              // Portugués
+              'cancelar', 'cancelamento', 'cancelar reserva', 'cancelar mesa'
+            ];
+            const hasExplicitCancellation = explicitCancellationWords.some(cancelWord => 
+              lowerText.includes(cancelWord.toLowerCase())
+            );
+            if (!hasExplicitCancellation) {
+              console.log(`🔍 [DEBUG] "${word}" está cerca de palabras de nombres ("${text}"), pero NO contiene palabras explícitas de cancelación. NO es cancelación.`);
+              return false; // No es cancelación
+            }
+          }
+        }
+      }
+      
+      return matches;
+    } else {
+      // Para palabras más largas, buscar como palabra completa o como substring solo si es explícito
+      // Primero intentar como palabra completa
+      const wordRegex = new RegExp(`(^|\\s)${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$|[.,!?;:])`, 'i');
+      if (wordRegex.test(lowerText)) {
+        return true;
+      }
+      // Si no se encuentra como palabra completa, buscar como substring solo si la palabra es larga (>4 caracteres)
+      // Esto evita falsos positivos con palabras cortas
+      if (word.length > 4) {
+        return lowerText.includes(word);
+      }
+      return false;
+    }
+  });
   console.log(`🔍 [DEBUG] Palabras de cancelación encontradas: ${hasCancellationWords}`);
   
   // Buscar patrones simples de cancelación (más flexibles)
@@ -9361,7 +9789,46 @@ function isCancellationRequest(text) {
   const hasPatterns = cancellationPatterns.some(pattern => pattern.test(lowerText));
   console.log(`🔍 [DEBUG] Patrones de cancelación encontrados: ${hasPatterns}`);
   
-  const result = hasCancellationWords || hasSimplePatterns || hasPatterns;
+  // Verificar si hay alguna indicación de cancelación
+  const hasAnyCancellationIndication = hasCancellationWords || hasSimplePatterns || hasPatterns;
+  
+  // CRÍTICO: Verificación final antes de retornar
+  // Si hay palabras de nombres o frases relacionadas con nombres, 
+  // y NO hay palabras explícitas de cancelación, NO es cancelación
+  // Esta verificación final asegura que no hay falsos positivos
+  if (hasAnyCancellationIndication) {
+    // Verificar si hay palabras de nombres en el texto (TODOS LOS IDIOMAS)
+    const nameWordsPattern = /(^|\s)(nombres?|nomi|noms|nomes|nom|name|names|nome|nomes|nombre|llamo|llama|llamamos|llaman|me llamo|se llama|se llaman|mi nombre|su nombre|sus nombres|a nombre|nombre de|los nombres|el nombre|under name|name of|my name|your name|ich heiße|ich heisse|mi chiamo|si chiama|je m'appelle|s'appelle|me chamo|se chama)(\s|$|[.,!?;:])/i;
+    const hasNameWords = nameWordsPattern.test(text);
+    
+    if (hasNameWords) {
+      // Si hay palabras de nombres, verificar que haya palabras explícitas de cancelación
+      const explicitCancellationWords = [
+        // Español
+        'cancelar', 'cancelación', 'cancelar reserva', 'cancelar mesa',
+        // Inglés
+        'cancel', 'cancellation', 'cancel reservation', 'cancel table',
+        // Alemán
+        'stornieren', 'stornierung', 'storniere', 'reservierung stornieren',
+        // Italiano
+        'cancellare', 'cancellazione', 'cancellare prenotazione', 'cancellare tavolo',
+        // Francés
+        'annuler', 'annulation', 'annuler réservation', 'annuler table',
+        // Portugués
+        'cancelar', 'cancelamento', 'cancelar reserva', 'cancelar mesa'
+      ];
+      const hasExplicitCancellation = explicitCancellationWords.some(word => 
+        lowerText.includes(word.toLowerCase())
+      );
+      
+      if (!hasExplicitCancellation) {
+        console.log(`🔍 [DEBUG] VERIFICACIÓN FINAL: Texto contiene palabras de nombres ("${text}"), y aunque hay indicaciones de cancelación, NO contiene palabras explícitas de cancelación. NO es cancelación.`);
+        return false;
+      }
+    }
+  }
+  
+  const result = hasAnyCancellationIndication;
   console.log(`🔍 [DEBUG] Resultado final isCancellationRequest: ${result}`);
   console.log(`🔍 [DEBUG] - Palabras: ${hasCancellationWords}`);
   console.log(`🔍 [DEBUG] - Patrones simples: ${hasSimplePatterns}`);
