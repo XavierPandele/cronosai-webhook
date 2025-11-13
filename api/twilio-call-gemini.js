@@ -199,6 +199,37 @@ function getGeminiClient() {
   return geminiClient;
 }
 
+// ===== HELPER PARA EXTRAER TEXTO DE RESPUESTA DE VERTEX AI =====
+/**
+ * Extrae el texto de la respuesta de Vertex AI (compatible con diferentes formatos)
+ * @param {Object} result - Resultado de generateContent
+ * @returns {string} Texto extraído de la respuesta
+ */
+function extractTextFromVertexAIResponse(result) {
+  // Intentar diferentes formatos de respuesta de Vertex AI
+  if (result.response && typeof result.response.text === 'function') {
+    // Formato de API estándar (compatibilidad)
+    return result.response.text();
+  } else if (result.response && result.response.candidates && result.response.candidates[0]) {
+    // Formato de Vertex AI: acceder a candidates[0].content.parts[0].text
+    return result.response.candidates[0].content.parts[0].text;
+  } else if (result.candidates && result.candidates[0]) {
+    // Formato alternativo de Vertex AI
+    return result.candidates[0].content.parts[0].text;
+  } else if (result.response && result.response.text) {
+    // Si response.text es un string directamente
+    return typeof result.response.text === 'string' ? result.response.text : String(result.response.text);
+  } else {
+    // Último intento: buscar texto en la respuesta
+    const responseStr = JSON.stringify(result);
+    const textMatch = responseStr.match(/"text":\s*"([^"]+)"/);
+    if (textMatch) {
+      return textMatch[1];
+    }
+    throw new Error('No se pudo extraer el texto de la respuesta de Vertex AI. Estructura: ' + JSON.stringify(result).substring(0, 200));
+  }
+}
+
 // ===== FUNCIÓN DE RETRY PARA LLAMADAS A GEMINI =====
 /**
  * Llama a Gemini con retry automático para manejar rate limiting (429) y otros errores temporales
@@ -1073,8 +1104,7 @@ NOTA SOBRE VALIDACIONES:
     // PERFORMANCE: Medir tiempo de llamada a Gemini API
     const apiCallStartTime = Date.now();
     const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger);
-    const response = await result.response;
-    const text = response.text();
+    const text = extractTextFromVertexAIResponse(result);
     const apiCallTime = Date.now() - apiCallStartTime;
     
     geminiLogger.info('📥 GEMINI_RAW_RESPONSE_RECEIVED', { 
@@ -1207,8 +1237,7 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
     geminiLogger.gemini('INTENTION_ANALYSIS_START', { text });
 
     const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger);
-    const response = await result.response;
-    const detectedIntention = response.text().trim().toLowerCase();
+    const detectedIntention = extractTextFromVertexAIResponse(result).trim().toLowerCase();
     
     const validIntentions = ['reservation', 'modify', 'cancel', 'clarify'];
     const action = validIntentions.includes(detectedIntention) ? detectedIntention : 'clarify';
@@ -1251,8 +1280,7 @@ Texto: "${text}"
 Responde SOLO con el código de 2 letras, sin explicaciones.`;
 
     const result = await callGeminiWithRetry(model, prompt, 5);
-    const response = await result.response;
-    const detectedLang = response.text().trim().toLowerCase().substring(0, 2);
+    const detectedLang = extractTextFromVertexAIResponse(result).trim().toLowerCase().substring(0, 2);
     
     const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
     return validLangs.includes(detectedLang) ? detectedLang : 'es';
