@@ -1,7 +1,7 @@
 const { executeQuery, createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva, generarConversacionCompleta } = require('../lib/utils');
-// Importar VertexAI - el módulo completo es el constructor en versiones recientes
-const VertexAI = require('@google-cloud/aiplatform');
+// Importar VertexAI - usar el paquete correcto para Generative AI
+const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
 const { getRestaurantConfig, getRestaurantHours } = require('../config/restaurant-config');
 const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservation } = require('../lib/capacity');
