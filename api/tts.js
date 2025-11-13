@@ -32,8 +32,16 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
 // Cliente de autenticación
 let authClient = null;
+let cachedAccessToken = null;
+let tokenExpiryTime = 0;
+const TOKEN_CACHE_DURATION_MS = 50 * 60 * 1000; // Cachear token por 50 minutos (los tokens duran ~1 hora)
 
 async function getAccessToken() {
+  // Verificar si tenemos un token válido en cache
+  if (cachedAccessToken && Date.now() < tokenExpiryTime) {
+    return cachedAccessToken;
+  }
+
   if (!authClient) {
     try {
       const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
@@ -65,7 +73,11 @@ async function getAccessToken() {
     throw new Error('❌ No se pudo obtener el token de acceso');
   }
   
-  return accessTokenResponse.token;
+  // Cachear el token
+  cachedAccessToken = accessTokenResponse.token;
+  tokenExpiryTime = Date.now() + TOKEN_CACHE_DURATION_MS;
+  
+  return cachedAccessToken;
 }
 
 async function generateAudioWithVertexAI(text, language = 'es') {
@@ -89,10 +101,10 @@ async function generateAudioWithVertexAI(text, language = 'es') {
 
     const requestBody = {
       audioConfig: {
-        audioEncoding: 'MP3',
+        audioEncoding: 'MP3', // MP3 es más rápido que LINEAR16 para streaming
         pitch: 0,
         speakingRate: 1,
-        sampleRateHertz: 24000
+        sampleRateHertz: 16000 // Reducido de 24000 a 16000 para generar más rápido (calidad aceptable para voz)
       },
       input: {
         text: text
