@@ -10,6 +10,7 @@
     "generate-qr": "node generate-qr.js"
   },
   "dependencies": {
+    "@google-cloud/aiplatform": "^5.13.0",
     "@google/generative-ai": "^0.24.1",
     "@sendgrid/mail": "^8.1.0",
     "dotenv": "^17.2.3",

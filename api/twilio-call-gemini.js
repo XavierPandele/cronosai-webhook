@@ -1,6 +1,7 @@
 const { executeQuery, createConnection } = require('../lib/database');
 const { combinarFechaHora, validarReserva, generarConversacionCompleta } = require('../lib/utils');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { VertexAI } = require('@google-cloud/aiplatform');
+const { GoogleAuth } = require('google-auth-library');
 const { getRestaurantConfig, getRestaurantHours } = require('../config/restaurant-config');
 const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservation } = require('../lib/capacity');
 const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
@@ -142,32 +143,57 @@ async function loadRestaurantConfig() {
   }
 }
 
-// ===== GEMINI 2.5 FLASH LITE - INICIALIZACIÓN =====
+// ===== GEMINI 2.5 FLASH LITE - INICIALIZACIÓN CON VERTEX AI =====
+// Configuración de Vertex AI
+const PROJECT_ID = process.env.VERTEX_AI_PROJECT_ID || 'cronosai-473114';
+const LOCATION = process.env.VERTEX_AI_LOCATION || 'us-central1';
+
 let geminiClient = null;
 function getGeminiClient() {
   if (!geminiClient) {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      console.warn('⚠️ GOOGLE_API_KEY no configurado. Gemini no estará disponible.');
-      logger.error('GEMINI_API_KEY_MISSING', {
-        reasoning: 'GOOGLE_API_KEY no está configurado en las variables de entorno. Verificar .env o variables de entorno de Vercel.'
+    try {
+      const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      
+      if (!credentialsJson) {
+        console.warn('⚠️ GOOGLE_APPLICATION_CREDENTIALS_JSON no configurado. Gemini no estará disponible.');
+        logger.error('GEMINI_CREDENTIALS_MISSING', {
+          reasoning: 'GOOGLE_APPLICATION_CREDENTIALS_JSON no está configurado en las variables de entorno. Verificar .env o variables de entorno de Vercel.'
+        });
+        return null;
+      }
+
+      const credentials = typeof credentialsJson === 'string' 
+        ? JSON.parse(credentialsJson) 
+        : credentialsJson;
+
+      const auth = new GoogleAuth({
+        credentials: credentials,
+        scopes: ['https://www.googleapis.com/auth/cloud-platform']
+      });
+
+      geminiClient = new VertexAI({
+        project: PROJECT_ID,
+        location: LOCATION,
+        googleAuthOptions: {
+          credentials: credentials
+        }
+      });
+      
+      logger.info('✅ [Gemini] Cliente de Vertex AI inicializado', {
+        projectId: PROJECT_ID,
+        location: LOCATION,
+        clientEmail: credentials.client_email,
+        reasoning: `Cliente de Vertex AI inicializado correctamente para Gemini. Proyecto: ${PROJECT_ID}, Región: ${LOCATION}`
+      });
+    } catch (error) {
+      console.error('❌ [Gemini] Error inicializando cliente de Vertex AI:', error);
+      logger.error('GEMINI_VERTEX_AI_INIT_ERROR', {
+        error: error.message,
+        stack: error.stack,
+        reasoning: 'Error al inicializar cliente de Vertex AI. Verificar que GOOGLE_APPLICATION_CREDENTIALS_JSON sea válido y que Vertex AI API esté habilitada.'
       });
       return null;
     }
-    
-    // Log de la API key (solo primeros y últimos caracteres por seguridad)
-    const apiKeyPreview = apiKey.length > 10 
-      ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}`
-      : '***';
-    
-    logger.info('🔑 GEMINI_CLIENT_INITIALIZED', {
-      apiKeyPreview: apiKeyPreview,
-      apiKeyLength: apiKey.length,
-      apiKeyStartsWith: apiKey.substring(0, 6),
-      reasoning: `Cliente de Gemini inicializado con API key del proyecto. Verificar que esta sea la nueva API key del proyecto CronosRestaurants (1053536347405).`
-    });
-    
-    geminiClient = new GoogleGenerativeAI(apiKey);
   }
   return geminiClient;
 }
@@ -186,13 +212,16 @@ async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
   
   for (let i = 0; i < retries; i++) {
     try {
-      const result = await model.generateContent(prompt);
+      // Vertex AI usa un formato diferente
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }]
+      });
       // Si llegamos aquí, la llamada fue exitosa
       if (i > 0 && logger) {
         logger.debug('GEMINI_RETRY_SUCCESS', { 
           attempt: i + 1, 
           totalAttempts: i + 1,
-          reasoning: `Llamada exitosa después de ${i} reintentos. El rate limit se resolvió.`
+          reasoning: `Llamada exitosa después de ${i} reintentos.`
         });
       }
       return result;
@@ -219,7 +248,7 @@ async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
             maxRetries: retries,
             waitMs: wait,
             error: errorMessage.substring(0, 100),
-            reasoning: `Rate limit detectado. Esperando ${wait}ms antes del reintento ${i + 1}/${retries}. El nuevo proyecto puede tener límites más bajos.`
+            reasoning: `Rate limit detectado en Vertex AI. Esperando ${wait}ms antes del reintento.`
           });
         } else {
           console.warn(`⚠️ [GEMINI] Rate limited (intento ${i + 1}/${retries}). Esperando ${wait}ms...`);
@@ -243,12 +272,12 @@ async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
   }
   
   // Si llegamos aquí, todos los reintentos fallaron
-  const errorMsg = `Gemini API overloaded after ${retries} retries. Last error: ${lastError?.message || 'Unknown error'}. Verificar que la API key esté correctamente configurada en Vercel y que el proyecto tenga facturación activada.`;
+  const errorMsg = `Vertex AI Gemini overloaded after ${retries} retries. Last error: ${lastError?.message || 'Unknown error'}.`;
   if (logger) {
     logger.error('GEMINI_RETRY_EXHAUSTED', {
       retries,
       lastError: lastError?.message,
-      reasoning: `Todos los reintentos fallaron. Posibles causas: 1) API key no actualizada en Vercel, 2) Proyecto sin facturación activada, 3) Límites muy bajos en el nuevo proyecto. Verificar ACTUALIZAR_API_KEY_VERCEL.md para actualizar la API key en Vercel.`
+      reasoning: `Todos los reintentos fallaron en Vertex AI. Verificar que Vertex AI API esté habilitada.`
     });
   }
   throw new Error(errorMsg);
@@ -860,15 +889,21 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
     const client = getGeminiClient();
     if (!client) {
       geminiLogger.warn('⚠️ GEMINI_CLIENT_NOT_AVAILABLE', {
-        reasoning: 'Cliente de Gemini no disponible. Verificar GOOGLE_API_KEY en variables de entorno.'
+        reasoning: 'Cliente de Vertex AI no disponible. Verificar GOOGLE_APPLICATION_CREDENTIALS_JSON.'
       });
       return null;
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    // Usar Vertex AI para Gemini
+    const model = client.preview.getGenerativeModel({
+      model: 'gemini-2.5-flash-lite'
+    });
     geminiLogger.debug('🤖 GEMINI_MODEL_INITIALIZED', { 
       model: 'gemini-2.5-flash-lite',
-      reasoning: 'Modelo de Gemini 2.5 Flash Lite inicializado correctamente. Versión más rápida (1.2s) que 2.5-flash (12.4s) manteniendo la misma calidad (108.3%) y estabilidad (100% éxito). Ideal para producción.'
+      platform: 'Vertex AI',
+      projectId: PROJECT_ID,
+      location: LOCATION,
+      reasoning: 'Modelo de Gemini 2.5 Flash Lite inicializado en Vertex AI.'
     });
     
     // PERFORMANCE: Medir tiempo de carga de datos
@@ -1151,7 +1186,10 @@ async function detectIntentionWithGemini(text, context = {}) {
       return { action: 'reservation' };
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    // Usar Vertex AI para Gemini
+    const model = client.preview.getGenerativeModel({
+      model: 'gemini-2.5-flash-lite'
+    });
     
     const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
 Responde SOLO con una de estas opciones:
@@ -1194,7 +1232,10 @@ async function detectLanguageWithGemini(text) {
       return 'es'; // Fallback
     }
 
-    const model = client.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    // Usar Vertex AI para Gemini
+    const model = client.preview.getGenerativeModel({
+      model: 'gemini-2.5-flash-lite'
+    });
     
     const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
 - "es" para español
