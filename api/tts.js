@@ -84,8 +84,8 @@ async function generateAudioWithVertexAI(text, language = 'es') {
     
     console.log(`🎤 [TTS] Generando audio con Vertex AI: "${text.substring(0, 50)}..." (${languageCode})`);
 
-    // Endpoint de Vertex AI para TTS
-    const url = `https://${LOCATION}-texttospeech.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}:synthesizeSpeech`;
+    // Endpoint estándar de Text-to-Speech API (el modelo gemini-2.5-pro-tts se especifica en el request body)
+    const url = 'https://texttospeech.googleapis.com/v1beta1/text:synthesize';
 
     const requestBody = {
       audioConfig: {
@@ -104,7 +104,7 @@ async function generateAudioWithVertexAI(text, language = 'es') {
       }
     };
 
-    console.log(`🔍 [TTS] Vertex AI Request:`, {
+    console.log(`🔍 [TTS] Text-to-Speech API Request:`, {
       projectId: PROJECT_ID,
       location: LOCATION,
       languageCode: languageCode,
@@ -146,11 +146,18 @@ Error: ${errorText}`;
         errorMessage = `❌ Solicitud inválida. Verifica que:
 1. El código de idioma es correcto (${languageCode})
 2. La voz "Algieba" está disponible para el idioma ${languageCode}
-3. El modelo "${MODEL_NAME}" es válido y está disponible en la región ${LOCATION}
-4. La API "Vertex AI API" está habilitada
+3. El modelo "${MODEL_NAME}" es válido y está disponible
+4. La API "Cloud Text-to-Speech API" está habilitada
+5. El modelo "${MODEL_NAME}" requiere Vertex AI API habilitada
+Error: ${errorText}`;
+      } else if (response.status === 404) {
+        errorMessage = `❌ Endpoint no encontrado. Verifica que:
+1. La API "Cloud Text-to-Speech API" está habilitada
+2. El endpoint es correcto
+3. El modelo "${MODEL_NAME}" está disponible
 Error: ${errorText}`;
       } else {
-        errorMessage = `Error en Vertex AI TTS: ${response.status} - ${errorText}`;
+        errorMessage = `Error en Text-to-Speech API: ${response.status} - ${errorText}`;
       }
       
       throw new Error(errorMessage);
