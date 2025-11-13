@@ -1,90 +1,63 @@
 /**
- * API endpoint para generar audio usando Google Cloud Text-to-Speech
- * Usa la voz Algieba con el modelo gemini-2.5-flash-tts
- * MEJORADO: Usa Service Account con credenciales JSON mediante API REST
- * NOTA: gemini-2.5-flash-tts NO requiere Vertex AI (a diferencia de gemini-2.5-pro-tts)
+ * API endpoint para generar audio usando Vertex AI Text-to-Speech
+ * Usa la voz Algieba con el modelo gemini-2.5-pro-tts
+ * REQUIERE: Vertex AI API habilitada
  */
 
 const crypto = require('crypto');
 const { GoogleAuth } = require('google-auth-library');
 require('dotenv').config();
 
-// Mapeo de idiomas a códigos de idioma para Algieba
-// NOTA: Usar formato en minúsculas como en la imagen del usuario (es-es, en-us, etc.)
+// Configuración de Vertex AI
+const PROJECT_ID = process.env.VERTEX_AI_PROJECT_ID || 'cronosai-473114';
+const LOCATION = process.env.VERTEX_AI_LOCATION || 'us-central1';
+
+// Mapeo de idiomas
 const languageCodes = {
-  es: 'es-es', // Español (España) - formato minúsculas como en la imagen
-  en: 'en-us', // Inglés (Estados Unidos)
-  de: 'de-de', // Alemán
-  it: 'it-it', // Italiano
-  fr: 'fr-fr', // Francés
-  pt: 'pt-br'  // Portugués (Brasil)
+  es: 'es-es',
+  en: 'en-us',
+  de: 'de-de',
+  it: 'it-it',
+  fr: 'fr-fr',
+  pt: 'pt-br'
 };
 
 // Configuración de la voz Algieba
 const VOICE_NAME = 'Algieba';
-// NOTA: La voz Algieba requiere un modelo específico.
-// Usamos gemini-2.5-flash-tts que NO requiere Vertex AI (a diferencia de gemini-2.5-pro-tts).
-const MODEL_NAME = 'gemini-2.5-flash-tts';
+const MODEL_NAME = 'gemini-2.5-pro-tts'; // Requiere Vertex AI
 
-// Cache simple en memoria (para producción, usar Redis o similar)
+// Cache
 const audioCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 
-// Cliente de autenticación (inicializado una vez)
+// Cliente de autenticación
 let authClient = null;
 
-/**
- * Obtiene el prompt apropiado para el idioma
- */
-function getPromptForLanguage(language) {
-  const prompts = {
-    es: 'Lee en voz alta con un tono cálido y acogedor.',
-    en: 'Read aloud in a warm, welcoming tone.',
-    de: 'Lies laut mit einem warmen, einladenden Ton vor.',
-    it: 'Leggi ad alta voce con un tono caloroso e accogliente.',
-    fr: 'Lisez à haute voix avec un ton chaleureux et accueillant.',
-    pt: 'Leia em voz alta com um tom caloroso e acolhedor.'
-  };
-  return prompts[language] || prompts.es;
-}
-
-/**
- * Inicializa el cliente de autenticación con Service Account
- * y obtiene un token de acceso para la API REST
- */
 async function getAccessToken() {
   if (!authClient) {
     try {
       const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
       
       if (!credentialsJson) {
-        throw new Error('❌ GOOGLE_APPLICATION_CREDENTIALS_JSON no está configurada. Verifica que la variable de entorno esté configurada en Vercel.');
+        throw new Error('❌ GOOGLE_APPLICATION_CREDENTIALS_JSON no está configurada.');
       }
 
-      // Parsear las credenciales JSON
-      let credentials;
-      try {
-        credentials = typeof credentialsJson === 'string' 
-          ? JSON.parse(credentialsJson) 
-          : credentialsJson;
-      } catch (parseError) {
-        throw new Error(`❌ Error parseando credenciales JSON: ${parseError.message}`);
-      }
+      const credentials = typeof credentialsJson === 'string' 
+        ? JSON.parse(credentialsJson) 
+        : credentialsJson;
 
-      // Configurar autenticación
       authClient = new GoogleAuth({
         credentials: credentials,
         scopes: ['https://www.googleapis.com/auth/cloud-platform']
       });
       
-      console.log(`✅ [TTS] Cliente de autenticación inicializado con Service Account: ${credentials.client_email || 'unknown'}`);
+      console.log(`✅ [TTS] Cliente de autenticación inicializado: ${credentials.client_email}`);
     } catch (error) {
-      console.error('❌ [TTS] Error inicializando cliente de autenticación:', error);
+      console.error('❌ [TTS] Error inicializando cliente:', error);
       throw error;
     }
   }
   
-  // Obtener token de acceso
   const client = await authClient.getClient();
   const accessTokenResponse = await client.getAccessToken();
   
@@ -95,22 +68,11 @@ async function getAccessToken() {
   return accessTokenResponse.token;
 }
 
-/**
- * Genera un hash del texto para usar como identificador único
- */
-function generateHash(text, language) {
-  return crypto.createHash('md5').update(`${text}-${language}`).digest('hex');
-}
-
-/**
- * Genera audio usando Google Cloud Text-to-Speech API REST
- * (Usa Service Account con credenciales JSON mediante OAuth2 token)
- */
-async function generateAudioWithServiceAccount(text, language = 'es') {
+async function generateAudioWithVertexAI(text, language = 'es') {
   const languageCode = languageCodes[language] || languageCodes.es;
-  const hash = generateHash(text, languageCode);
+  const hash = crypto.createHash('md5').update(`${text}-${languageCode}`).digest('hex');
   
-  // Verificar cache por hash
+  // Verificar cache
   const cached = audioCache.get(hash);
   if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
     console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}...`);
@@ -118,44 +80,39 @@ async function generateAudioWithServiceAccount(text, language = 'es') {
   }
 
   try {
-    // Obtener token de acceso OAuth2 desde Service Account (NO usamos API key)
     const accessToken = await getAccessToken();
     
-    console.log(`🎤 [TTS] Generando audio para: "${text.substring(0, 50)}..." (${languageCode})`);
-    console.log(`🔐 [TTS] Usando autenticación OAuth2 con Service Account (NO API key)`);
+    console.log(`🎤 [TTS] Generando audio con Vertex AI: "${text.substring(0, 50)}..." (${languageCode})`);
 
-    // Construir request para Text-to-Speech API REST
-    // IMPORTANTE: Usamos OAuth2 token (Bearer) en lugar de API key (X-Goog-Api-Key)
-    // Esto permite usar Service Account sin necesidad de crear una API key adicional
+    // Endpoint de Vertex AI para TTS
+    const url = `https://${LOCATION}-texttospeech.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}:synthesizeSpeech`;
+
     const requestBody = {
       audioConfig: {
-        audioEncoding: 'MP3', // MP3 es mejor para Twilio (más compatible y menor tamaño)
+        audioEncoding: 'MP3',
         pitch: 0,
         speakingRate: 1,
-        sampleRateHertz: 24000 // Calidad de audio optimizada para voz
+        sampleRateHertz: 24000
       },
       input: {
         text: text
-        // NOTA: No incluimos "prompt" porque no es necesario para la API estándar de Text-to-Speech.
-        // El campo "prompt" es para modelos avanzados que requieren Vertex AI.
       },
       voice: {
-        languageCode: languageCode, // Formato minúsculas (es-es, en-us, etc.)
+        languageCode: languageCode,
         name: VOICE_NAME,
-        modelName: MODEL_NAME // gemini-2.5-flash-tts (NO requiere Vertex AI)
+        modelName: MODEL_NAME // gemini-2.5-pro-tts (requiere Vertex AI)
       }
     };
 
-    console.log(`🔍 [TTS] Request config:`, {
+    console.log(`🔍 [TTS] Vertex AI Request:`, {
+      projectId: PROJECT_ID,
+      location: LOCATION,
       languageCode: languageCode,
       voiceName: VOICE_NAME,
       modelName: MODEL_NAME,
-      url: 'https://texttospeech.googleapis.com/v1beta1/text:synthesize',
-      note: 'Usamos gemini-2.5-flash-tts que NO requiere Vertex AI (a diferencia de gemini-2.5-pro-tts).'
+      url: url
     });
 
-    // Llamar a la API REST con token de acceso
-    const url = 'https://texttospeech.googleapis.com/v1beta1/text:synthesize';
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -167,16 +124,17 @@ async function generateAudioWithServiceAccount(text, language = 'es') {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ [TTS] Error en API REST: ${response.status} - ${errorText}`);
+      console.error(`❌ [TTS] Error en Vertex AI: ${response.status} - ${errorText}`);
       
       // Mensajes de error más descriptivos
-      let errorMessage = `Error en Text-to-Speech API: ${response.status}`;
+      let errorMessage = `Error en Vertex AI TTS: ${response.status}`;
       
       if (response.status === 403) {
         errorMessage = `❌ Permisos denegados. Verifica que:
-1. El Service Account tiene el rol "Cloud Text-to-Speech API User"
-2. La API "Cloud Text-to-Speech API" está habilitada
+1. El Service Account tiene el rol "Vertex AI User" (roles/aiplatform.user)
+2. La API "Vertex AI API" está habilitada
 3. Las credenciales JSON son correctas
+4. El proyecto ID es correcto: ${PROJECT_ID}
 Error: ${errorText}`;
       } else if (response.status === 401) {
         errorMessage = `❌ Autenticación fallida. Verifica que:
@@ -188,11 +146,11 @@ Error: ${errorText}`;
         errorMessage = `❌ Solicitud inválida. Verifica que:
 1. El código de idioma es correcto (${languageCode})
 2. La voz "Algieba" está disponible para el idioma ${languageCode}
-3. El modelo "${MODEL_NAME}" es válido y está disponible
-4. La API "Cloud Text-to-Speech API" está habilitada
+3. El modelo "${MODEL_NAME}" es válido y está disponible en la región ${LOCATION}
+4. La API "Vertex AI API" está habilitada
 Error: ${errorText}`;
       } else {
-        errorMessage = `Error en Text-to-Speech API: ${response.status} - ${errorText}`;
+        errorMessage = `Error en Vertex AI TTS: ${response.status} - ${errorText}`;
       }
       
       throw new Error(errorMessage);
@@ -204,35 +162,28 @@ Error: ${errorText}`;
       throw new Error('No se recibió audioContent en la respuesta');
     }
 
-    // Decodificar audio base64
     const audioBuffer = Buffer.from(data.audioContent, 'base64');
 
-    // Guardar en cache usando hash como key
+    // Guardar en cache
     audioCache.set(hash, {
       audio: audioBuffer,
       timestamp: Date.now(),
       language: languageCode,
-      text: text.substring(0, 100) // Guardar preview del texto
+      text: text.substring(0, 100)
     });
 
-    console.log(`✅ [TTS] Audio generado exitosamente (${audioBuffer.length} bytes, hash: ${hash.substring(0, 8)}...)`);
+    console.log(`✅ [TTS] Audio generado exitosamente con Vertex AI (${audioBuffer.length} bytes)`);
 
     return { audio: audioBuffer, hash };
   } catch (error) {
-    console.error('❌ [TTS] Error generando audio:', error);
+    console.error('❌ [TTS] Error generando audio con Vertex AI:', error);
     throw error;
   }
 }
 
-/**
- * Handler del endpoint API
- * GET: Servir audio desde cache usando hash o texto
- * POST: Generar audio y devolverlo
- */
 module.exports = async function handler(req, res) {
   const { method, query, body } = req;
   
-  // GET: Servir audio desde cache usando hash o texto
   if (method === 'GET') {
     try {
       const { hash, text, language = 'es' } = query;
@@ -244,32 +195,28 @@ module.exports = async function handler(req, res) {
       let audioData;
       
       if (hash) {
-        // Buscar por hash
         const cached = audioCache.get(hash);
         if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-          console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}...`);
           audioData = { audio: cached.audio, hash };
         } else {
           return res.status(404).json({ error: 'Audio not found in cache' });
         }
       } else if (text) {
-        // Generar audio desde texto
-        audioData = await generateAudioWithServiceAccount(decodeURIComponent(text), language);
+        audioData = await generateAudioWithVertexAI(decodeURIComponent(text), language);
       }
       
       if (!audioData || !audioData.audio) {
         return res.status(500).json({ error: 'Failed to generate audio' });
       }
       
-      // Devolver audio como respuesta
-      // MP3 es el formato que Twilio soporta mejor
       res.setHeader('Content-Type', 'audio/mpeg');
       res.setHeader('Content-Length', audioData.audio.length);
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache por 1 hora
+      res.setHeader('Cache-Control', 'public, max-age=3600');
       res.setHeader('X-Audio-Hash', audioData.hash);
       res.setHeader('X-Audio-Language', language);
       res.setHeader('X-Voice-Name', VOICE_NAME);
       res.setHeader('X-Model-Name', MODEL_NAME);
+      res.setHeader('X-Vertex-AI', 'true');
       
       return res.status(200).send(audioData.audio);
     } catch (error) {
@@ -281,7 +228,6 @@ module.exports = async function handler(req, res) {
     }
   }
   
-  // POST: Generar audio
   if (method === 'POST') {
     try {
       const { text, language = 'es' } = body;
@@ -290,22 +236,20 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Text is required' });
       }
 
-      // Validar longitud del texto
       if (text.length > 5000) {
         return res.status(400).json({ error: 'Text too long (max 5000 characters)' });
       }
 
-      // Generar audio
-      const audioData = await generateAudioWithServiceAccount(text, language);
+      const audioData = await generateAudioWithVertexAI(text, language);
 
-      // Devolver audio y hash
-      res.setHeader('Content-Type', 'audio/mpeg'); // MP3 para Twilio
+      res.setHeader('Content-Type', 'audio/mpeg');
       res.setHeader('Content-Length', audioData.audio.length);
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.setHeader('X-Audio-Hash', audioData.hash);
       res.setHeader('X-Audio-Language', language);
       res.setHeader('X-Voice-Name', VOICE_NAME);
       res.setHeader('X-Model-Name', MODEL_NAME);
+      res.setHeader('X-Vertex-AI', 'true');
 
       return res.status(200).send(audioData.audio);
     } catch (error) {
