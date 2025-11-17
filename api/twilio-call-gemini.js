@@ -1362,6 +1362,36 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
         debug: (message, data) => logger.debug(message, attach(data))
       };
   
+  // MEJORADO: Actualizar idioma PRIMERO si se detectó en el análisis
+  if (analysis.idioma_detectado) {
+    const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
+    const detectedLang = validLangs.includes(analysis.idioma_detectado) 
+      ? analysis.idioma_detectado 
+      : (state.language || 'es');
+    
+    if (detectedLang !== state.language) {
+      const oldLanguage = state.language;
+      state.language = detectedLang;
+      log.info('🌐 LANGUAGE_UPDATED_IN_APPLY', { 
+        oldLanguage: oldLanguage,
+        newLanguage: detectedLang,
+        reasoning: `Idioma detectado por Gemini en applyGeminiAnalysisToState: ${detectedLang}. Actualizando estado.`
+      });
+    } else if (!state.language) {
+      state.language = detectedLang;
+      log.info('🌐 LANGUAGE_INITIALIZED_IN_APPLY', { 
+        language: detectedLang,
+        reasoning: `Idioma inicializado en applyGeminiAnalysisToState: ${detectedLang}`
+      });
+    }
+  } else if (!state.language) {
+    state.language = 'es';
+    log.info('🌐 LANGUAGE_FALLBACK_IN_APPLY', { 
+      language: 'es',
+      reasoning: 'No se detectó idioma en análisis. Usando español como fallback.'
+    });
+  }
+  
   // ===== LOG DETALLADO DE APLICACIÓN DE ANÁLISIS =====
   log.info('🔄 APPLYING_GEMINI_ANALYSIS', {
     analysis: {
@@ -1381,8 +1411,9 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       idioma_detectado: analysis.idioma_detectado
     },
     stateBefore: stateBefore,
+    currentLanguage: state.language,
     originalText: originalText.substring(0, 100),
-    reasoning: `Aplicando análisis de Gemini al estado. Estado actual: ${JSON.stringify(stateBefore)}. ` +
+    reasoning: `Aplicando análisis de Gemini al estado. Idioma actual: ${state.language}. Estado actual: ${JSON.stringify(stateBefore)}. ` +
                `Análisis contiene: ${analysis.comensales ? `${analysis.comensales} personas` : 'sin personas'}, ` +
                `${analysis.fecha ? `fecha ${analysis.fecha}` : 'sin fecha'}, ` +
                `${analysis.hora ? `hora ${analysis.hora}` : 'sin hora'}, ` +
@@ -2533,18 +2564,40 @@ async function processConversationStep(state, userInput, callLogger, performance
             reasoning: `Gemini completó el análisis. Intención: ${analysis.intencion}, Idioma: ${analysis.idioma_detectado}. Procesando...`
           });
           
-          // Actualizar idioma si se detectó
-          if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
-            const oldLanguage = state.language;
-            state.language = analysis.idioma_detectado;
-            log.info('🌐 LANGUAGE_UPDATED', { 
-              oldLanguage: oldLanguage,
-              newLanguage: analysis.idioma_detectado,
-              reasoning: `Idioma detectado por Gemini: ${analysis.idioma_detectado}. Actualizando estado del idioma.`
+          // MEJORADO: Actualizar idioma ANTES de procesar la intención para que todas las respuestas usen el idioma correcto
+          if (analysis.idioma_detectado) {
+            // Validar que el idioma detectado sea válido
+            const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
+            const detectedLang = validLangs.includes(analysis.idioma_detectado) 
+              ? analysis.idioma_detectado 
+              : 'es';
+            
+            if (detectedLang !== state.language) {
+              const oldLanguage = state.language;
+              state.language = detectedLang;
+              log.info('🌐 LANGUAGE_UPDATED', { 
+                oldLanguage: oldLanguage,
+                newLanguage: detectedLang,
+                reasoning: `Idioma detectado por Gemini: ${detectedLang}. Actualizando estado del idioma ANTES de generar respuestas.`
+              });
+            } else if (!state.language) {
+              // Si no había idioma previo, establecer el detectado
+              state.language = detectedLang;
+              log.info('🌐 LANGUAGE_INITIALIZED', { 
+                language: detectedLang,
+                reasoning: `Idioma inicializado desde detección de Gemini: ${detectedLang}`
+              });
+            }
+          } else if (!state.language) {
+            // Fallback: si no se detectó idioma y no hay uno previo, usar español
+            state.language = 'es';
+            log.info('🌐 LANGUAGE_FALLBACK', { 
+              language: 'es',
+              reasoning: 'No se detectó idioma y no hay uno previo. Usando español como fallback.'
             });
           }
           
-          // Verificar intención
+          // Verificar intención (ahora el idioma ya está actualizado)
           const intention = analysis.intencion || 'reservation';
           log.info('🎯 INTENTION_DETECTED_IN_GREETING', { 
             intention: intention,
@@ -2742,12 +2795,34 @@ async function processConversationStep(state, userInput, callLogger, performance
         });
         
         if (analysis) {
-          // Actualizar idioma si se detectó
-          if (analysis.idioma_detectado && analysis.idioma_detectado !== state.language) {
-            state.language = analysis.idioma_detectado;
-            log.info('🌐 LANGUAGE_UPDATED', { 
-              oldLanguage: state.language,
-              newLanguage: analysis.idioma_detectado
+          // MEJORADO: Actualizar idioma ANTES de procesar la intención
+          if (analysis.idioma_detectado) {
+            // Validar que el idioma detectado sea válido
+            const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
+            const detectedLang = validLangs.includes(analysis.idioma_detectado) 
+              ? analysis.idioma_detectado 
+              : (state.language || 'es');
+            
+            if (detectedLang !== state.language) {
+              const oldLanguage = state.language;
+              state.language = detectedLang;
+              log.info('🌐 LANGUAGE_UPDATED', { 
+                oldLanguage: oldLanguage,
+                newLanguage: detectedLang,
+                reasoning: `Idioma detectado por Gemini: ${detectedLang}. Actualizando estado del idioma ANTES de generar respuestas.`
+              });
+            } else if (!state.language) {
+              state.language = detectedLang;
+              log.info('🌐 LANGUAGE_INITIALIZED', { 
+                language: detectedLang,
+                reasoning: `Idioma inicializado desde detección de Gemini: ${detectedLang}`
+              });
+            }
+          } else if (!state.language) {
+            state.language = 'es';
+            log.info('🌐 LANGUAGE_FALLBACK', { 
+              language: 'es',
+              reasoning: 'No se detectó idioma y no hay uno previo. Usando español como fallback.'
             });
           }
           
@@ -4529,11 +4604,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
     } else {
-      // Solo decir el mensaje y colgar
+      // Solo decir el mensaje y colgar (sin pausa innecesaria para reducir tiempos)
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>${escapeXml(audioUrl)}</Play>
-  <Pause length="1"/>
   <Hangup/>
 </Response>`;
     }
@@ -4588,11 +4662,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
   } else {
-    // Solo decir el mensaje y colgar
+    // Solo decir el mensaje y colgar (sin pausa innecesaria para reducir tiempos)
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
-  <Pause length="1"/>
   <Hangup/>
 </Response>`;
   }

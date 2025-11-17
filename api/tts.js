@@ -26,9 +26,10 @@ const languageCodes = {
 const VOICE_NAME = 'Algieba';
 const MODEL_NAME = 'gemini-2.5-pro-tts'; // Requiere Vertex AI
 
-// Cache
+// Cache optimizado para mejor rendimiento
 const audioCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
+const MAX_CACHE_SIZE = 1000; // Limitar tamaño del cache para mejor rendimiento
 
 // Cliente de autenticación
 let authClient = null;
@@ -103,8 +104,9 @@ async function generateAudioWithVertexAI(text, language = 'es') {
       audioConfig: {
         audioEncoding: 'MP3', // MP3 es más rápido que LINEAR16 para streaming
         pitch: 0,
-        speakingRate: 1,
-        sampleRateHertz: 16000 // Reducido de 24000 a 16000 para generar más rápido (calidad aceptable para voz)
+        speakingRate: 1.1, // Ligeramente más rápido para reducir tiempo de reproducción
+        sampleRateHertz: 16000, // Reducido de 24000 a 16000 para generar más rápido (calidad aceptable para voz)
+        volumeGainDb: 0 // Sin ganancia adicional para mantener velocidad
       },
       input: {
         text: text
@@ -183,7 +185,12 @@ Error: ${errorText}`;
 
     const audioBuffer = Buffer.from(data.audioContent, 'base64');
 
-    // Guardar en cache
+    // Guardar en cache (con límite de tamaño para mejor rendimiento)
+    if (audioCache.size >= MAX_CACHE_SIZE) {
+      // Eliminar la entrada más antigua
+      const firstKey = audioCache.keys().next().value;
+      audioCache.delete(firstKey);
+    }
     audioCache.set(hash, {
       audio: audioBuffer,
       timestamp: Date.now(),
