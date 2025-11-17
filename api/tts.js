@@ -383,6 +383,3 @@ module.exports = async function handler(req, res) {
   
   return res.status(405).json({ error: 'Method not allowed' });
 };
-
-// Exportar función generateSpeech para uso en otros módulos si es necesario
-module.exports.generateSpeech = generateSpeech;
