@@ -502,6 +502,8 @@ module.exports = async function handler(req, res) {
     logger.debug('CONFIG_LOADED_FROM_DB', { timeMs: configLoadTime });
   }
   
+  // LOGGING MEJORADO: Loggear al inicio para debugging
+  console.log(`[TWILIO_WEBHOOK_RECEIVED] Method: ${req.method}, URL: ${req.url}, HasBody: ${Boolean(req.body)}, BodyType: ${typeof req.body}`);
   logger.info('TWILIO_WEBHOOK_RECEIVED', {
     method: req.method,
     url: req.url,
@@ -707,12 +709,15 @@ module.exports = async function handler(req, res) {
     }
 
     // Procesar según el paso actual
+    // LOGGING MEJORADO: Loggear antes de procesar para debugging
+    console.log(`[BEFORE_PROCESS_STEP] CallSid: ${CallSid}, Step: ${state.step}, Input: "${userInput ? userInput.substring(0, 100) : 'empty'}", Processing: ${isProcessing}`);
     callLogger.info('BEFORE_PROCESS_STEP', { 
       step: state.step, 
       hasInput: Boolean(userInput), 
       inputLength: userInput ? userInput.length : 0,
       inputPreview: userInput ? userInput.substring(0, 100) : 'empty',
-      isProcessing 
+      isProcessing,
+      callSid: CallSid
     });
     const previousStep = state.step;
     
@@ -723,15 +728,41 @@ module.exports = async function handler(req, res) {
       response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
     } catch (stepError) {
       // LOGGING CRÍTICO: Capturar errores en processConversationStep
+      // IMPORTANTE: Loggear con console.error PRIMERO para visibilidad
+      console.error('========================================');
+      console.error('❌ [ERROR] PROCESS_STEP_ERROR');
+      console.error('========================================');
+      console.error(`📞 CallSid: ${CallSid || 'unknown'}`);
+      console.error(`📍 Step: ${state.step} (anterior: ${previousStep})`);
+      console.error(`💬 User input: ${userInput ? userInput.substring(0, 200) : 'empty'}`);
+      console.error(`🔴 Error: ${stepError.name || 'UnknownError'}`);
+      console.error(`📝 Mensaje: ${stepError.message}`);
+      console.error(`📊 State data:`, JSON.stringify(state.data, null, 2));
+      console.error('📚 Stack trace:');
+      console.error(stepError.stack);
+      console.error('========================================');
+      
       callLogger.error('PROCESS_STEP_ERROR', {
         error: stepError.message,
         stack: stepError.stack,
         step: state.step,
         userInput: userInput ? userInput.substring(0, 200) : 'empty',
         stateData: state.data,
-        previousStep
+        previousStep,
+        callSid: CallSid
       });
-      console.error('❌ [ERROR] Error en processConversationStep:', stepError);
+      
+      // Loggear también en formato JSON
+      console.error('[PROCESS_STEP_ERROR_JSON]', JSON.stringify({
+        error: stepError.message,
+        stack: stepError.stack,
+        step: state.step,
+        userInput: userInput ? userInput.substring(0, 200) : 'empty',
+        stateData: state.data,
+        previousStep,
+        callSid: CallSid
+      }, null, 2));
+      
       throw stepError; // Re-lanzar para que el catch principal lo maneje
     }
     const processStepTime = Date.now() - processStepStartTime;
@@ -745,11 +776,14 @@ module.exports = async function handler(req, res) {
       });
       callLogger.update({ step: state.step });
     }
+    // LOGGING MEJORADO: Loggear después de procesar
+    console.log(`[AFTER_PROCESS_STEP] CallSid: ${CallSid}, Step: ${state.step}, Time: ${processStepTime}ms, Response: "${response.message ? response.message.substring(0, 100) : 'null'}"`);
     callLogger.info('AFTER_PROCESS_STEP', { 
       step: state.step,
       processStepTimeMs: processStepTime,
       responseMessage: response.message ? response.message.substring(0, 100) : 'null',
-      reasoning: `Paso procesado en ${processStepTime}ms. Respuesta: "${response.message ? response.message.substring(0, 50) : 'sin mensaje'}..."`
+      reasoning: `Paso procesado en ${processStepTime}ms. Respuesta: "${response.message ? response.message.substring(0, 50) : 'sin mensaje'}..."`,
+      callSid: CallSid
     });
     
     // Guardar el mensaje del bot
@@ -930,6 +964,36 @@ module.exports = async function handler(req, res) {
     const errorTotalTime = Date.now() - requestStartTime;
     
     // LOGGING CRÍTICO: Loggear TODA la información del error para debugging
+    // IMPORTANTE: Usar console.error PRIMERO para asegurar visibilidad en Vercel
+    console.error('========================================');
+    console.error('❌ [ERROR CRÍTICO] APPLICATION ERROR EN TWILIO HANDLER');
+    console.error('========================================');
+    console.error(`⏱️  Tiempo total: ${errorTotalTime}ms`);
+    console.error(`📞 CallSid: ${CallSid || 'unknown'}`);
+    console.error(`🔴 Error: ${error.name || 'UnknownError'}`);
+    console.error(`📝 Mensaje: ${error.message}`);
+    console.error(`📍 URL: ${req.method} ${req.url}`);
+    console.error(`📦 Body type: ${typeof req.body}`);
+    console.error(`📋 Body keys: ${req.body && typeof req.body === 'object' ? Object.keys(req.body).join(', ') : 'N/A'}`);
+    console.error(`🔍 Query keys: ${req.query ? Object.keys(req.query).join(', ') : 'N/A'}`);
+    
+    // Intentar extraer userInput si está disponible
+    let userInputPreview = 'N/A';
+    try {
+      if (req.body) {
+        const params = typeof req.body === 'string' ? require('querystring').parse(req.body) : req.body;
+        userInputPreview = (params.SpeechResult || params.Digits || '').substring(0, 200);
+      }
+    } catch (e) {
+      // Ignorar errores al extraer userInput
+    }
+    console.error(`💬 User input: ${userInputPreview}`);
+    
+    // Stack trace completo
+    console.error('📚 Stack trace:');
+    console.error(error.stack);
+    console.error('========================================');
+    
     const errorContext = {
       message: error.message,
       stack: error.stack,
@@ -942,6 +1006,7 @@ module.exports = async function handler(req, res) {
       bodyType: typeof req.body,
       bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : [],
       queryKeys: req.query ? Object.keys(req.query) : [],
+      userInputPreview,
       headers: {
         'content-type': req.headers['content-type'],
         'user-agent': req.headers['user-agent'],
@@ -960,12 +1025,11 @@ module.exports = async function handler(req, res) {
         : error.response.data;
     }
     
-    // Loggear con ERROR level (siempre visible)
-    console.error('❌ [ERROR CRÍTICO] TWILIO_CALL_HANDLER_ERROR:', JSON.stringify(errorContext, null, 2));
+    // Loggear con logger estructurado también
     logger.error('TWILIO_CALL_HANDLER_ERROR', errorContext);
     
-    // También loggear con console.error para asegurar visibilidad en Vercel
-    console.error('❌ [ERROR] Stack trace completo:', error.stack);
+    // Loggear también con console.error en formato JSON para búsqueda
+    console.error('[ERROR_JSON]', JSON.stringify(errorContext, null, 2));
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -2337,8 +2401,13 @@ async function handleOrderConfirm(state, userInput, callLogger) {
 }
 
 async function processConversationStep(state, userInput, callLogger, performanceMetrics = null, isProcessing = false) {
-  const step = state.step;
-  const text = userInput.toLowerCase();
+  // LOGGING: Loggear entrada a processConversationStep
+  const stepStartTime = Date.now();
+  console.log(`[PROCESS_CONVERSATION_STEP_START] Step: ${state.step}, Input: "${userInput ? userInput.substring(0, 100) : 'empty'}", Processing: ${isProcessing}`);
+  
+  try {
+    const step = state.step;
+    const text = userInput.toLowerCase();
 
   const attachStep = (data) => {
     if (!data) {
