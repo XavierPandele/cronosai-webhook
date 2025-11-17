@@ -9527,6 +9527,9 @@ function isCancellationRequest(text) {
     return false; // Inputs muy cortos no son cancelaciones
   }
   
+  // CRÍTICO: Definir lowerText al inicio para que esté disponible en toda la función
+  const lowerText = text.toLowerCase().trim();
+  
   // Excluir frases que contienen "no" pero no son cancelaciones
   // MEJORADO: Agregar patrones para TODOS los idiomas para evitar falsos positivos
   const falsePositivePatterns = [
@@ -9968,7 +9971,7 @@ function isCancellationRequest(text) {
     'meglio ritirarsi', 'meglio ritirarsi ora'
   ];
   
-  const lowerText = text.toLowerCase().trim();
+  // lowerText ya está definido al inicio de la función
   
   console.log(`🔍 [DEBUG] isCancellationRequest - Analizando: "${text}"`);
   console.log(`🔍 [DEBUG] Texto en minúsculas: "${lowerText}"`);
