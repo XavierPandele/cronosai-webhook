@@ -10800,15 +10800,36 @@ function extractPhoneNumber(text) {
 }
 
 function getConfirmationMessage(data, language = 'es') {
-  const phoneFormatted = formatPhoneForSpeech(data.TelefonReserva, language);
+  // OPTIMIZACIÓN: Acortar formato de teléfono para reducir latencia TTS
+  // Solo mostrar últimos 4 dígitos en lugar del número completo
+  let phoneFormatted = '';
+  if (data.TelefonReserva) {
+    const cleanPhone = data.TelefonReserva.replace(/\D/g, '');
+    if (cleanPhone.length >= 4) {
+      // Solo últimos 4 dígitos
+      const last4 = cleanPhone.slice(-4);
+      const digitWords = {
+        es: { '0': 'cero', '1': 'uno', '2': 'dos', '3': 'tres', '4': 'cuatro', '5': 'cinco', '6': 'seis', '7': 'siete', '8': 'ocho', '9': 'nueve' },
+        en: { '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine' },
+        de: { '0': 'null', '1': 'eins', '2': 'zwei', '3': 'drei', '4': 'vier', '5': 'fünf', '6': 'sechs', '7': 'sieben', '8': 'acht', '9': 'neun' },
+        it: { '0': 'zero', '1': 'uno', '2': 'due', '3': 'tre', '4': 'quattro', '5': 'cinque', '6': 'sei', '7': 'sette', '8': 'otto', '9': 'nove' },
+        fr: { '0': 'zéro', '1': 'un', '2': 'deux', '3': 'trois', '4': 'quatre', '5': 'cinq', '6': 'six', '7': 'sept', '8': 'huit', '9': 'neuf' },
+        pt: { '0': 'zero', '1': 'um', '2': 'dois', '3': 'três', '4': 'quatro', '5': 'cinco', '6': 'seis', '7': 'sete', '8': 'oito', '9': 'nove' }
+      };
+      const words = digitWords[language] || digitWords['es'];
+      phoneFormatted = last4.split('').map(d => words[d]).join(' ');
+    } else {
+      phoneFormatted = formatPhoneForSpeech(data.TelefonReserva, language);
+    }
+  }
   
   const confirmations = {
-    es: `Perfecto, ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, el día ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}, teléfono ${phoneFormatted}. ¿Les parece correcto?`,
-    en: `I confirm: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'person' : 'people'}, ${formatDateEnglish(data.FechaReserva)} at ${data.HoraReserva}, under the name of ${data.NomReserva}, phone ${phoneFormatted}. Is it correct?`,
-    de: `Ich bestätige: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'Person' : 'Personen'}, ${formatDateGerman(data.FechaReserva)} um ${data.HoraReserva}, unter dem Namen ${data.NomReserva}, Telefon ${phoneFormatted}. Ist es richtig?`,
-    it: `Confermo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'persone'}, ${formatDateItalian(data.FechaReserva)} alle ${data.HoraReserva}, a nome di ${data.NomReserva}, telefono ${phoneFormatted}. È corretto?`,
-    fr: `Je confirme: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'personne' : 'personnes'}, ${formatDateFrench(data.FechaReserva)} à ${data.HoraReserva}, au nom de ${data.NomReserva}, téléphone ${phoneFormatted}. Est-ce correct?`,
-    pt: `Confirmo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'pessoa' : 'pessoas'}, ${formatDatePortuguese(data.FechaReserva)} às ${data.HoraReserva}, em nome de ${data.NomReserva}, telefone ${phoneFormatted}. Está correto?`
+    es: `Perfecto, ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, el día ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}${phoneFormatted ? `, teléfono ${phoneFormatted}` : ''}. ¿Les parece correcto?`,
+    en: `I confirm: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'person' : 'people'}, ${formatDateEnglish(data.FechaReserva)} at ${data.HoraReserva}, under the name of ${data.NomReserva}${phoneFormatted ? `, phone ${phoneFormatted}` : ''}. Is it correct?`,
+    de: `Ich bestätige: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'Person' : 'Personen'}, ${formatDateGerman(data.FechaReserva)} um ${data.HoraReserva}, unter dem Namen ${data.NomReserva}${phoneFormatted ? `, Telefon ${phoneFormatted}` : ''}. Ist es richtig?`,
+    it: `Confermo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'persone'}, ${formatDateItalian(data.FechaReserva)} alle ${data.HoraReserva}, a nome di ${data.NomReserva}${phoneFormatted ? `, telefono ${phoneFormatted}` : ''}. È corretto?`,
+    fr: `Je confirme: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'personne' : 'personnes'}, ${formatDateFrench(data.FechaReserva)} à ${data.HoraReserva}, au nom de ${data.NomReserva}${phoneFormatted ? `, téléphone ${phoneFormatted}` : ''}. Est-ce correct?`,
+    pt: `Confirmo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'pessoa' : 'pessoas'}, ${formatDatePortuguese(data.FechaReserva)} às ${data.HoraReserva}, em nome de ${data.NomReserva}${phoneFormatted ? `, telefone ${phoneFormatted}` : ''}. Está correto?`
   };
   
   return confirmations[language] || confirmations['es'];

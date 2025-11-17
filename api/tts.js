@@ -65,7 +65,57 @@ function prepareTextForCall(rawText) {
 // Cache optimizado para mejor rendimiento
 const audioCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
-const MAX_CACHE_SIZE = 1000; // Limitar tamaño del cache para mejor rendimiento
+const MAX_CACHE_SIZE = 500; // OPTIMIZACIÓN: Reducido de 1000 a 500 para mejor gestión de memoria
+const MAX_CACHE_MEMORY_MB = 50; // OPTIMIZACIÓN: Límite de memoria en MB (aprox 50MB de audio en cache)
+
+/**
+ * Limpia el cache eliminando entradas expiradas y las más antiguas si excede límites
+ */
+function cleanupCache() {
+  const now = Date.now();
+  let totalMemoryBytes = 0;
+  const entries = [];
+  
+  // Calcular memoria total y recopilar entradas válidas
+  for (const [hash, cached] of audioCache.entries()) {
+    const age = now - cached.timestamp;
+    if (age < CACHE_TTL_MS) {
+      // Entrada válida
+      const size = cached.audio ? cached.audio.length : 0;
+      totalMemoryBytes += size;
+      entries.push({ hash, timestamp: cached.timestamp, size });
+    } else {
+      // Entrada expirada - eliminar
+      audioCache.delete(hash);
+    }
+  }
+  
+  // Si excede límite de memoria, eliminar las más antiguas
+  const maxMemoryBytes = MAX_CACHE_MEMORY_MB * 1024 * 1024;
+  if (totalMemoryBytes > maxMemoryBytes) {
+    // Ordenar por timestamp (más antiguas primero)
+    entries.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Eliminar hasta que estemos bajo el límite
+    for (const entry of entries) {
+      if (totalMemoryBytes <= maxMemoryBytes) break;
+      audioCache.delete(entry.hash);
+      totalMemoryBytes -= entry.size;
+    }
+    
+    console.log(`🧹 [TTS] Cache limpiado por memoria. Eliminadas entradas antiguas. Memoria actual: ${(totalMemoryBytes / 1024 / 1024).toFixed(2)}MB`);
+  }
+  
+  // Si excede límite de entradas, eliminar las más antiguas
+  if (audioCache.size > MAX_CACHE_SIZE) {
+    entries.sort((a, b) => a.timestamp - b.timestamp);
+    const toDelete = audioCache.size - MAX_CACHE_SIZE;
+    for (let i = 0; i < toDelete; i++) {
+      audioCache.delete(entries[i].hash);
+    }
+    console.log(`🧹 [TTS] Cache limpiado por tamaño. Eliminadas ${toDelete} entradas antiguas. Tamaño actual: ${audioCache.size}`);
+  }
+}
 
 // OPTIMIZACIÓN: Pre-generar respuestas comunes para reducir latencia
 let commonResponsesPreGenerated = false;
@@ -216,9 +266,15 @@ async function generateAudioWithVertexAI(text, language = 'es') {
   
   // Verificar cache PRIMERO (más rápido)
   const cached = audioCache.get(hash);
-  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-    console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}... (${cached.audio.length} bytes)`);
-    return { audio: cached.audio, hash };
+  if (cached) {
+    const age = Date.now() - cached.timestamp;
+    if (age < CACHE_TTL_MS) {
+      console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}... (${cached.audio.length} bytes, edad: ${Math.round(age / 1000)}s)`);
+      return { audio: cached.audio, hash };
+    } else {
+      // Entrada expirada - eliminar
+      audioCache.delete(hash);
+    }
   }
   
   // OPTIMIZACIÓN: Si no está en cache y es una respuesta común, intentar pre-generarla
@@ -340,12 +396,10 @@ Error: ${errorText}`;
 
     const audioBuffer = Buffer.from(data.audioContent, 'base64');
 
-    // Guardar en cache (con límite de tamaño para mejor rendimiento)
-    if (audioCache.size >= MAX_CACHE_SIZE) {
-      // Eliminar la entrada más antigua
-      const firstKey = audioCache.keys().next().value;
-      audioCache.delete(firstKey);
-    }
+    // OPTIMIZACIÓN: Limpiar cache antes de agregar nueva entrada (evita acumulación de memoria)
+    cleanupCache();
+
+    // Guardar en cache
     audioCache.set(hash, {
       audio: audioBuffer,
       timestamp: Date.now(),
