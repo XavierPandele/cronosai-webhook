@@ -4766,21 +4766,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
-      // OPTIMIZACIÓN: Usar Play con TTS (voz Algieba Flash) con fallback a Say
-      const voiceConfig = {
-        es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-        en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-        de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-        it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-        fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-        pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-      };
-      const sayVoice = voiceConfig[language] || voiceConfig.es;
-      
+      // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>${escapeXml(audioUrl)}</Play>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
   <Redirect method="POST">${escapeXml(redirect)}</Redirect>
 </Response>`;
     }
@@ -4812,9 +4801,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       };
       const sayVoice = voiceConfig[language] || voiceConfig.es;
       
-      // OPTIMIZACIÓN: Usar Play con TTS (voz Algieba Flash) - Twilio hará fallback automático a Say si Play falla
-      // Si TTS falla (timeout, 429, etc), Twilio usará Say como fallback
-      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando Play (Algieba Flash) con fallback automático a Say`);
+      // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
+      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando SOLO Play (Algieba Flash) - SIN fallback`);
       const noInputMessage = getRandomMessage(language === 'es' ? [
         'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
         'Perdón, no he oído nada. ¿Sigue en la línea?',
@@ -4836,29 +4824,16 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     speechTimeout="1"
     timeout="4">
     <Play>${escapeXml(audioUrl)}</Play>
-    <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(noInputMessage)}</Say>
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
     } else {
       // Solo decir el mensaje y colgar (sin pausa innecesaria para reducir tiempos)
-      // OPTIMIZACIÓN: Usar Play con TTS (voz Algieba Flash) con fallback a Say
-      const voiceConfig = {
-        es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-        en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-        de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-        it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-        fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-        pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-      };
-      const sayVoice = voiceConfig[language] || voiceConfig.es;
-      
+      // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>${escapeXml(audioUrl)}</Play>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
   <Hangup/>
 </Response>`;
     }

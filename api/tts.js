@@ -215,9 +215,9 @@ async function generateAudioWithVertexAI(text, language = 'es') {
       url: url
     });
 
-    // OPTIMIZACIÓN CRÍTICA: Timeout agresivo de 3 segundos en fetch para evitar esperas largas
+    // OPTIMIZACIÓN: Timeout de 10 segundos para dar tiempo a la generación de audio
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     
     let response;
     try {
@@ -234,7 +234,7 @@ async function generateAudioWithVertexAI(text, language = 'es') {
     } catch (fetchError) {
       clearTimeout(timeoutId);
       if (fetchError.name === 'AbortError') {
-        throw new Error('TTS fetch timeout after 3s');
+        throw new Error('TTS fetch timeout after 10s');
       }
       throw fetchError;
     }
@@ -360,9 +360,8 @@ module.exports = async function handler(req, res) {
             // Texto corto: intentar generar rápido con timeout más largo
             console.log(`🎤 [TTS] Generando audio rápido para: "${decodedText.substring(0, 50)}..."`);
             try {
-              // OPTIMIZACIÓN CRÍTICA: Timeout agresivo de 3 segundos para reducir latencia
-              // Si TTS tarda más de 3s, fallar rápido y usar fallback
-              const ttsTimeout = 3000; // 3 segundos máximo
+              // OPTIMIZACIÓN: Timeout de 10 segundos para dar tiempo a la generación de audio
+              const ttsTimeout = 10000; // 10 segundos máximo
               audioData = await Promise.race([
                 generateAudioWithVertexAI(decodedText, language),
                 new Promise((_, reject) => 
