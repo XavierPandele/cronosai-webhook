@@ -4812,8 +4812,20 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       };
       const sayVoice = voiceConfig[language] || voiceConfig.es;
       
-      // OPTIMIZACIÓN: Usar SIEMPRE Play con TTS (voz Algieba Flash) - sin fallback a Say
-      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando Play (Algieba Flash) para todas las respuestas`);
+      // OPTIMIZACIÓN: Usar Play con TTS (voz Algieba Flash) - Twilio hará fallback automático a Say si Play falla
+      // Si TTS falla (timeout, 429, etc), Twilio usará Say como fallback
+      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando Play (Algieba Flash) con fallback automático a Say`);
+      const noInputMessage = getRandomMessage(language === 'es' ? [
+        'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
+        'Perdón, no he oído nada. ¿Sigue en la línea?',
+        '¿Está ahí? No he escuchado su respuesta.',
+        'Disculpe, ¿sigue ahí? No he oído nada.',
+        'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
+        'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
+        'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
+        'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
+      ] : ['Sorry, I didn\'t hear your response. Are you still there?']);
+      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
@@ -4824,21 +4836,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     speechTimeout="1"
     timeout="4">
     <Play>${escapeXml(audioUrl)}</Play>
+    <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
   </Gather>
-  <Play>${escapeXml(getTtsAudioUrl(
-    getRandomMessage(language === 'es' ? [
-      'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
-      'Perdón, no he oído nada. ¿Sigue en la línea?',
-      '¿Está ahí? No he escuchado su respuesta.',
-      'Disculpe, ¿sigue ahí? No he oído nada.',
-      'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
-      'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
-      'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
-      'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
-    ] : ['Sorry, I didn\'t hear your response. Are you still there?']),
-    language,
-    baseUrl
-  ))}</Play>
+  <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
+  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(noInputMessage)}</Say>
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
     } else {
