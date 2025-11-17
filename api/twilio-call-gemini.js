@@ -4760,36 +4760,12 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     const audioUrl = getTtsAudioUrl(message, language, baseUrl);
     const ttsUrlTime = Date.now() - ttsUrlStartTime;
     
-    // OPTIMIZACIÓN: Detectar si es mensaje común usando patrones clave
-    // Los mensajes con variables dinámicas (${variables.xxx}) NO se pueden pre-generar
-    // Solo detectamos mensajes estáticos que están en la lista de pre-generación
-    const hasDynamicVariables = message.includes('${') || message.includes('variables.');
+    // OPTIMIZACIÓN: Usar SIEMPRE TTS Play (voz Algieba Flash) para todas las respuestas
+    // Flash es más rápido que Pro y la calidad es suficiente para llamadas telefónicas
+    // Desactivado fallback a Say para pruebas con la nueva voz
+    const useTtsPlay = true; // SIEMPRE usar TTS Play con voz Algieba Flash
     
-    // Palabras clave de mensajes comunes estáticos (sin variables)
-    const commonPatterns = [
-      'Buenos días', 'Buenas tardes', 'Buenas noches',
-      'para cuántas personas', 'cuántas personas',
-      'qué fecha', 'qué día',
-      'qué hora', 'a qué hora',
-      'nombre de quién', 'me puede decir su nombre',
-      'está todo correcto', 'todo correcto',
-      'no he entendido', 'podría repetir',
-      'How can I help', 'How many people',
-      'What date', 'What day', 'What time',
-      'What name', 'Can you tell me your name',
-      'is everything correct', 'I didn\'t understand'
-    ];
-    
-    // Verificar si el mensaje contiene patrones comunes Y no tiene variables dinámicas
-    const isCommonResponse = !hasDynamicVariables && commonPatterns.some(pattern => 
-      message.toLowerCase().includes(pattern.toLowerCase())
-    );
-    
-    // OPTIMIZACIÓN: Si es respuesta común, usar Play (probablemente en cache)
-    // Si NO es común, usar Say directamente (más rápido que esperar TTS)
-    const useTtsPlay = isCommonResponse;
-    
-    console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms. Mensaje común: ${isCommonResponse}, Usar TTS Play: ${useTtsPlay}`);
+    console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms. Usando TTS Play (Algieba Flash) para todas las respuestas`);
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
@@ -4846,11 +4822,9 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       };
       const sayVoice = voiceConfig[language] || voiceConfig.es;
       
-      // DECISIÓN CRÍTICA: Usar Play solo si es respuesta común (probablemente en cache)
-      // Usar Say directamente si NO es común (más rápido, evita esperar TTS)
-      if (useTtsPlay) {
-        console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando Play (respuesta común, probablemente en cache)`);
-        return `<?xml version="1.0" encoding="UTF-8"?>
+      // OPTIMIZACIÓN: Usar SIEMPRE Play con TTS (voz Algieba Flash) - sin fallback a Say
+      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando Play (Algieba Flash) para todas las respuestas`);
+      return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
     input="speech" 
@@ -4861,7 +4835,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     timeout="4">
     <Play>${escapeXml(audioUrl)}</Play>
   </Gather>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(getRandomMessage(language === 'es' ? [
+  <Play>${escapeXml(getTtsAudioUrl(
+    getRandomMessage(language === 'es' ? [
       'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
       'Perdón, no he oído nada. ¿Sigue en la línea?',
       '¿Está ahí? No he escuchado su respuesta.',
@@ -4870,61 +4845,20 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
       'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
       'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
-    ] : ['Sorry, I didn\'t hear your response. Are you still there?']))}</Say>
+    ] : ['Sorry, I didn\'t hear your response. Are you still there?']),
+    language,
+    baseUrl
+  ))}</Play>
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
-      } else {
-        // NO es respuesta común: usar Say directamente (más rápido que esperar TTS)
-        console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando Say directamente (más rápido, no es respuesta común)`);
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Gather 
-    input="speech" 
-    action="/api/twilio-call-gemini" 
-    method="POST"
-    language="${gatherLanguage}"
-    speechTimeout="1"
-    timeout="4">
-    <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
-  </Gather>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(getRandomMessage(language === 'es' ? [
-      'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
-      'Perdón, no he oído nada. ¿Sigue en la línea?',
-      '¿Está ahí? No he escuchado su respuesta.',
-      'Disculpe, ¿sigue ahí? No he oído nada.',
-      'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
-      'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
-      'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
-      'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
-    ] : ['Sorry, I didn\'t hear your response. Are you still there?']))}</Say>
-  <Redirect>/api/twilio-call-gemini</Redirect>
-</Response>`;
-      }
     } else {
       // Solo decir el mensaje y colgar (sin pausa innecesaria para reducir tiempos)
-      const voiceConfig = {
-        es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-        en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-        de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-        it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-        fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-        pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-      };
-      const sayVoice = voiceConfig[language] || voiceConfig.es;
-      
-      if (useTtsPlay) {
-        return `<?xml version="1.0" encoding="UTF-8"?>
+      // OPTIMIZACIÓN: Usar SIEMPRE Play con TTS (voz Algieba Flash)
+      return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>${escapeXml(audioUrl)}</Play>
   <Hangup/>
 </Response>`;
-      } else {
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
-  <Hangup/>
-</Response>`;
-      }
     }
   }
 

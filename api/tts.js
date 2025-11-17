@@ -24,7 +24,7 @@ const languageCodes = {
 
 // Configuración de la voz Algieba
 const VOICE_NAME = 'Algieba';
-const MODEL_NAME = 'gemini-2.5-pro-tts'; // Requiere Vertex AI
+const MODEL_NAME = 'gemini-2.5-flash-tts'; // OPTIMIZACIÓN: Usar Flash en lugar de Pro para mayor velocidad en llamadas telefónicas
 
 // Cache optimizado para mejor rendimiento
 const audioCache = new Map();
