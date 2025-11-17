@@ -26,6 +26,42 @@ const languageCodes = {
 const VOICE_NAME = 'Algieba';
 const MODEL_NAME = 'gemini-2.5-flash-tts'; // OPTIMIZACIÓN: Usar Flash en lugar de Pro para mayor velocidad en llamadas telefónicas
 
+// OPTIMIZACIÓN CRÍTICA: Limitar texto para reducir latencia de TTS
+// La latencia crece casi linealmente con la longitud del texto
+const MAX_TEXT_LENGTH = 180; // Caracteres máximos para llamadas telefónicas (1-2 frases cortas)
+
+/**
+ * Prepara el texto para llamadas telefónicas limitando su longitud
+ * Esto reduce significativamente la latencia de TTS (de varios segundos a <1s)
+ */
+function prepareTextForCall(rawText) {
+  if (!rawText || typeof rawText !== 'string') {
+    return '';
+  }
+  
+  let text = rawText.trim();
+  
+  // Quitar saltos de línea y espacios múltiples
+  text = text.replace(/\s+/g, ' ');
+  
+  // Si el texto es muy corto, devolverlo tal cual
+  if (text.length <= MAX_TEXT_LENGTH) {
+    return text;
+  }
+  
+  // Intentar cortar en el punto más cercano a MAX_TEXT_LENGTH
+  const cutPoint = text.lastIndexOf('.', MAX_TEXT_LENGTH);
+  if (cutPoint > 50) {
+    // Si encontramos un punto razonablemente cerca, cortar ahí
+    text = text.slice(0, cutPoint + 1);
+  } else {
+    // Si no hay punto cercano, cortar y agregar elipsis
+    text = text.slice(0, MAX_TEXT_LENGTH) + '…';
+  }
+  
+  return text;
+}
+
 // Cache optimizado para mejor rendimiento
 const audioCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
@@ -166,8 +202,17 @@ async function getAccessToken() {
 }
 
 async function generateAudioWithVertexAI(text, language = 'es') {
+  // OPTIMIZACIÓN CRÍTICA: Limitar texto antes de procesar (reduce latencia de 4-8s a <1s)
+  const preparedText = prepareTextForCall(text);
+  const originalLength = text.length;
+  const preparedLength = preparedText.length;
+  
+  if (originalLength > preparedLength) {
+    console.log(`✂️ [TTS] Texto recortado de ${originalLength} a ${preparedLength} caracteres para reducir latencia`);
+  }
+  
   const languageCode = languageCodes[language] || languageCodes.es;
-  const hash = crypto.createHash('md5').update(`${text}-${languageCode}`).digest('hex');
+  const hash = crypto.createHash('md5').update(`${preparedText}-${languageCode}`).digest('hex');
   
   // Verificar cache PRIMERO (más rápido)
   const cached = audioCache.get(hash);
@@ -183,21 +228,21 @@ async function generateAudioWithVertexAI(text, language = 'es') {
     const accessToken = await getAccessToken();
     const ttsGenerationStartTime = Date.now();
     
-    console.log(`🎤 [TTS] Generando audio con Vertex AI: "${text.substring(0, 50)}..." (${languageCode}) - INICIO`);
+    console.log(`🎤 [TTS] Generando audio con Vertex AI: "${preparedText.substring(0, 50)}..." (${languageCode}) - INICIO`);
 
     // Endpoint estándar de Text-to-Speech API (el modelo gemini-2.5-pro-tts se especifica en el request body)
     const url = 'https://texttospeech.googleapis.com/v1beta1/text:synthesize';
 
     const requestBody = {
       audioConfig: {
-        audioEncoding: 'MP3', // MP3 es más rápido que LINEAR16 para streaming
+        audioEncoding: 'MULAW', // OPTIMIZACIÓN CRÍTICA: MULAW es ideal para telefonía (formato nativo de Twilio, menos bytes)
         pitch: 0,
         speakingRate: 1.0, // Velocidad normal de habla (1.0 = velocidad estándar)
-        sampleRateHertz: 8000, // OPTIMIZACIÓN CRÍTICA: Reducido a 8000 Hz (suficiente para voz telefónica, genera mucho más rápido)
+        sampleRateHertz: 8000, // OPTIMIZACIÓN CRÍTICA: 8000 Hz (mismo sample rate que Twilio, suficiente para voz telefónica)
         volumeGainDb: 0 // Sin ganancia adicional para mantener velocidad
       },
       input: {
-        text: text
+        text: preparedText // Usar texto preparado (limitado)
       },
       voice: {
         languageCode: languageCode,
@@ -305,7 +350,7 @@ Error: ${errorText}`;
       audio: audioBuffer,
       timestamp: Date.now(),
       language: languageCode,
-      text: text.substring(0, 100)
+      text: preparedText.substring(0, 100)
     });
 
     const ttsGenerationTime = Date.now() - ttsGenerationStartTime;
@@ -386,7 +431,8 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to generate audio' });
       }
       
-      res.setHeader('Content-Type', 'audio/mpeg');
+      // OPTIMIZACIÓN: MULAW usa Content-Type audio/basic (formato telefónico nativo)
+      res.setHeader('Content-Type', 'audio/basic');
       res.setHeader('Content-Length', audioData.audio.length);
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.setHeader('X-Audio-Hash', audioData.hash);
@@ -417,9 +463,12 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Text too long (max 5000 characters)' });
       }
 
-      const audioData = await generateAudioWithVertexAI(text, language);
+      // OPTIMIZACIÓN: Limitar texto antes de generar audio
+      const preparedText = prepareTextForCall(text);
+      const audioData = await generateAudioWithVertexAI(preparedText, language);
 
-      res.setHeader('Content-Type', 'audio/mpeg');
+      // OPTIMIZACIÓN: MULAW usa Content-Type audio/basic (formato telefónico nativo)
+      res.setHeader('Content-Type', 'audio/basic');
       res.setHeader('Content-Length', audioData.audio.length);
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.setHeader('X-Audio-Hash', audioData.hash);
