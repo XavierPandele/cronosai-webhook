@@ -215,14 +215,29 @@ async function generateAudioWithVertexAI(text, language = 'es') {
       url: url
     });
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: JSON.stringify(requestBody)
-    });
+    // OPTIMIZACIÓN CRÍTICA: Timeout agresivo de 3 segundos en fetch para evitar esperas largas
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        throw new Error('TTS fetch timeout after 3s');
+      }
+      throw fetchError;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -345,11 +360,13 @@ module.exports = async function handler(req, res) {
             // Texto corto: intentar generar rápido con timeout más largo
             console.log(`🎤 [TTS] Generando audio rápido para: "${decodedText.substring(0, 50)}..."`);
             try {
-              // OPTIMIZACIÓN: Timeout aumentado a 8 segundos (Vertex AI puede tardar)
+              // OPTIMIZACIÓN CRÍTICA: Timeout agresivo de 3 segundos para reducir latencia
+              // Si TTS tarda más de 3s, fallar rápido y usar fallback
+              const ttsTimeout = 3000; // 3 segundos máximo
               audioData = await Promise.race([
                 generateAudioWithVertexAI(decodedText, language),
                 new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('TTS timeout after 8s')), 8000)
+                  setTimeout(() => reject(new Error(`TTS timeout after ${ttsTimeout}ms`)), ttsTimeout)
                 )
               ]);
             } catch (error) {
