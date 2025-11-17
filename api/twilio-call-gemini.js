@@ -724,9 +724,11 @@ module.exports = async function handler(req, res) {
       });
       callLogger.update({ step: state.step });
     }
-    callLogger.debug('AFTER_PROCESS_STEP', { 
+    callLogger.info('AFTER_PROCESS_STEP', { 
       step: state.step,
-      processStepTimeMs: processStepTime
+      processStepTimeMs: processStepTime,
+      responseMessage: response.message ? response.message.substring(0, 100) : 'null',
+      reasoning: `Paso procesado en ${processStepTime}ms. Respuesta: "${response.message ? response.message.substring(0, 50) : 'sin mensaje'}..."`
     });
     
     // Guardar el mensaje del bot
@@ -737,7 +739,7 @@ module.exports = async function handler(req, res) {
     });
 
     // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para la mayoría de casos
-    callLogger.debug('STATE_PERSIST', { 
+    callLogger.info('STATE_PERSIST', { 
       step: state.step,
       dataKeys: state.data ? Object.keys(state.data) : [],
       dataValues: state.data ? {
@@ -4605,20 +4607,18 @@ function getTtsAudioUrl(text, language, baseUrl) {
 function generateTwiML(response, language = 'es', processingMessage = null, baseUrl = null) {
   const { message, gather = true, redirect, voiceConfig: responseVoiceConfig, useAlgieba = true } = response;
 
-  console.log(`🎤 [DEBUG] generateTwiML - Idioma recibido: ${language}`);
-  console.log(`🎤 [DEBUG] generateTwiML - Mensaje: "${message}"`);
-  console.log(`🎤 [DEBUG] generateTwiML - ProcessingMessage: ${processingMessage ? '"' + processingMessage + '"' : 'null'}`);
-  console.log(`🎤 [DEBUG] generateTwiML - Redirect: ${redirect ? '"' + redirect + '"' : 'null'}`);
-  console.log(`🎤 [DEBUG] generateTwiML - UseAlgieba: ${useAlgieba}`);
-  console.log(`🎤 [DEBUG] generateTwiML - BaseUrl: ${baseUrl || 'null (usando relativa)'}`);
+  const twimlStartTime = Date.now();
+  console.log(`🎤 [TTS] generateTwiML INICIO - Idioma: ${language}, Mensaje: "${message ? message.substring(0, 50) : 'null'}...", UseAlgieba: ${useAlgieba}`);
 
   // MEJORADO: Usar voz Algieba de Google Cloud Text-to-Speech
   // Si useAlgieba es true, usar <Play> con endpoint TTS
   // Si es false, usar <Say> con voces de Twilio (fallback)
   if (useAlgieba !== false) {
     // Obtener URL del audio desde el endpoint TTS
+    const ttsUrlStartTime = Date.now();
     const audioUrl = getTtsAudioUrl(message, language, baseUrl);
-    console.log(`🎤 [DEBUG] generateTwiML - Audio URL: ${audioUrl}`);
+    const ttsUrlTime = Date.now() - ttsUrlStartTime;
+    console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms: ${audioUrl.substring(0, 100)}...`);
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
@@ -4642,6 +4642,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       const gatherLanguage = languageCodes[language] || languageCodes.es;
       
       // Usar Gather para capturar la respuesta del usuario
+      const twimlTime = Date.now() - twimlStartTime;
+      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms con audio URL`);
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 

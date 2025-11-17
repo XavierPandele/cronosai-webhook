@@ -94,8 +94,9 @@ async function generateAudioWithVertexAI(text, language = 'es') {
 
   try {
     const accessToken = await getAccessToken();
+    const ttsGenerationStartTime = Date.now();
     
-    console.log(`🎤 [TTS] Generando audio con Vertex AI: "${text.substring(0, 50)}..." (${languageCode})`);
+    console.log(`🎤 [TTS] Generando audio con Vertex AI: "${text.substring(0, 50)}..." (${languageCode}) - INICIO`);
 
     // Endpoint estándar de Text-to-Speech API (el modelo gemini-2.5-pro-tts se especifica en el request body)
     const url = 'https://texttospeech.googleapis.com/v1beta1/text:synthesize';
@@ -198,7 +199,8 @@ Error: ${errorText}`;
       text: text.substring(0, 100)
     });
 
-    console.log(`✅ [TTS] Audio generado exitosamente con Vertex AI (${audioBuffer.length} bytes)`);
+    const ttsGenerationTime = Date.now() - ttsGenerationStartTime;
+    console.log(`✅ [TTS] Audio generado exitosamente en ${ttsGenerationTime}ms (${audioBuffer.length} bytes)`);
 
     return { audio: audioBuffer, hash };
   } catch (error) {
@@ -221,14 +223,50 @@ module.exports = async function handler(req, res) {
       let audioData;
       
       if (hash) {
+        // OPTIMIZACIÓN: Buscar por hash primero (más rápido)
         const cached = audioCache.get(hash);
         if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+          console.log(`✅ [TTS] Cache hit por hash: ${hash.substring(0, 8)}... (${cached.audio.length} bytes)`);
           audioData = { audio: cached.audio, hash };
         } else {
           return res.status(404).json({ error: 'Audio not found in cache' });
         }
       } else if (text) {
-        audioData = await generateAudioWithVertexAI(decodeURIComponent(text), language);
+        const decodedText = decodeURIComponent(text);
+        const textHash = crypto.createHash('md5').update(`${decodedText}-${languageCodes[language] || languageCodes.es}`).digest('hex');
+        
+        // OPTIMIZACIÓN: Verificar cache antes de generar
+        const cached = audioCache.get(textHash);
+        if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+          console.log(`✅ [TTS] Cache hit por texto: "${decodedText.substring(0, 30)}..." (${cached.audio.length} bytes)`);
+          audioData = { audio: cached.audio, hash: textHash };
+        } else {
+          // OPTIMIZACIÓN CRÍTICA: Generar en background y responder inmediatamente si es texto corto
+          // Para textos largos, generar normalmente
+          if (decodedText.length > 200) {
+            // Texto largo: generar normalmente
+            console.log(`🎤 [TTS] Generando audio para texto largo (${decodedText.length} chars)...`);
+            audioData = await generateAudioWithVertexAI(decodedText, language);
+          } else {
+            // Texto corto: intentar generar rápido con timeout
+            console.log(`🎤 [TTS] Generando audio rápido para: "${decodedText.substring(0, 50)}..."`);
+            try {
+              audioData = await Promise.race([
+                generateAudioWithVertexAI(decodedText, language),
+                new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('TTS timeout')), 3000)
+                )
+              ]);
+            } catch (error) {
+              console.error(`❌ [TTS] Error o timeout generando audio: ${error.message}`);
+              // Fallback: devolver error pero no bloquear
+              return res.status(500).json({ 
+                error: 'Failed to generate audio',
+                message: error.message 
+              });
+            }
+          }
+        }
       }
       
       if (!audioData || !audioData.audio) {
