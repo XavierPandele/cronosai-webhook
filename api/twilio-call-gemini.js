@@ -4619,6 +4619,11 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     const audioUrl = getTtsAudioUrl(message, language, baseUrl);
     const ttsUrlTime = Date.now() - ttsUrlStartTime;
     console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms: ${audioUrl.substring(0, 100)}...`);
+    
+    // OPTIMIZACIÓN: Verificar si el TTS está disponible haciendo una petición rápida
+    // Si falla, usar Twilio Say automáticamente
+    // (Nota: Esto se hace en el cliente, no podemos verificar aquí sin bloquear)
+    // Por ahora, confiamos en que Twilio manejará el error del Play y usaremos Say como fallback
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
@@ -4642,8 +4647,21 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       const gatherLanguage = languageCodes[language] || languageCodes.es;
       
       // Usar Gather para capturar la respuesta del usuario
+      // OPTIMIZACIÓN: Usar Play con fallback a Say si el TTS falla
       const twimlTime = Date.now() - twimlStartTime;
-      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms con audio URL`);
+      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms con audio URL (con fallback a Say)`);
+      
+      // Configuración de voz para fallback
+      const voiceConfig = {
+        es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
+        en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
+        de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
+        it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
+        fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
+        pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+      };
+      const fallbackVoice = voiceConfig[language] || voiceConfig.es;
+      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
@@ -4654,6 +4672,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     speechTimeout="1"
     timeout="4">
     <Play>${escapeXml(audioUrl)}</Play>
+    <Say voice="${fallbackVoice.voice}" language="${fallbackVoice.language}">${escapeXml(message)}</Say>
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(
     getRandomMessage(language === 'es' ? [

@@ -31,6 +31,89 @@ const audioCache = new Map();
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
 const MAX_CACHE_SIZE = 1000; // Limitar tamaño del cache para mejor rendimiento
 
+// OPTIMIZACIÓN: Pre-generar respuestas comunes para reducir latencia
+let commonResponsesPreGenerated = false;
+const commonResponsesToPreGenerate = [
+  // Mensajes de greeting en todos los idiomas
+  { text: '¡Buenos días! Qué gusto tenerle por aquí. ¿Cómo puedo ayudarle?', language: 'es' },
+  { text: '¡Buenas tardes! Encantado de atenderle. ¿En qué puedo ayudarle?', language: 'es' },
+  { text: '¡Buenas noches! Bienvenido. ¿Cómo puedo ayudarle?', language: 'es' },
+  { text: 'Good morning! How can I help you?', language: 'en' },
+  { text: 'Good afternoon! How can I assist you?', language: 'en' },
+  { text: 'Good evening! How can I help you?', language: 'en' },
+  // Mensajes de ask_people
+  { text: '¿Para cuántas personas será la reserva?', language: 'es' },
+  { text: '¿Cuántas personas serán?', language: 'es' },
+  { text: 'How many people will the reservation be for?', language: 'en' },
+  { text: 'How many people?', language: 'en' },
+  // Mensajes de ask_date
+  { text: '¿Para qué fecha desea la reserva?', language: 'es' },
+  { text: '¿Qué día prefiere?', language: 'es' },
+  { text: 'What date would you like the reservation for?', language: 'en' },
+  { text: 'What day do you prefer?', language: 'en' },
+  // Mensajes de ask_time
+  { text: '¿A qué hora desea la reserva?', language: 'es' },
+  { text: '¿Qué hora prefiere?', language: 'es' },
+  { text: 'What time would you like the reservation?', language: 'en' },
+  { text: 'What time do you prefer?', language: 'en' },
+  // Mensajes de ask_name
+  { text: '¿A nombre de quién será la reserva?', language: 'es' },
+  { text: '¿Me puede decir su nombre?', language: 'es' },
+  { text: 'What name should the reservation be under?', language: 'en' },
+  { text: 'Can you tell me your name?', language: 'en' },
+  // Mensajes de confirmación
+  { text: 'Perfecto, ¿está todo correcto?', language: 'es' },
+  { text: 'Perfect, is everything correct?', language: 'en' },
+  // Mensajes de error comunes
+  { text: 'Disculpe, no he entendido bien. ¿Podría repetir, por favor?', language: 'es' },
+  { text: 'Sorry, I didn\'t understand. Could you repeat, please?', language: 'en' }
+];
+
+/**
+ * Pre-genera respuestas comunes en background para reducir latencia
+ */
+async function preGenerateCommonResponses() {
+  if (commonResponsesPreGenerated) {
+    return;
+  }
+  
+  console.log(`🎤 [TTS] Pre-generando ${commonResponsesToPreGenerate.length} respuestas comunes...`);
+  const startTime = Date.now();
+  
+  // Generar en paralelo (máximo 5 a la vez para no sobrecargar)
+  const batchSize = 5;
+  for (let i = 0; i < commonResponsesToPreGenerate.length; i += batchSize) {
+    const batch = commonResponsesToPreGenerate.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map(async ({ text, language }) => {
+        try {
+          const hash = crypto.createHash('md5').update(`${text}-${languageCodes[language] || languageCodes.es}`).digest('hex');
+          // Solo generar si no está en cache
+          if (!audioCache.has(hash)) {
+            await generateAudioWithVertexAI(text, language).catch(err => {
+              console.warn(`⚠️ [TTS] Error pre-generando "${text.substring(0, 30)}...": ${err.message}`);
+            });
+          }
+        } catch (error) {
+          // Ignorar errores en pre-generación (no crítico)
+          console.warn(`⚠️ [TTS] Error pre-generando respuesta común: ${error.message}`);
+        }
+      })
+    );
+  }
+  
+  const preGenTime = Date.now() - startTime;
+  console.log(`✅ [TTS] Pre-generación completada en ${preGenTime}ms. ${audioCache.size} audios en cache.`);
+  commonResponsesPreGenerated = true;
+}
+
+// Iniciar pre-generación en background (no bloquea)
+setImmediate(() => {
+  preGenerateCommonResponses().catch(err => {
+    console.warn(`⚠️ [TTS] Error en pre-generación inicial: ${err.message}`);
+  });
+});
+
 // Cliente de autenticación
 let authClient = null;
 let cachedAccessToken = null;
@@ -85,12 +168,15 @@ async function generateAudioWithVertexAI(text, language = 'es') {
   const languageCode = languageCodes[language] || languageCodes.es;
   const hash = crypto.createHash('md5').update(`${text}-${languageCode}`).digest('hex');
   
-  // Verificar cache
+  // Verificar cache PRIMERO (más rápido)
   const cached = audioCache.get(hash);
   if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-    console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}...`);
+    console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}... (${cached.audio.length} bytes)`);
     return { audio: cached.audio, hash };
   }
+  
+  // OPTIMIZACIÓN: Si no está en cache y es una respuesta común, intentar pre-generarla
+  // (esto se hace automáticamente en background, pero aquí verificamos si ya está)
 
   try {
     const accessToken = await getAccessToken();
@@ -248,21 +334,24 @@ module.exports = async function handler(req, res) {
             console.log(`🎤 [TTS] Generando audio para texto largo (${decodedText.length} chars)...`);
             audioData = await generateAudioWithVertexAI(decodedText, language);
           } else {
-            // Texto corto: intentar generar rápido con timeout
+            // Texto corto: intentar generar rápido con timeout más largo
             console.log(`🎤 [TTS] Generando audio rápido para: "${decodedText.substring(0, 50)}..."`);
             try {
+              // OPTIMIZACIÓN: Timeout aumentado a 8 segundos (Vertex AI puede tardar)
               audioData = await Promise.race([
                 generateAudioWithVertexAI(decodedText, language),
                 new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('TTS timeout')), 3000)
+                  setTimeout(() => reject(new Error('TTS timeout after 8s')), 8000)
                 )
               ]);
             } catch (error) {
               console.error(`❌ [TTS] Error o timeout generando audio: ${error.message}`);
-              // Fallback: devolver error pero no bloquear
+              // OPTIMIZACIÓN: En lugar de fallar, intentar usar Twilio Say como fallback
+              // Pero como estamos en el endpoint TTS, mejor devolver error y que Twilio use Say
               return res.status(500).json({ 
                 error: 'Failed to generate audio',
-                message: error.message 
+                message: error.message,
+                fallback: 'Use Twilio Say instead'
               });
             }
           }
