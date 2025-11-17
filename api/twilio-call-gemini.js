@@ -4769,30 +4769,12 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
-      // Para redirect, usar Say directamente (más rápido, no bloquea)
-      const voiceConfig = {
-        es: { voice: 'Google.es-ES-Neural2-B', language: 'es-ES' },
-        en: { voice: 'Google.en-US-Neural2-A', language: 'en-US' },
-        de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
-        it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
-        fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-        pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
-      };
-      const sayVoice = voiceConfig[language] || voiceConfig.es;
-      
-      if (useTtsPlay) {
-        return `<?xml version="1.0" encoding="UTF-8"?>
+      // OPTIMIZACIÓN: Usar SIEMPRE Play con TTS (voz Algieba Flash)
+      return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>${escapeXml(audioUrl)}</Play>
   <Redirect method="POST">${escapeXml(redirect)}</Redirect>
 </Response>`;
-      } else {
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="${sayVoice.voice}" language="${sayVoice.language}">${escapeXml(message)}</Say>
-  <Redirect method="POST">${escapeXml(redirect)}</Redirect>
-</Response>`;
-      }
     }
 
     if (gather) {
