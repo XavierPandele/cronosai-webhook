@@ -5940,11 +5940,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Understood, I\'ve cancelled the reservation. I hope I was able to help you. We look forward to seeing you another day at our restaurant. Have a great day!'
       ],
       de: [
-        'Perfekt, ich habe Ihre Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag in unserem Restaurant zu sehen. Haben Sie einen schönen Tag!',
-        'Verstanden, die Reservierung wurde storniert. Vielen Dank für Ihren Anruf und ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie bei einer anderen Gelegenheit zu sehen. Bis bald!',
-        'In Ordnung, ich habe die Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag in unserem Restaurant zu sehen. Haben Sie einen schönen Tag!',
-        'Perfekt, die Reservierung ist storniert. Vielen Dank für Ihre Zeit und ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie bei einer anderen Gelegenheit zu sehen. Bis bald!',
-        'Verstanden, ich habe die Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag in unserem Restaurant zu sehen. Haben Sie einen schönen Tag!'
+        'Perfekt, ich habe Ihre Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag zu sehen. Haben Sie einen schönen Tag!',
+        'Verstanden, die Reservierung wurde storniert. Vielen Dank für Ihren Anruf. Wir freuen uns darauf, Sie bei einer anderen Gelegenheit zu sehen. Bis bald!',
+        'In Ordnung, ich habe die Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag zu sehen. Haben Sie einen schönen Tag!',
+        'Perfekt, die Reservierung ist storniert. Vielen Dank für Ihre Zeit. Wir freuen uns darauf, Sie bei einer anderen Gelegenheit zu sehen. Bis bald!',
+        'Verstanden, ich habe die Reservierung storniert. Ich hoffe, ich konnte Ihnen helfen. Wir freuen uns darauf, Sie an einem anderen Tag zu sehen. Haben Sie einen schönen Tag!'
       ],
       it: [
         'Perfetto, ho cancellato la tua prenotazione. Spero di averti aiutato. Non vediamo l\'ora di vederti un altro giorno nel nostro ristorante. Buona giornata!',
@@ -6448,14 +6448,14 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Understood, to proceed with the cancellation I need your number. Do you use the same number you are calling from or do you have another one?'
       ],
       de: [
-        'Perfekt, um Ihre Reservierung zu stornieren, muss ich Ihre Identität überprüfen. Möchten Sie dieselbe Telefonnummer verwenden, von der aus Sie anrufen, oder bevorzugen Sie eine andere Nummer?',
+        'Perfekt, um Ihre Reservierung zu stornieren, muss ich Ihre Identität überprüfen. Möchten Sie dieselbe Telefonnummer verwenden oder bevorzugen Sie eine andere?',
         'Verstanden, um Ihre Reservierung zu finden, brauche ich Ihre Telefonnummer. Möchten Sie dieselbe Nummer verwenden oder haben Sie eine andere?',
         'Sehr gut, um Ihre Reservierung zu finden, brauche ich Ihre Nummer. Verwenden Sie dieselbe Nummer von diesem Anruf oder bevorzugen Sie es, mir eine andere zu geben?',
         'Perfekt, zum Stornieren muss ich Ihre Identität überprüfen. Möchten Sie diese Nummer verwenden oder bevorzugen Sie eine andere?',
         'Verstanden, um mit der Stornierung fortzufahren, brauche ich Ihre Nummer. Verwenden Sie dieselbe Nummer, von der aus Sie anrufen, oder haben Sie eine andere?'
       ],
       fr: [
-        'Parfait, pour annuler votre réservation, je dois vérifier votre identité. Voulez-vous utiliser le même numéro de téléphone depuis lequel vous appelez ou préférez-vous utiliser un autre numéro?',
+        'Parfait, pour annuler votre réservation, je dois vérifier votre identité. Voulez-vous utiliser le même numéro de téléphone ou préférez-vous utiliser un autre numéro?',
         'Compris, pour trouver votre réservation, j\'ai besoin de votre numéro de téléphone. Voulez-vous utiliser ce même numéro ou en avez-vous un autre?',
         'Très bien, pour localiser votre réservation, j\'ai besoin de votre numéro. Utilisez-vous le même numéro de cet appel ou préférez-vous m\'en donner un autre?',
         'Parfait, pour annuler, je dois vérifier votre identité. Voulez-vous utiliser ce numéro ou préférez-vous utiliser un autre?',
