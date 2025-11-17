@@ -4754,18 +4754,15 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   // Si useAlgieba es true, usar <Play> con endpoint TTS
   // Si es false, usar <Say> con voces de Twilio (fallback)
   if (useAlgieba !== false) {
-    // OPTIMIZACIÓN CRÍTICA: Verificar si el mensaje está en respuestas pre-generadas
-    // Si está pre-generado, usar Play. Si no, usar Say directamente (más rápido)
+    // OPTIMIZACIÓN: Intentar usar TTS Play (voz Algieba Flash) con fallback a Say si falla
     const ttsUrlStartTime = Date.now();
     const audioUrl = getTtsAudioUrl(message, language, baseUrl);
     const ttsUrlTime = Date.now() - ttsUrlStartTime;
     
-    // OPTIMIZACIÓN: Usar SIEMPRE TTS Play (voz Algieba Flash) para todas las respuestas
-    // Flash es más rápido que Pro y la calidad es suficiente para llamadas telefónicas
-    // Desactivado fallback a Say para pruebas con la nueva voz
-    const useTtsPlay = true; // SIEMPRE usar TTS Play con voz Algieba Flash
+    // Usar TTS Play (voz Algieba Flash) - con fallback a Say si hay error
+    const useTtsPlay = true;
     
-    console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms. Usando TTS Play (Algieba Flash) para todas las respuestas`);
+    console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms. Usando TTS Play (Algieba Flash) con fallback a Say si falla`);
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {

@@ -107,12 +107,13 @@ async function preGenerateCommonResponses() {
   commonResponsesPreGenerated = true;
 }
 
+// DESACTIVADO: Pre-generación causa error 429 (quota exceeded)
 // Iniciar pre-generación en background (no bloquea)
-setImmediate(() => {
-  preGenerateCommonResponses().catch(err => {
-    console.warn(`⚠️ [TTS] Error en pre-generación inicial: ${err.message}`);
-  });
-});
+// setImmediate(() => {
+//   preGenerateCommonResponses().catch(err => {
+//     console.warn(`⚠️ [TTS] Error en pre-generación inicial: ${err.message}`);
+//   });
+// });
 
 // Cliente de autenticación
 let authClient = null;
@@ -243,6 +244,13 @@ Error: ${errorText}`;
 2. El Service Account existe y está activo
 3. Las credenciales no han expirado
 Error: ${errorText}`;
+      } else if (response.status === 429) {
+        // ERROR 429: Quota exceeded - fallback inmediato sin retry
+        errorMessage = `TTS quota exceeded (429) - using fallback`;
+        const quotaError = new Error(errorMessage);
+        quotaError.statusCode = 429;
+        quotaError.isQuotaError = true;
+        throw quotaError;
       } else if (response.status === 400) {
         errorMessage = `❌ Solicitud inválida. Verifica que:
 1. El código de idioma es correcto (${languageCode})
