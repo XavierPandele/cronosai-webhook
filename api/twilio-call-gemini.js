@@ -239,15 +239,30 @@ function extractTextFromVertexAIResponse(result) {
  * @param {Object} logger - Logger opcional para registrar intentos
  * @returns {Promise<Object>} Resultado de generateContent
  */
-async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
+async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
   let lastError = null;
+  
+  // OPTIMIZACIÓN: Reducir reintentos de 5 a 3 para respuestas más rápidas
+  // Timeout más agresivo para evitar esperas largas
+  const GEMINI_TIMEOUT_MS = 8000; // 8 segundos máximo por llamada
   
   for (let i = 0; i < retries; i++) {
     try {
-      // Vertex AI usa un formato diferente
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }]
+      // OPTIMIZACIÓN: Usar Promise.race con timeout para evitar esperas infinitas
+      const generatePromise = model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          maxOutputTokens: 2048, // Reducir tokens máximos para respuesta más rápida
+          temperature: 0.7 // Mantener creatividad pero con respuesta más rápida
+        }
       });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Gemini API timeout')), GEMINI_TIMEOUT_MS)
+      );
+      
+      const result = await Promise.race([generatePromise, timeoutPromise]);
+      
       // Si llegamos aquí, la llamada fue exitosa
       if (i > 0 && logger) {
         logger.debug('GEMINI_RETRY_SUCCESS', { 
@@ -265,14 +280,15 @@ async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
                          errorMessage.includes('overloaded');
       const isTemporary = errorMessage.includes('503') || 
                          errorMessage.includes('Service Unavailable') ||
-                         errorMessage.includes('temporarily unavailable');
+                         errorMessage.includes('temporarily unavailable') ||
+                         errorMessage.includes('timeout');
       
-      // Solo reintentar en errores 429 (rate limit) o 503 (service unavailable)
+      // Solo reintentar en errores 429 (rate limit), 503 (service unavailable) o timeout
       if (isRateLimit || isTemporary) {
-        // Backoff exponencial mejorado: 1000ms, 2000ms, 4000ms, 8000ms, 10000ms (máximo 10 segundos)
-        // Aumentado para dar más tiempo al rate limit de resetearse
-        const baseDelay = 1000;
-        const wait = Math.min(baseDelay * Math.pow(2, i), 10000);
+        // OPTIMIZACIÓN: Backoff más agresivo y corto para respuestas más rápidas
+        // 500ms, 1000ms, 2000ms (máximo 2 segundos)
+        const baseDelay = 500;
+        const wait = Math.min(baseDelay * Math.pow(2, i), 2000);
         
         if (logger) {
           logger.warn('GEMINI_RETRY_ATTEMPT', {
@@ -280,10 +296,10 @@ async function callGeminiWithRetry(model, prompt, retries = 5, logger = null) {
             maxRetries: retries,
             waitMs: wait,
             error: errorMessage.substring(0, 100),
-            reasoning: `Rate limit detectado en Vertex AI. Esperando ${wait}ms antes del reintento.`
+            reasoning: `Rate limit o timeout detectado. Esperando ${wait}ms antes del reintento.`
           });
         } else {
-          console.warn(`⚠️ [GEMINI] Rate limited (intento ${i + 1}/${retries}). Esperando ${wait}ms...`);
+          console.warn(`⚠️ [GEMINI] Rate limited/timeout (intento ${i + 1}/${retries}). Esperando ${wait}ms...`);
         }
         
         // Esperar antes de reintentar
@@ -555,39 +571,53 @@ module.exports = async function handler(req, res) {
       hasSpeechResult: Boolean(SpeechResult)
     });
 
-    // CRÍTICO: En Vercel serverless, cada request puede ejecutarse en una instancia diferente
-    // Por lo tanto, debemos SIEMPRE cargar el estado desde BD, no confiar en memoria
+    // OPTIMIZACIÓN: Intentar cargar desde memoria primero (más rápido)
+    // Solo cargar desde BD si no está en memoria o si es la primera vez
     let state = null;
     let stateFromMemory = conversationStates.get(CallSid);
     let stateFromDatabase = null;
     
-    // Intentar cargar desde BD primero (fuente de verdad en serverless)
-    try {
-      stateFromDatabase = await loadCallState(CallSid);
-      if (stateFromDatabase) {
-        callLogger.debug('STATE_LOADED_FROM_DB', {
-          step: stateFromDatabase.step,
-          hasData: Boolean(stateFromDatabase.data && Object.keys(stateFromDatabase.data).length > 0),
-          dataKeys: stateFromDatabase.data ? Object.keys(stateFromDatabase.data) : []
-        });
+    // Si tenemos estado en memoria, usarlo inmediatamente (más rápido)
+    if (stateFromMemory) {
+      state = stateFromMemory;
+      callLogger.debug('STATE_SOURCE_MEMORY_FAST', {
+        step: state.step,
+        reasoning: 'Estado cargado desde memoria para respuesta rápida'
+      });
+      
+      // Cargar desde BD en background para sincronizar (no bloquea)
+      setImmediate(async () => {
+        try {
+          const dbState = await loadCallState(CallSid);
+          if (dbState && dbState.updated_at > (state.updated_at || 0)) {
+            // Si el estado de BD es más reciente, actualizar memoria
+            conversationStates.set(CallSid, dbState);
+            callLogger.debug('STATE_SYNCED_FROM_DB_BACKGROUND');
+          }
+        } catch (error) {
+          callLogger.warn('STATE_SYNC_FROM_DB_FAILED', { error: error.message });
+        }
+      });
+    } else {
+      // Si no hay estado en memoria, cargar desde BD (solo cuando es necesario)
+      try {
+        stateFromDatabase = await loadCallState(CallSid);
+        if (stateFromDatabase) {
+          state = stateFromDatabase;
+          // Actualizar memoria con estado de BD para próximas requests
+          conversationStates.set(CallSid, state);
+          callLogger.debug('STATE_LOADED_FROM_DB', {
+            step: state.step,
+            hasData: Boolean(state.data && Object.keys(state.data).length > 0)
+          });
+        }
+      } catch (error) {
+        callLogger.warn('STATE_LOAD_FROM_DB_FAILED', { error: error.message });
       }
-    } catch (error) {
-      callLogger.warn('STATE_LOAD_FROM_DB_FAILED', { error: error.message });
-      // Si falla cargar desde BD, usar memoria como fallback
-      stateFromDatabase = null;
     }
     
-    // Usar estado de BD si existe, sino usar memoria, sino crear nuevo
-    if (stateFromDatabase) {
-      state = stateFromDatabase;
-      // Actualizar memoria con estado de BD para esta request
-      conversationStates.set(CallSid, state);
-      callLogger.debug('STATE_SOURCE_DATABASE');
-    } else if (stateFromMemory) {
-      state = stateFromMemory;
-      callLogger.debug('STATE_SOURCE_MEMORY');
-    } else {
-      // Crear nuevo estado
+    // Si aún no tenemos estado, crear uno nuevo
+    if (!state) {
       state = {
         step: 'greeting',
         data: {},
@@ -642,8 +672,8 @@ module.exports = async function handler(req, res) {
     // Detectar si esta es una request de procesamiento (después del mensaje de "procesando")
     const isProcessing = req.query && req.query.process === 'true';
     
-    // Guardar mensaje del usuario en el historial ANTES de procesar
-    // Si NO estamos procesando y hay input, guardarlo en el estado
+    // OPTIMIZACIÓN: Guardar mensaje del usuario en memoria inmediatamente (no esperar BD)
+    // Guardar en BD asíncronamente para no bloquear
     if (userInput && userInput.trim() && !isProcessing) {
       const lastEntry = state.conversationHistory[state.conversationHistory.length - 1];
       if (!lastEntry || lastEntry.role !== 'user' || lastEntry.message !== userInput) {
@@ -653,13 +683,14 @@ module.exports = async function handler(req, res) {
           timestamp: new Date().toISOString()
         });
         callLogger.debug('USER_MESSAGE_RECORDED', { message: userInput });
-        // Guardar el estado ANTES del redirect para que el input esté disponible en la siguiente request
-        try {
-          await saveCallState(CallSid, state);
-          callLogger.debug('STATE_SAVED_BEFORE_REDIRECT');
-        } catch (error) {
-          callLogger.warn('STATE_SAVE_FAILED_BEFORE_REDIRECT', { error: error.message });
-        }
+        // Actualizar memoria inmediatamente
+        conversationStates.set(CallSid, state);
+        // Guardar asíncronamente (no bloquear)
+        setImmediate(() => {
+          saveCallState(CallSid, state).catch(err => {
+            callLogger.warn('STATE_SAVE_FAILED_ASYNC_BEFORE_REDIRECT', { error: err.message });
+          });
+        });
       }
     }
     
@@ -705,7 +736,7 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // CRÍTICO: Actualizar estado en memoria (inmediato)
+    // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para la mayoría de casos
     callLogger.debug('STATE_PERSIST', { 
       step: state.step,
       dataKeys: state.data ? Object.keys(state.data) : [],
@@ -718,32 +749,47 @@ module.exports = async function handler(req, res) {
     });
     conversationStates.set(CallSid, state);
     
-    // CRÍTICO: En serverless, debemos guardar el estado SÍNCRONAMENTE antes de responder
-    // para asegurar que se persiste entre requests. Los errores de timeout son un problema
-    // pero es mejor tener latencia que perder datos.
-    const stateSaveStartTime = Date.now();
-    try {
-      await saveCallState(CallSid, state);
-      performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-      callLogger.info('STATE_SAVED', { 
-        step: state.step, 
-        timeMs: performanceMetrics.stateSaveTime,
-        dataKeys: state.data ? Object.keys(state.data) : [],
-        saved: true
-      });
-    } catch (error) {
-      performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-      callLogger.error('STATE_SAVE_FAILED', { 
-        error: error.message,
-        callSid: CallSid,
-        step: state.step,
-        timeMs: performanceMetrics.stateSaveTime,
-        // Log crítico: el estado NO se guardó, puede perderse en la próxima request
-        warning: 'STATE_NOT_PERSISTED_WILL_BE_LOST'
-      });
-      // No lanzar error, continuar con la respuesta, pero el estado puede perderse
-      // En producción, deberías considerar retry o cola de mensajes
+    // OPTIMIZACIÓN CRÍTICA: Guardar estado ASÍNCRONAMENTE para no bloquear la respuesta
+    // Esto reduce la latencia percibida significativamente (similar a Ringr.ai)
+    // Solo guardamos críticamente antes de pasos importantes (complete, confirm)
+    const isCriticalStep = state.step === 'complete' || state.step === 'confirm' || state.step === 'success';
+    
+    if (isCriticalStep) {
+      // Para pasos críticos, guardar síncronamente pero con timeout corto
+      const stateSaveStartTime = Date.now();
+      try {
+        // Usar Promise.race para timeout de 500ms máximo
+        await Promise.race([
+          saveCallState(CallSid, state),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('State save timeout')), 500))
+        ]);
+        performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
+        callLogger.info('STATE_SAVED_SYNC', { 
+          step: state.step, 
+          timeMs: performanceMetrics.stateSaveTime,
+          saved: true
+        });
+      } catch (error) {
+        performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
+        callLogger.warn('STATE_SAVE_TIMEOUT_OR_FAILED', { 
+          error: error.message,
+          step: state.step,
+          timeMs: performanceMetrics.stateSaveTime
+        });
+        // Continuar - el estado está en memoria y se guardará asíncronamente
+      }
     }
+    
+    // Guardar asíncronamente en background (no bloquea la respuesta)
+    setImmediate(() => {
+      saveCallState(CallSid, state).catch(err => {
+        callLogger.warn('STATE_SAVE_FAILED_ASYNC', { 
+          error: err.message,
+          callSid: CallSid,
+          step: state.step
+        });
+      });
+    });
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -926,16 +972,22 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       return null;
     }
 
-    // Usar Vertex AI para Gemini
+    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada para velocidad
     const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-2.5-flash-lite',
+      generationConfig: {
+        maxOutputTokens: 2048, // Reducir para respuesta más rápida
+        temperature: 0.7,
+        topP: 0.9,
+        topK: 40
+      }
     });
     geminiLogger.debug('🤖 GEMINI_MODEL_INITIALIZED', { 
       model: 'gemini-2.5-flash-lite',
       platform: 'Vertex AI',
       projectId: PROJECT_ID,
       location: LOCATION,
-      reasoning: 'Modelo de Gemini 2.5 Flash Lite inicializado en Vertex AI.'
+      reasoning: 'Modelo de Gemini 2.5 Flash Lite inicializado con configuración optimizada para velocidad.'
     });
     
     // PERFORMANCE: Medir tiempo de carga de datos
@@ -1217,9 +1269,15 @@ async function detectIntentionWithGemini(text, context = {}) {
       return { action: 'reservation' };
     }
 
-    // Usar Vertex AI para Gemini
+    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada
     const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-2.5-flash-lite',
+      generationConfig: {
+        maxOutputTokens: 512, // Muy corto para detección de intención
+        temperature: 0.3, // Baja temperatura para respuestas más deterministas
+        topP: 0.8,
+        topK: 20
+      }
     });
     
     const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
@@ -1236,7 +1294,8 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     geminiLogger.gemini('INTENTION_ANALYSIS_START', { text });
 
-    const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger);
+    // OPTIMIZACIÓN: Reducir reintentos a 2 para detección de intención (más rápido)
+    const result = await callGeminiWithRetry(model, prompt, 2, geminiLogger);
     const detectedIntention = extractTextFromVertexAIResponse(result).trim().toLowerCase();
     
     const validIntentions = ['reservation', 'modify', 'cancel', 'clarify'];
@@ -1262,9 +1321,15 @@ async function detectLanguageWithGemini(text) {
       return 'es'; // Fallback
     }
 
-    // Usar Vertex AI para Gemini
+    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada para detección rápida
     const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite'
+      model: 'gemini-2.5-flash-lite',
+      generationConfig: {
+        maxOutputTokens: 32, // Muy corto para solo código de idioma
+        temperature: 0.1, // Muy baja temperatura para respuesta determinista
+        topP: 0.7,
+        topK: 10
+      }
     });
     
     const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
@@ -1279,7 +1344,8 @@ Texto: "${text}"
 
 Responde SOLO con el código de 2 letras, sin explicaciones.`;
 
-    const result = await callGeminiWithRetry(model, prompt, 5);
+    // OPTIMIZACIÓN: Reducir reintentos a 2 para detección de idioma (más rápido)
+    const result = await callGeminiWithRetry(model, prompt, 2);
     const detectedLang = extractTextFromVertexAIResponse(result).trim().toLowerCase().substring(0, 2);
     
     const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
