@@ -2405,9 +2405,8 @@ async function processConversationStep(state, userInput, callLogger, performance
   const stepStartTime = Date.now();
   console.log(`[PROCESS_CONVERSATION_STEP_START] Step: ${state.step}, Input: "${userInput ? userInput.substring(0, 100) : 'empty'}", Processing: ${isProcessing}`);
   
-  try {
-    const step = state.step;
-    const text = userInput.toLowerCase();
+  const step = state.step;
+  const text = userInput.toLowerCase();
 
   const attachStep = (data) => {
     if (!data) {
