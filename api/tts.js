@@ -192,8 +192,8 @@ async function generateAudioWithVertexAI(text, language = 'es') {
       audioConfig: {
         audioEncoding: 'MP3', // MP3 es más rápido que LINEAR16 para streaming
         pitch: 0,
-        speakingRate: 1.1, // Ligeramente más rápido para reducir tiempo de reproducción
-        sampleRateHertz: 16000, // Reducido de 24000 a 16000 para generar más rápido (calidad aceptable para voz)
+        speakingRate: 1.2, // OPTIMIZACIÓN: Aumentado a 1.2 (20% más rápido) para reducir tiempo de reproducción
+        sampleRateHertz: 8000, // OPTIMIZACIÓN CRÍTICA: Reducido a 8000 Hz (suficiente para voz telefónica, genera mucho más rápido)
         volumeGainDb: 0 // Sin ganancia adicional para mantener velocidad
       },
       input: {
