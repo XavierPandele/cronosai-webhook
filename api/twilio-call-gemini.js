@@ -707,12 +707,33 @@ module.exports = async function handler(req, res) {
     }
 
     // Procesar según el paso actual
-    callLogger.debug('BEFORE_PROCESS_STEP', { step: state.step, hasInput: Boolean(userInput), isProcessing });
+    callLogger.info('BEFORE_PROCESS_STEP', { 
+      step: state.step, 
+      hasInput: Boolean(userInput), 
+      inputLength: userInput ? userInput.length : 0,
+      inputPreview: userInput ? userInput.substring(0, 100) : 'empty',
+      isProcessing 
+    });
     const previousStep = state.step;
     
     // PERFORMANCE: Pasar métricas al proceso de conversación
     const processStepStartTime = Date.now();
-    const response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
+    let response;
+    try {
+      response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
+    } catch (stepError) {
+      // LOGGING CRÍTICO: Capturar errores en processConversationStep
+      callLogger.error('PROCESS_STEP_ERROR', {
+        error: stepError.message,
+        stack: stepError.stack,
+        step: state.step,
+        userInput: userInput ? userInput.substring(0, 200) : 'empty',
+        stateData: state.data,
+        previousStep
+      });
+      console.error('❌ [ERROR] Error en processConversationStep:', stepError);
+      throw stepError; // Re-lanzar para que el catch principal lo maneje
+    }
     const processStepTime = Date.now() - processStepStartTime;
     performanceMetrics.processStepTime = processStepTime;
     
@@ -907,13 +928,44 @@ module.exports = async function handler(req, res) {
   } catch (error) {
     // PERFORMANCE: Loggear tiempo total incluso en caso de error
     const errorTotalTime = Date.now() - requestStartTime;
-    logger.error('TWILIO_CALL_HANDLER_ERROR', {
+    
+    // LOGGING CRÍTICO: Loggear TODA la información del error para debugging
+    const errorContext = {
       message: error.message,
       stack: error.stack,
       name: error.name,
       totalTimeMs: errorTotalTime,
-      callSid: CallSid || 'unknown'
-    });
+      callSid: CallSid || 'unknown',
+      method: req.method,
+      url: req.url,
+      hasBody: Boolean(req.body),
+      bodyType: typeof req.body,
+      bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : [],
+      queryKeys: req.query ? Object.keys(req.query) : [],
+      headers: {
+        'content-type': req.headers['content-type'],
+        'user-agent': req.headers['user-agent'],
+        host: req.headers.host
+      }
+    };
+    
+    // Intentar extraer más información del error si está disponible
+    if (error.code) errorContext.code = error.code;
+    if (error.status) errorContext.status = error.status;
+    if (error.statusCode) errorContext.statusCode = error.statusCode;
+    if (error.response) {
+      errorContext.responseStatus = error.response.status;
+      errorContext.responseData = typeof error.response.data === 'string' 
+        ? error.response.data.substring(0, 500) 
+        : error.response.data;
+    }
+    
+    // Loggear con ERROR level (siempre visible)
+    console.error('❌ [ERROR CRÍTICO] TWILIO_CALL_HANDLER_ERROR:', JSON.stringify(errorContext, null, 2));
+    logger.error('TWILIO_CALL_HANDLER_ERROR', errorContext);
+    
+    // También loggear con console.error para asegurar visibilidad en Vercel
+    console.error('❌ [ERROR] Stack trace completo:', error.stack);
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -1247,11 +1299,31 @@ NOTA SOBRE VALIDACIONES:
     
   } catch (error) {
     const errorTime = Date.now() - geminiStartTime;
-    logger.error('GEMINI_ANALYSIS_ERROR', { 
-      message: error.message, 
+    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    
+    // LOGGING CRÍTICO: Loggear TODA la información del error
+    const errorInfo = {
+      error: error.message,
       stack: error.stack,
-      timeMs: errorTime
-    });
+      name: error.name,
+      timeMs: errorTime,
+      inputLength: userInput ? userInput.length : 0,
+      inputPreview: userInput ? userInput.substring(0, 500) : 'empty',
+      context: context
+    };
+    
+    if (error.code) errorInfo.code = error.code;
+    if (error.status) errorInfo.status = error.status;
+    if (error.response) {
+      errorInfo.responseStatus = error.response.status;
+      errorInfo.responseData = typeof error.response.data === 'string' 
+        ? error.response.data.substring(0, 500) 
+        : error.response.data;
+    }
+    
+    console.error('❌ [ERROR] GEMINI_ANALYSIS_ERROR:', JSON.stringify(errorInfo, null, 2));
+    geminiLogger.error('GEMINI_ANALYSIS_ERROR', errorInfo);
+    
     if (context.performanceMetrics) {
       context.performanceMetrics.geminiTime = errorTime;
     }
