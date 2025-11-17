@@ -37,36 +37,38 @@ function getTTSClient() {
   return ttsClient;
 }
 
-// Mapeo de idiomas y voces Chirp
+// Mapeo de idiomas y voces Chirp 3 HD
+// Formato correcto: <locale>-Chirp3-HD-<voice>
+// Referencia: https://docs.cloud.google.com/text-to-speech/docs/chirp3-hd?hl=es-419
 const voiceConfig = {
   es: {
     languageCode: 'es-ES',
-    voiceName: 'es-ES-Chirp-1',
+    voiceName: 'es-ES-Chirp3-HD-Vindemiatrix', // Femenina
     ssmlGender: 'FEMALE'
   },
   en: {
     languageCode: 'en-US',
-    voiceName: 'en-US-Chirp-2',
+    voiceName: 'en-US-Chirp3-HD-Leda', // Femenina
     ssmlGender: 'FEMALE'
   },
   de: {
     languageCode: 'de-DE',
-    voiceName: 'de-DE-Chirp-1',
+    voiceName: 'de-DE-Chirp3-HD-Kore', // Femenina
     ssmlGender: 'FEMALE'
   },
   it: {
     languageCode: 'it-IT',
-    voiceName: 'it-IT-Chirp-1',
+    voiceName: 'it-IT-Chirp3-HD-Kore', // Femenina
     ssmlGender: 'FEMALE'
   },
   fr: {
     languageCode: 'fr-FR',
-    voiceName: 'fr-FR-Chirp-1',
+    voiceName: 'fr-FR-Chirp3-HD-Kore', // Femenina
     ssmlGender: 'FEMALE'
   },
   pt: {
     languageCode: 'pt-BR',
-    voiceName: 'pt-BR-Chirp-1',
+    voiceName: 'pt-BR-Chirp3-HD-Kore', // Femenina
     ssmlGender: 'FEMALE'
   }
 };
