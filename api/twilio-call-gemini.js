@@ -14,8 +14,11 @@ const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-
 let CircuitBreaker;
 try {
   CircuitBreaker = require('opossum');
+  console.log('✅ [CIRCUIT_BREAKER] opossum cargado correctamente');
 } catch (error) {
   console.warn('⚠️ [CIRCUIT_BREAKER] opossum no disponible, usando modo degradado sin Circuit Breaker');
+  console.warn('⚠️ [CIRCUIT_BREAKER] Error:', error.message);
+  console.warn('⚠️ [CIRCUIT_BREAKER] Asegúrate de que opossum esté instalado: npm install opossum');
   CircuitBreaker = null;
 }
 
@@ -746,7 +749,7 @@ module.exports = async function handler(req, res) {
       const twiml = generateTwiML({
         message: greetingMessage,
         gather: true
-      }, 'es');
+      }, 'es', null, null, 'greeting');
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send(twiml);
     }
@@ -865,6 +868,34 @@ module.exports = async function handler(req, res) {
     
     // Detectar si esta es una request de procesamiento (después del mensaje de "procesando")
     const isProcessing = req.query && req.query.process === 'true';
+    
+    // CRÍTICO: Filtrar webhooks de partialResultCallback sin input
+    // Si no hay input del usuario y el estado ya está esperando input,
+    // probablemente es un webhook de partialResultCallback que debemos ignorar
+    // Solo procesar si:
+    // 1. Hay input del usuario (SpeechResult o Digits)
+    // 2. Es una request de procesamiento (isProcessing)
+    // 3. Es el primer webhook de la llamada (greeting step y no hay historial)
+    // 4. La llamada está terminando (CallStatus !== 'in-progress')
+    const isInitialGreeting = state.step === 'greeting' && (!state.conversationHistory || state.conversationHistory.length === 0);
+    const isCallEnding = CallStatus && CallStatus !== 'in-progress';
+    const shouldProcess = userInput || isProcessing || isInitialGreeting || isCallEnding;
+    
+    if (!shouldProcess) {
+      // Ignorar este webhook - es un partialResultCallback sin input
+      // Devolver un TwiML vacío para evitar procesamiento innecesario
+      callLogger.debug('PARTIAL_RESULT_IGNORED', {
+        step: state.step,
+        hasInput: Boolean(userInput),
+        isProcessing,
+        isInitialGreeting,
+        isCallEnding,
+        callStatus: CallStatus,
+        reasoning: 'Webhook de partialResultCallback sin input - ignorado para evitar bucle infinito'
+      });
+      res.setHeader('Content-Type', 'text/xml');
+      return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    }
     
     // OPTIMIZACIÓN: Guardar mensaje del usuario en memoria inmediatamente (no esperar BD)
     // Guardar en BD asíncronamente para no bloquear
@@ -1098,7 +1129,7 @@ module.exports = async function handler(req, res) {
         const protocol = req.headers['x-forwarded-proto'] || 'https';
         const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
         const baseUrl = `${protocol}://${host}`;
-        const twiml = generateTwiML({ message, gather: true }, state.language, null, baseUrl);
+        const twiml = generateTwiML({ message, gather: true }, state.language, null, baseUrl, state.step);
         res.setHeader('Content-Type', 'text/xml');
         return res.status(200).send(twiml);
       }
@@ -1127,8 +1158,8 @@ module.exports = async function handler(req, res) {
     const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
     const baseUrl = `${protocol}://${host}`;
     
-    // Generar TwiML response
-    const twiml = generateTwiML(response, state.language, null, baseUrl);
+    // Generar TwiML response (pasar step actual para evitar interjecciones en greeting)
+    const twiml = generateTwiML(response, state.language, null, baseUrl, state.step);
     
     // PERFORMANCE: Calcular tiempo total y loggear métricas
     performanceMetrics.totalTime = Date.now() - requestStartTime;
@@ -5431,11 +5462,11 @@ function getTtsAudioUrl(text, language, baseUrl) {
  * Genera TwiML usando la voz Algieba de Google Cloud Text-to-Speech
  * Usa <Play> en lugar de <Say> para reproducir audio generado por TTS
  */
-function generateTwiML(response, language = 'es', processingMessage = null, baseUrl = null) {
+function generateTwiML(response, language = 'es', processingMessage = null, baseUrl = null, currentStep = null) {
   const { message, gather = true, redirect, voiceConfig: responseVoiceConfig, useAlgieba = true, addNaturalFlow = true } = response;
 
   const twimlStartTime = Date.now();
-  console.log(`🎤 [TTS] generateTwiML INICIO - Idioma: ${language}, Mensaje: "${message ? message.substring(0, 50) : 'null'}...", UseAlgieba: ${useAlgieba}, NaturalFlow: ${addNaturalFlow}`);
+  console.log(`🎤 [TTS] generateTwiML INICIO - Idioma: ${language}, Mensaje: "${message ? message.substring(0, 50) : 'null'}...", UseAlgieba: ${useAlgieba}, NaturalFlow: ${addNaturalFlow}, Step: ${currentStep || 'unknown'}`);
 
   // MEJORADO: Procesar mensaje para añadir fluidez natural (interjecciones, fragmentación)
   let processedMessage = message;
@@ -5443,8 +5474,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     // Detectar contexto del mensaje
     const context = detectMessageContext(message, language);
     
-    // Añadir interjecciones naturales
-    processedMessage = addNaturalInterjection(message, language, context);
+    // Añadir interjecciones naturales (evitar en greeting)
+    processedMessage = addNaturalInterjection(message, language, context, currentStep);
     
     console.log(`🎤 [NATURAL_FLOW] Contexto: ${context}, Mensaje procesado: "${processedMessage.substring(0, 60)}..."`);
   }
@@ -5899,8 +5930,11 @@ function getRandomMessage(messages) {
  * @param {string} context - Contexto de la conversación ('thinking', 'confirming', 'processing', 'normal')
  * @returns {string} Mensaje con interjección añadida (o sin ella si no aplica)
  */
-function addNaturalInterjection(message, language = 'es', context = 'normal') {
+function addNaturalInterjection(message, language = 'es', context = 'normal', step = null) {
   if (!message || message.trim().length === 0) return message;
+  
+  // NO añadir interjecciones en el saludo inicial (greeting) - suena artificial
+  if (step === 'greeting') return message;
   
   // Probabilidad de añadir interjección (60% para sonar natural pero no excesivo)
   if (Math.random() > 0.6) return message;
