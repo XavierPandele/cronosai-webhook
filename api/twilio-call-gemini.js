@@ -5398,18 +5398,34 @@ function getTtsAudioUrl(text, language, baseUrl) {
  * Usa <Play> en lugar de <Say> para reproducir audio generado por TTS
  */
 function generateTwiML(response, language = 'es', processingMessage = null, baseUrl = null) {
-  const { message, gather = true, redirect, voiceConfig: responseVoiceConfig, useAlgieba = true } = response;
+  const { message, gather = true, redirect, voiceConfig: responseVoiceConfig, useAlgieba = true, addNaturalFlow = true } = response;
 
   const twimlStartTime = Date.now();
-  console.log(`🎤 [TTS] generateTwiML INICIO - Idioma: ${language}, Mensaje: "${message ? message.substring(0, 50) : 'null'}...", UseAlgieba: ${useAlgieba}`);
+  console.log(`🎤 [TTS] generateTwiML INICIO - Idioma: ${language}, Mensaje: "${message ? message.substring(0, 50) : 'null'}...", UseAlgieba: ${useAlgieba}, NaturalFlow: ${addNaturalFlow}`);
+
+  // MEJORADO: Procesar mensaje para añadir fluidez natural (interjecciones, fragmentación)
+  let processedMessage = message;
+  if (addNaturalFlow !== false && message) {
+    // Detectar contexto del mensaje
+    const context = detectMessageContext(message, language);
+    
+    // Añadir interjecciones naturales
+    processedMessage = addNaturalInterjection(message, language, context);
+    
+    console.log(`🎤 [NATURAL_FLOW] Contexto: ${context}, Mensaje procesado: "${processedMessage.substring(0, 60)}..."`);
+  }
 
   // MEJORADO: Usar voz Algieba de Google Cloud Text-to-Speech
   // Si useAlgieba es true, usar <Play> con endpoint TTS
   // Si es false, usar <Say> con voces de Twilio (fallback)
   if (useAlgieba !== false) {
+    // Fragmentar mensaje largo para añadir pausas naturales
+    const messageFragments = fragmentLongMessage(processedMessage, 120);
+    console.log(`🎤 [NATURAL_FLOW] Mensaje fragmentado en ${messageFragments.length} partes`);
+    
     // OPTIMIZACIÓN: Intentar usar TTS Play (voz Algieba Flash) con fallback a Say si falla
     const ttsUrlStartTime = Date.now();
-    const audioUrl = getTtsAudioUrl(message, language, baseUrl);
+    const audioUrl = getTtsAudioUrl(processedMessage, language, baseUrl);
     const ttsUrlTime = Date.now() - ttsUrlStartTime;
     
     // Usar TTS Play (voz Algieba Flash) - con fallback a Say si hay error
@@ -5419,10 +5435,16 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
-      // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
+      // Añadir pausa inicial ocasional para sonar más natural
+      let redirectTwiML = '';
+      if (addNaturalFlow !== false && Math.random() > 0.6) {
+        redirectTwiML = `<Pause length="1"/>\n  `;
+      }
+      redirectTwiML += `<Play>${escapeXml(audioUrl)}</Play>`;
+      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${escapeXml(audioUrl)}</Play>
+  ${redirectTwiML}
   <Redirect method="POST">${escapeXml(redirect)}</Redirect>
 </Response>`;
     }
@@ -5454,8 +5476,36 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       };
       const sayVoice = voiceConfig[language] || voiceConfig.es;
       
+      // MEJORADO: Construir TwiML con pausas naturales si hay fragmentos
+      let twimlContent = '';
+      
+      if (messageFragments.length === 1) {
+        // Mensaje corto: una sola reproducción con posible pausa inicial
+        if (addNaturalFlow !== false && Math.random() > 0.5) {
+          // Pausa inicial ocasional (40% de probabilidad)
+          twimlContent = `<Pause length="1"/>\n    `;
+        }
+        twimlContent += `<Play>${escapeXml(audioUrl)}</Play>`;
+      } else {
+        // Mensaje largo: fragmentar con pausas naturales entre fragmentos
+        messageFragments.forEach((fragment, index) => {
+          if (index === 0 && addNaturalFlow !== false && Math.random() > 0.5) {
+            // Pausa inicial ocasional
+            twimlContent += `<Pause length="1"/>\n    `;
+          }
+          // Generar URL TTS para cada fragmento
+          const fragmentAudioUrl = getTtsAudioUrl(fragment, language, baseUrl);
+          twimlContent += `<Play>${escapeXml(fragmentAudioUrl)}</Play>`;
+          if (index < messageFragments.length - 1) {
+            // Pausa entre fragmentos (0.5-1 segundo aleatorio para sonar natural)
+            const pauseLength = Math.random() > 0.5 ? '1' : '2';
+            twimlContent += `\n    <Pause length="${pauseLength}"/>`;
+          }
+        });
+      }
+      
       // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
-      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando SOLO Play (Algieba Flash) - SIN fallback`);
+      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando SOLO Play (Algieba Flash) con ${messageFragments.length} fragmento(s)`);
       const noInputMessage = getRandomMessage(language === 'es' ? [
         'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
         'Perdón, no he oído nada. ¿Sigue en la línea?',
@@ -5476,17 +5526,23 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     language="${gatherLanguage}"
     speechTimeout="1"
     timeout="4">
-    <Play>${escapeXml(audioUrl)}</Play>
+    ${twimlContent}
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
     } else {
-      // Solo decir el mensaje y colgar (sin pausa innecesaria para reducir tiempos)
-      // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
+      // Solo decir el mensaje y colgar
+      // Añadir pausa inicial ocasional para sonar más natural
+      let hangupTwiML = '';
+      if (addNaturalFlow !== false && Math.random() > 0.5) {
+        hangupTwiML = `<Pause length="1"/>\n  `;
+      }
+      hangupTwiML += `<Play>${escapeXml(audioUrl)}</Play>`;
+      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${escapeXml(audioUrl)}</Play>
+  ${hangupTwiML}
   <Hangup/>
 </Response>`;
     }
@@ -5506,16 +5562,46 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   const config = responseVoiceConfig || voiceConfig[language] || voiceConfig.es;
   console.log(`🎤 [DEBUG] Configuración de voz seleccionada (fallback):`, config);
 
+  // Aplicar procesamiento natural también en fallback
+  let fallbackMessage = processedMessage || message;
+  const messageFragments = fragmentLongMessage(fallbackMessage, 120);
+
   // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
   if (redirect) {
+    let redirectTwiML = '';
+    if (addNaturalFlow !== false && Math.random() > 0.6) {
+      redirectTwiML = `<Pause length="1"/>\n  `;
+    }
+    redirectTwiML += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fallbackMessage)}</Say>`;
+    
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
+  ${redirectTwiML}
   <Redirect method="POST">${escapeXml(redirect)}</Redirect>
 </Response>`;
   }
 
   if (gather) {
+    // Construir contenido con pausas naturales
+    let sayContent = '';
+    if (messageFragments.length === 1) {
+      if (addNaturalFlow !== false && Math.random() > 0.5) {
+        sayContent = `<Pause length="1"/>\n    `;
+      }
+      sayContent += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fallbackMessage)}</Say>`;
+    } else {
+      messageFragments.forEach((fragment, index) => {
+        if (index === 0 && addNaturalFlow !== false && Math.random() > 0.5) {
+          sayContent += `<Pause length="1"/>\n    `;
+        }
+        sayContent += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fragment)}</Say>`;
+        if (index < messageFragments.length - 1) {
+          const pauseLength = Math.random() > 0.5 ? '1' : '2';
+          sayContent += `\n    <Pause length="${pauseLength}"/>`;
+        }
+      });
+    }
+    
     // Usar Gather para capturar la respuesta del usuario
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -5526,7 +5612,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     language="${config.language}"
     speechTimeout="1"
     timeout="4">
-    <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
+    ${sayContent}
   </Gather>
   <Say voice="${config.voice}" language="${config.language}">${getRandomMessage(language === 'es' ? [
     'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
@@ -5541,10 +5627,16 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   <Redirect>/api/twilio-call-gemini</Redirect>
 </Response>`;
   } else {
-    // Solo decir el mensaje y colgar (sin pausa innecesaria para reducir tiempos)
+    // Solo decir el mensaje y colgar
+    let hangupTwiML = '';
+    if (addNaturalFlow !== false && Math.random() > 0.5) {
+      hangupTwiML = `<Pause length="1"/>\n  `;
+    }
+    hangupTwiML += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fallbackMessage)}</Say>`;
+    
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${config.voice}" language="${config.language}">${escapeXml(message)}</Say>
+  ${hangupTwiML}
   <Hangup/>
 </Response>`;
   }
@@ -5760,6 +5852,151 @@ async function saveReservation(state, performanceMetrics = null) {
 function getRandomMessage(messages) {
   const randomIndex = Math.floor(Math.random() * messages.length);
   return messages[randomIndex];
+}
+
+/**
+ * Añade interjecciones naturales al inicio de los mensajes para sonar más humano
+ * @param {string} message - Mensaje original
+ * @param {string} language - Idioma ('es', 'en', etc.)
+ * @param {string} context - Contexto de la conversación ('thinking', 'confirming', 'processing', 'normal')
+ * @returns {string} Mensaje con interjección añadida (o sin ella si no aplica)
+ */
+function addNaturalInterjection(message, language = 'es', context = 'normal') {
+  if (!message || message.trim().length === 0) return message;
+  
+  // Probabilidad de añadir interjección (60% para sonar natural pero no excesivo)
+  if (Math.random() > 0.6) return message;
+  
+  const interjections = {
+    es: {
+      thinking: ['Emm', 'Aja', 'Déjame ver', 'A ver', 'Vale', 'Claro', 'Bueno'],
+      confirming: ['Perfecto', 'Vale', 'Claro', 'De acuerdo', 'Bien', 'Aja', 'Perfecto, vale'],
+      processing: ['Aja', 'Vale', 'Claro', 'Perfecto', 'Bien', 'Déjame ver'],
+      normal: ['Vale', 'Claro', 'Bien', 'Perfecto', 'Aja', 'Emm', 'Bueno']
+    },
+    en: {
+      thinking: ['Hmm', 'Well', 'Let me see', 'Okay', 'Right', 'Uh'],
+      confirming: ['Perfect', 'Okay', 'Right', 'Sure', 'Got it', 'Alright'],
+      processing: ['Okay', 'Right', 'Sure', 'Got it', 'Let me see'],
+      normal: ['Okay', 'Right', 'Sure', 'Well', 'Hmm', 'Uh']
+    }
+  };
+  
+  const langInterjections = interjections[language] || interjections.es;
+  const contextInterjections = langInterjections[context] || langInterjections.normal;
+  const interjection = getRandomMessage(contextInterjections);
+  
+  // Añadir interjección con coma o punto según el contexto
+  // Si el mensaje ya empieza con mayúscula, mantenerla; si no, capitalizar
+  const firstChar = message.trim()[0];
+  const restOfMessage = message.trim().substring(1);
+  const capitalizedMessage = firstChar.toUpperCase() + restOfMessage;
+  
+  return `${interjection}, ${capitalizedMessage}`;
+}
+
+/**
+ * Fragmenta mensajes largos en partes más naturales con pausas
+ * @param {string} message - Mensaje original
+ * @param {number} maxLength - Longitud máxima por fragmento (default: 120 caracteres)
+ * @returns {Array} Array de fragmentos del mensaje
+ */
+function fragmentLongMessage(message, maxLength = 120) {
+  if (!message || message.length <= maxLength) {
+    return [message];
+  }
+  
+  // Dividir por puntos, comas, puntos y comas, o signos de interrogación
+  const sentences = message.split(/([.,;?!])\s*/).filter(s => s.trim().length > 0);
+  const fragments = [];
+  let currentFragment = '';
+  
+  for (let i = 0; i < sentences.length; i++) {
+    const sentence = sentences[i];
+    
+    // Si añadir esta oración excede el límite, guardar fragmento actual
+    if (currentFragment.length + sentence.length > maxLength && currentFragment.length > 0) {
+      fragments.push(currentFragment.trim());
+      currentFragment = sentence;
+    } else {
+      currentFragment += (currentFragment ? ' ' : '') + sentence;
+    }
+  }
+  
+  if (currentFragment.trim().length > 0) {
+    fragments.push(currentFragment.trim());
+  }
+  
+  return fragments.length > 0 ? fragments : [message];
+}
+
+/**
+ * Añade confirmaciones naturales después de procesar input del usuario
+ * @param {string} userInput - Input del usuario
+ * @param {string} language - Idioma
+ * @returns {string} Confirmación natural o string vacío
+ */
+function getNaturalAcknowledgment(userInput, language = 'es') {
+  // Solo añadir confirmación ocasionalmente (25% de las veces para no ser repetitivo)
+  if (Math.random() > 0.25) return '';
+  
+  const acknowledgments = {
+    es: ['Aja', 'Vale', 'Claro', 'Perfecto', 'Bien', 'De acuerdo', 'Entendido'],
+    en: ['Okay', 'Right', 'Got it', 'Sure', 'Perfect', 'Understood']
+  };
+  
+  const langAcks = acknowledgments[language] || acknowledgments.es;
+  return getRandomMessage(langAcks);
+}
+
+/**
+ * Detecta el contexto de un mensaje para añadir interjecciones apropiadas
+ * @param {string} message - Mensaje a analizar
+ * @param {string} language - Idioma
+ * @returns {string} Contexto detectado ('thinking', 'confirming', 'processing', 'normal')
+ */
+function detectMessageContext(message, language = 'es') {
+  if (!message) return 'normal';
+  
+  const lowerMessage = message.toLowerCase();
+  
+  // Patrones para detectar contexto
+  const thinkingPatterns = {
+    es: ['déjame ver', 'déjame comprobar', 'déjame buscar', 'verificar', 'comprobar', 'revisar'],
+    en: ['let me see', 'let me check', 'let me find', 'verify', 'check', 'review']
+  };
+  
+  const confirmingPatterns = {
+    es: ['perfecto', 'confirm', 'reserva', 'pedido', 'correcto', 'exacto', 'de acuerdo'],
+    en: ['perfect', 'confirm', 'reservation', 'order', 'correct', 'exactly', 'agreed']
+  };
+  
+  const processingPatterns = {
+    es: ['procesando', 'buscando', 'consultando', 'revisando', 'comprobando'],
+    en: ['processing', 'searching', 'checking', 'reviewing', 'consulting']
+  };
+  
+  const patterns = language === 'en' ? {
+    thinking: thinkingPatterns.en,
+    confirming: confirmingPatterns.en,
+    processing: processingPatterns.en
+  } : {
+    thinking: thinkingPatterns.es,
+    confirming: confirmingPatterns.es,
+    processing: processingPatterns.es
+  };
+  
+  if (patterns.thinking.some(pattern => lowerMessage.includes(pattern))) {
+    return 'thinking';
+  }
+  if (patterns.confirming.some(pattern => lowerMessage.includes(pattern))) {
+    return 'confirming';
+  }
+  if (patterns.processing.some(pattern => lowerMessage.includes(pattern))) {
+    return 'processing';
+  }
+  
+  return 'normal';
 }
 
 // Función para obtener mensajes de "procesando" multilingües
