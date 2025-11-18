@@ -1031,8 +1031,11 @@ module.exports = async function handler(req, res) {
     
     // OPTIMIZACIÓN CRÍTICA: Guardar estado ASÍNCRONAMENTE para no bloquear la respuesta
     // Esto reduce la latencia percibida significativamente (similar a Ringr.ai)
-    // Solo guardamos críticamente antes de pasos importantes (complete, confirm)
-    const isCriticalStep = state.step === 'complete' || state.step === 'confirm' || state.step === 'success';
+    // Solo guardamos críticamente antes de pasos importantes (complete, confirm, order steps)
+    // CRÍTICO: También guardar síncronamente para pasos de pedido para evitar pérdida de estado
+    const isCriticalStep = state.step === 'complete' || state.step === 'confirm' || state.step === 'success' ||
+      state.step === 'order_ask_address' || state.step === 'order_ask_name' || state.step === 'order_ask_phone' ||
+      state.step === 'order_ask_notes' || state.step === 'order_confirm' || state.step === 'order_collect_items';
     
     if (isCriticalStep) {
       // Para pasos críticos, guardar síncronamente pero con timeout corto
@@ -2354,16 +2357,45 @@ function findBestMenuMatch(rawName, menuItems = []) {
     return { match: null, score: 0 };
   }
   const normalizedRaw = normalizeOrderString(rawName);
+  // Extraer tokens del nombre buscado (eliminando números y palabras comunes)
+  const rawTokens = tokenizeOrder(rawName);
   let best = { match: null, score: 0 };
 
   menuItems.forEach(item => {
     const normalizedMenu = normalizeOrderString(item.nombre);
+    const menuTokens = tokenizeOrder(item.nombre);
     let score = 0;
+    
+    // Coincidencia exacta
     if (normalizedMenu === normalizedRaw) {
       score = 1;
-    } else if (normalizedMenu.includes(normalizedRaw) || normalizedRaw.includes(normalizedMenu)) {
+    }
+    // Coincidencia por substring (uno contiene al otro)
+    else if (normalizedMenu.includes(normalizedRaw) || normalizedRaw.includes(normalizedMenu)) {
       score = 0.85;
-    } else {
+    }
+    // Coincidencia por tokens: si todos los tokens del rawName están en el nombre del menú
+    else if (rawTokens.length > 0 && menuTokens.length > 0) {
+      const matchingTokens = rawTokens.filter(token => menuTokens.includes(token));
+      if (matchingTokens.length === rawTokens.length && rawTokens.length > 0) {
+        // Todos los tokens coinciden - score alto
+        score = 0.8;
+      } else if (matchingTokens.length > 0) {
+        // Algunos tokens coinciden - usar similaridad de tokens
+        score = computeTokenSimilarity(normalizedRaw, normalizedMenu);
+        // Bonus si hay al menos un token importante (más de 3 caracteres) que coincide
+        const importantTokens = rawTokens.filter(t => t.length > 3);
+        const importantMatches = importantTokens.filter(t => menuTokens.includes(t));
+        if (importantMatches.length > 0 && importantMatches.length === importantTokens.length) {
+          score = Math.max(score, 0.75); // Asegurar score mínimo alto si todos los tokens importantes coinciden
+        }
+      } else {
+        // Ningún token coincide - usar similaridad general
+        score = computeTokenSimilarity(normalizedRaw, normalizedMenu);
+      }
+    }
+    // Fallback: similaridad general
+    else {
       score = computeTokenSimilarity(normalizedRaw, normalizedMenu);
     }
 
