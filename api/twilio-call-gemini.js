@@ -2515,6 +2515,33 @@ function recalculateOrderTotals(order) {
   return order.total;
 }
 
+/**
+ * Formatea un precio para que suene natural al hablar
+ * @param {number} price - Precio en euros (ej: 12.40)
+ * @param {string} language - Idioma
+ * @returns {string} Precio formateado (ej: "12 con 40 euros")
+ */
+function formatPriceForSpeech(price, language = 'es') {
+  if (!Number.isFinite(price)) return '';
+  
+  const euros = Math.floor(price);
+  const cents = Math.round((price - euros) * 100);
+  
+  if (language === 'en') {
+    if (cents === 0) {
+      return `${euros} ${euros === 1 ? 'euro' : 'euros'}`;
+    }
+    return `${euros} euros and ${cents} cents`;
+  }
+  
+  // Español: "12 con 40 euros" (más natural que "12.40€")
+  if (cents === 0) {
+    return `${euros} ${euros === 1 ? 'euro' : 'euros'}`;
+  }
+  // Formato natural: "12 con 40 euros" (no "12 con 40 céntimos")
+  return `${euros} con ${cents} euros`;
+}
+
 function buildOrderSummary(order, language = 'es', includePrices = true) {
   if (!order?.items || order.items.length === 0) {
     return language === 'en'
@@ -2530,10 +2557,17 @@ function buildOrderSummary(order, language = 'es', includePrices = true) {
         ? `${name} (confirmar)`
         : `${name} (por confirmar)`;
     const qty = item.cantidad || 1;
-    const pricePart = includePrices && Number.isFinite(item.subtotal)
-      ? ` - ${item.subtotal.toFixed(2)}€`
-      : '';
-    return `${qty} × ${label}${pricePart}`;
+    
+    // Formato de cantidad: "2 pizza margarita" en lugar de "2 × pizza margarita"
+    let itemText = `${qty} ${label}`;
+    
+    // Formato de precio: "12 con 40 euros" en lugar de "12.40€"
+    if (includePrices && Number.isFinite(item.subtotal)) {
+      const priceText = formatPriceForSpeech(item.subtotal, language);
+      itemText += ` - ${priceText}`;
+    }
+    
+    return itemText;
   });
 
   return parts.join(', ');
@@ -2666,7 +2700,7 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
       const suggestionsList = firstSuggestion.suggestions
         .slice(0, 3)
         .map((s, idx) => {
-          const priceStr = s.precio ? `${s.precio.toFixed(2)}€` : '';
+          const priceStr = s.precio ? formatPriceForSpeech(s.precio, language) : '';
           return `${idx + 1}. ${s.nombre}${priceStr ? ` (${priceStr})` : ''}`;
         })
         .join(', ');
@@ -2726,7 +2760,7 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
       return getRandomMessage(langMessages);
     }
     case 'order_confirm': {
-      const totalStr = order.total ? `${order.total.toFixed(2)}€` : (language === 'en' ? 'pending' : 'pendiente');
+      const totalStr = order.total ? formatPriceForSpeech(order.total, language) : (language === 'en' ? 'pending' : 'pendiente');
       return language === 'en'
         ? `Order summary: ${summary}. Total: ${totalStr}. Shall we confirm and prepare it?`
         : `Resumen del pedido: ${summary}. Total: ${totalStr}. ¿Confirmamos para prepararlo?`;
@@ -5524,8 +5558,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="1"
-    timeout="4">
+    speechTimeout="auto"
+    timeout="10"
+    partialResultCallback="/api/twilio-call-gemini"
+    partialResultCallbackMethod="POST">
     ${twimlContent}
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
@@ -5572,7 +5608,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     if (addNaturalFlow !== false && Math.random() > 0.6) {
       redirectTwiML = `<Pause length="1"/>\n  `;
     }
-    redirectTwiML += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fallbackMessage)}</Say>`;
+    redirectTwiML += `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fallbackMessage)}</Say>`;
     
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -5588,13 +5624,13 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       if (addNaturalFlow !== false && Math.random() > 0.5) {
         sayContent = `<Pause length="1"/>\n    `;
       }
-      sayContent += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fallbackMessage)}</Say>`;
+      sayContent += `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fallbackMessage)}</Say>`;
     } else {
       messageFragments.forEach((fragment, index) => {
         if (index === 0 && addNaturalFlow !== false && Math.random() > 0.5) {
           sayContent += `<Pause length="1"/>\n    `;
         }
-        sayContent += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fragment)}</Say>`;
+        sayContent += `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fragment)}</Say>`;
         if (index < messageFragments.length - 1) {
           const pauseLength = Math.random() > 0.5 ? '1' : '2';
           sayContent += `\n    <Pause length="${pauseLength}"/>`;
@@ -5610,11 +5646,13 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="1"
-    timeout="4">
+    speechTimeout="auto"
+    timeout="10"
+    partialResultCallback="/api/twilio-call-gemini"
+    partialResultCallbackMethod="POST">
     ${sayContent}
   </Gather>
-  <Say voice="${config.voice}" language="${config.language}">${getRandomMessage(language === 'es' ? [
+  <Say voice="${config.voice}" language="${config.language}" rate="slow">${getRandomMessage(language === 'es' ? [
     'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
     'Perdón, no he oído nada. ¿Sigue en la línea?',
     '¿Está ahí? No he escuchado su respuesta.',
@@ -5632,7 +5670,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     if (addNaturalFlow !== false && Math.random() > 0.5) {
       hangupTwiML = `<Pause length="1"/>\n  `;
     }
-    hangupTwiML += `<Say voice="${config.voice}" language="${config.language}">${escapeXml(fallbackMessage)}</Say>`;
+    hangupTwiML += `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fallbackMessage)}</Say>`;
     
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
