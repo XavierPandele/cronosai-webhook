@@ -10,6 +10,15 @@ const logger = require('../lib/logging');
 const { sendReservationConfirmationRcs, sendOrderConfirmationRcs } = require('../lib/rcs');
 const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
 
+// Circuit Breaker para servicios externos (opcional, con fallback si no está disponible)
+let CircuitBreaker;
+try {
+  CircuitBreaker = require('opossum');
+} catch (error) {
+  console.warn('⚠️ [CIRCUIT_BREAKER] opossum no disponible, usando modo degradado sin Circuit Breaker');
+  CircuitBreaker = null;
+}
+
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
 
@@ -230,105 +239,288 @@ function extractTextFromVertexAIResponse(result) {
   }
 }
 
+// ===== FUNCIONES DE RESILIENCIA MEJORADAS =====
+
+/**
+ * Helper para sleep
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Retry con Exponential Backoff Inteligente
+ * Mejora sobre el retry básico: añade jitter y mejor manejo de errores
+ */
+async function retryWithBackoff(fn, options = {}) {
+  const {
+    maxRetries = 3,
+    initialDelay = 1000,
+    maxDelay = 10000,
+    factor = 2,
+    jitter = true,
+    retryableErrors = ['429', '503', 'timeout', 'ECONNRESET', 'ETIMEDOUT', 'overloaded', 'Resource exhausted']
+  } = options;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      // Si es el último intento, lanzar el error
+      if (i === maxRetries - 1) {
+        throw error;
+      }
+      
+      // Verificar si el error es recuperable
+      const errorMessage = error.message || String(error);
+      const isRetryable = retryableErrors.some(err => 
+        errorMessage.includes(err)
+      );
+      
+      if (!isRetryable) {
+        // Error no recuperable, no reintentar
+        throw error;
+      }
+      
+      // Calcular delay con exponential backoff
+      const baseDelay = initialDelay * Math.pow(factor, i);
+      const delay = Math.min(baseDelay, maxDelay);
+      
+      // Añadir jitter para evitar "thundering herd"
+      const jitterAmount = jitter ? Math.random() * 1000 : 0;
+      const totalDelay = delay + jitterAmount;
+      
+      // Log del retry (solo si hay logger disponible)
+      if (options.logger) {
+        options.logger.warn('RETRY_WITH_BACKOFF', {
+          attempt: i + 1,
+          maxRetries,
+          delayMs: Math.round(totalDelay),
+          error: errorMessage.substring(0, 100)
+        });
+      }
+      
+      await sleep(totalDelay);
+    }
+  }
+}
+
+/**
+ * Fallback básico basado en reglas cuando Gemini no está disponible
+ * Intenta extraer información básica usando expresiones regulares
+ */
+function useRuleBasedFallback(userInput, context = {}) {
+  const lowerInput = userInput.toLowerCase().trim();
+  const step = context.step || 'greeting';
+  
+  // Detección básica de intención
+  if (/reserv|mesa|reservar/i.test(lowerInput)) {
+    return {
+      intencion: 'reservation',
+      comensales: null,
+      fecha: null,
+      hora: null,
+      nombre: null,
+      idioma_detectado: 'es'
+    };
+  }
+  
+  if (/cancel|anular/i.test(lowerInput)) {
+    return {
+      intencion: 'cancel',
+      idioma_detectado: 'es'
+    };
+  }
+  
+  if (/modificar|cambiar|editar/i.test(lowerInput)) {
+    return {
+      intencion: 'modify',
+      idioma_detectado: 'es'
+    };
+  }
+  
+  if (/pedido|domicilio|comida/i.test(lowerInput)) {
+    return {
+      intencion: 'order',
+      idioma_detectado: 'es'
+    };
+  }
+  
+  // Extracción básica de números (personas)
+  const peopleMatch = lowerInput.match(/(\d+)\s*(persona|personas|gente|comensales)/i);
+  if (peopleMatch && step === 'ask_people') {
+    return {
+      intencion: 'reservation',
+      comensales: parseInt(peopleMatch[1]),
+      idioma_detectado: 'es'
+    };
+  }
+  
+  // Fallback genérico
+  return {
+    intencion: 'clarify',
+    idioma_detectado: 'es'
+  };
+}
+
+// ===== CIRCUIT BREAKER PARA GEMINI =====
+let geminiCircuitBreaker = null;
+
+if (CircuitBreaker) {
+  try {
+    // Función que envuelve la llamada a Gemini con retry
+    const geminiCallWithRetry = async (model, prompt, retries = 3, logger = null, context = {}) => {
+      return await retryWithBackoff(
+        async () => {
+          const GEMINI_TIMEOUT_MS = 8000;
+          const generatePromise = model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              maxOutputTokens: 2048,
+              temperature: 0.7
+            }
+          });
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Gemini API timeout')), GEMINI_TIMEOUT_MS)
+          );
+          
+          return await Promise.race([generatePromise, timeoutPromise]);
+        },
+        {
+          maxRetries: retries,
+          initialDelay: 1000,
+          maxDelay: 10000,
+          factor: 2,
+          jitter: true,
+          retryableErrors: ['429', '503', 'timeout', 'ECONNRESET', 'ETIMEDOUT', 'overloaded', 'Resource exhausted'],
+          logger: logger
+        }
+      );
+    };
+    
+    // Crear Circuit Breaker
+    geminiCircuitBreaker = new CircuitBreaker(geminiCallWithRetry, {
+      timeout: 5000,
+      errorThresholdPercentage: 50,
+      resetTimeout: 30000,
+      rollingCountTimeout: 60000,
+      rollingCountBuckets: 10
+    });
+    
+    // Fallback cuando el circuito está abierto
+    geminiCircuitBreaker.fallback(async (model, prompt, retries, logger, context) => {
+      if (logger) {
+        logger.warn('CIRCUIT_BREAKER_FALLBACK', {
+          reasoning: 'Circuit breaker está abierto, usando fallback basado en reglas'
+        });
+      }
+      // Retornar un objeto que simula la respuesta de Gemini
+      const fallbackResult = useRuleBasedFallback(prompt, context);
+      return {
+        response: {
+          text: () => JSON.stringify(fallbackResult)
+        }
+      };
+    });
+    
+    // Event listeners para monitoreo
+    geminiCircuitBreaker.on('open', () => {
+      console.warn('🔴 [CIRCUIT_BREAKER] Circuito ABIERTO - Gemini está fallando, usando fallback');
+      logger?.warn('CIRCUIT_BREAKER_OPEN', { reasoning: 'Gemini está fallando repetidamente' });
+    });
+    
+    geminiCircuitBreaker.on('halfOpen', () => {
+      console.log('🟡 [CIRCUIT_BREAKER] Circuito HALF-OPEN - Probando si Gemini se recuperó');
+      logger?.info('CIRCUIT_BREAKER_HALF_OPEN', { reasoning: 'Probando recuperación de Gemini' });
+    });
+    
+    geminiCircuitBreaker.on('close', () => {
+      console.log('🟢 [CIRCUIT_BREAKER] Circuito CERRADO - Gemini funcionando normalmente');
+      logger?.info('CIRCUIT_BREAKER_CLOSE', { reasoning: 'Gemini se recuperó' });
+    });
+    
+    console.log('✅ [CIRCUIT_BREAKER] Circuit Breaker inicializado para Gemini');
+  } catch (error) {
+    console.warn('⚠️ [CIRCUIT_BREAKER] Error inicializando Circuit Breaker:', error.message);
+    geminiCircuitBreaker = null;
+  }
+}
+
 // ===== FUNCIÓN DE RETRY PARA LLAMADAS A GEMINI =====
 /**
  * Llama a Gemini con retry automático para manejar rate limiting (429) y otros errores temporales
+ * MEJORADO: Ahora usa Circuit Breaker y Exponential Backoff Inteligente
  * @param {Object} model - Modelo de Gemini
  * @param {string} prompt - Prompt a enviar
- * @param {number} retries - Número máximo de reintentos (default: 5)
+ * @param {number} retries - Número máximo de reintentos (default: 3)
  * @param {Object} logger - Logger opcional para registrar intentos
+ * @param {Object} context - Contexto adicional (para fallback)
  * @returns {Promise<Object>} Resultado de generateContent
  */
-async function callGeminiWithRetry(model, prompt, retries = 3, logger = null) {
-  let lastError = null;
-  
-  // OPTIMIZACIÓN: Reducir reintentos de 5 a 3 para respuestas más rápidas
-  // Timeout más agresivo para evitar esperas largas
-  const GEMINI_TIMEOUT_MS = 8000; // 8 segundos máximo por llamada
-  
-  for (let i = 0; i < retries; i++) {
+async function callGeminiWithRetry(model, prompt, retries = 3, logger = null, context = {}) {
+  // Si tenemos Circuit Breaker disponible, usarlo
+  if (geminiCircuitBreaker) {
     try {
-      // OPTIMIZACIÓN: Usar Promise.race con timeout para evitar esperas infinitas
-      const generatePromise = model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: 2048, // Reducir tokens máximos para respuesta más rápida
-          temperature: 0.7 // Mantener creatividad pero con respuesta más rápida
-        }
-      });
-      
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Gemini API timeout')), GEMINI_TIMEOUT_MS)
-      );
-      
-      const result = await Promise.race([generatePromise, timeoutPromise]);
-      
-      // Si llegamos aquí, la llamada fue exitosa
-      if (i > 0 && logger) {
-        logger.debug('GEMINI_RETRY_SUCCESS', { 
-          attempt: i + 1, 
-          totalAttempts: i + 1,
-          reasoning: `Llamada exitosa después de ${i} reintentos.`
+      return await geminiCircuitBreaker.fire(model, prompt, retries, logger, context);
+    } catch (error) {
+      // Si el Circuit Breaker falla, usar fallback basado en reglas
+      if (logger) {
+        logger.warn('CIRCUIT_BREAKER_ERROR', {
+          error: error.message,
+          reasoning: 'Error en Circuit Breaker, usando fallback'
         });
       }
-      return result;
-    } catch (error) {
-      lastError = error;
-      const errorMessage = error.message || String(error);
-      const isRateLimit = errorMessage.includes('429') || 
-                         errorMessage.includes('Resource exhausted') ||
-                         errorMessage.includes('overloaded');
-      const isTemporary = errorMessage.includes('503') || 
-                         errorMessage.includes('Service Unavailable') ||
-                         errorMessage.includes('temporarily unavailable') ||
-                         errorMessage.includes('timeout');
-      
-      // Solo reintentar en errores 429 (rate limit), 503 (service unavailable) o timeout
-      if (isRateLimit || isTemporary) {
-        // OPTIMIZACIÓN: Backoff más agresivo y corto para respuestas más rápidas
-        // 500ms, 1000ms, 2000ms (máximo 2 segundos)
-        const baseDelay = 500;
-        const wait = Math.min(baseDelay * Math.pow(2, i), 2000);
-        
-        if (logger) {
-          logger.warn('GEMINI_RETRY_ATTEMPT', {
-            attempt: i + 1,
-            maxRetries: retries,
-            waitMs: wait,
-            error: errorMessage.substring(0, 100),
-            reasoning: `Rate limit o timeout detectado. Esperando ${wait}ms antes del reintento.`
-          });
-        } else {
-          console.warn(`⚠️ [GEMINI] Rate limited/timeout (intento ${i + 1}/${retries}). Esperando ${wait}ms...`);
-        }
-        
-        // Esperar antes de reintentar
-        await new Promise(resolve => setTimeout(resolve, wait));
-        continue; // Reintentar
-      } else {
-        // Error no recuperable, lanzar inmediatamente
-        if (logger) {
-          logger.error('GEMINI_NON_RETRYABLE_ERROR', {
-            error: errorMessage,
-            stack: error.stack,
-            reasoning: 'Error no relacionado con rate limiting. No se reintentará.'
-          });
-        }
-        throw error;
-      }
+      // El fallback ya se ejecutó automáticamente, pero si hay error, lanzarlo
+      throw error;
     }
   }
   
-  // Si llegamos aquí, todos los reintentos fallaron
-  const errorMsg = `Vertex AI Gemini overloaded after ${retries} retries. Last error: ${lastError?.message || 'Unknown error'}.`;
-  if (logger) {
-    logger.error('GEMINI_RETRY_EXHAUSTED', {
-      retries,
-      lastError: lastError?.message,
-      reasoning: `Todos los reintentos fallaron en Vertex AI. Verificar que Vertex AI API esté habilitada.`
-    });
+  // FALLBACK: Código original si no hay Circuit Breaker (compatibilidad hacia atrás)
+  let lastError = null;
+  const GEMINI_TIMEOUT_MS = 8000;
+  
+  // Usar retryWithBackoff mejorado si está disponible
+  try {
+    return await retryWithBackoff(
+      async () => {
+        const generatePromise = model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: 2048,
+            temperature: 0.7
+          }
+        });
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Gemini API timeout')), GEMINI_TIMEOUT_MS)
+        );
+        
+        return await Promise.race([generatePromise, timeoutPromise]);
+      },
+      {
+        maxRetries: retries,
+        initialDelay: 1000,
+        maxDelay: 10000,
+        factor: 2,
+        jitter: true,
+        retryableErrors: ['429', '503', 'timeout', 'ECONNRESET', 'ETIMEDOUT', 'overloaded', 'Resource exhausted'],
+        logger: logger
+      }
+    );
+  } catch (error) {
+    // Si todos los reintentos fallan, intentar fallback basado en reglas
+    if (logger) {
+      logger.warn('GEMINI_ALL_RETRIES_FAILED', {
+        error: error.message,
+        reasoning: 'Todos los reintentos fallaron, usando fallback basado en reglas'
+      });
+    }
+    
+    // Lanzar el error original para mantener compatibilidad
+    // El código que llama a esta función puede manejar el error
+    throw error;
   }
-  throw new Error(errorMsg);
 }
 
 // ===== CACHE DE ANÁLISIS DE GEMINI =====
@@ -1250,13 +1442,57 @@ NOTA SOBRE INTENCIÓN:
 - "order": El usuario quiere hacer un pedido a domicilio usando la carta
 - "clarify": El texto es ambiguo o no indica una intención clara
 
-NOTA SOBRE "order":
+NOTA SOBRE "order" (MUY IMPORTANTE):
 - Usa el menú disponible para reconocer los productos solicitados.
 - Cada elemento de "pedido_items" representa un producto mencionado por el cliente.
-- "nombre_detectado" debe contener lo que dijo el cliente. Si puedes mapearlo al menú, inclúyelo en "comentarios" como "menu: <nombre exacto>".
-- "cantidad_detectada" debe incluir el número solicitado (como string). Si no se menciona, usa "1".
+
+INSTRUCCIONES PARA RECONOCER PRODUCTOS:
+1. Busca coincidencias EXACTAS primero (nombre completo del menú).
+2. Si no hay coincidencia exacta, busca por PALABRAS CLAVE:
+   - "pizza margarita" = busca productos con "margarita" o "margherita" en el nombre
+   - "pizza de tomate" = busca productos con "tomate" en nombre o descripción
+   - "ensalada con pollo" = busca productos con "ensalada" y "pollo" en nombre o descripción
+3. Reconoce SINÓNIMOS y VARIACIONES:
+   - "pizza napolitana" puede ser "Pizza Margarita" (mismo tipo de pizza)
+   - "pizza de pepperoni" = "Pizza Pepperoni"
+   - "ensalada césar" = "Ensalada César" (con o sin acento)
+   - "pizza hawaiana" = busca productos con "hawaiana" o "hawaiiana"
+4. Busca en DESCRIPCIONES si no encuentras en el nombre:
+   - Si el cliente dice "pizza con pepperoni", busca en descripciones que contengan "pepperoni"
+   - Si dice "ensalada con pollo", busca en descripciones que contengan "pollo"
+
+FORMATO DE "pedido_items":
+- "nombre_detectado": Lo que dijo el cliente exactamente (ej: "pizza margarita", "2 pizzas de pepperoni")
+- "cantidad_detectada": Número solicitado como string. Si dice "un par", usa "2". Si dice "tres", usa "3". Si no menciona cantidad, usa "1".
+- "comentarios": 
+  * Si encuentras el producto en el menú, incluye "menu: <nombre exacto del menú>"
+  * Si NO encuentras el producto exacto pero hay uno similar, incluye "similar: <nombre del producto similar>"
+  * Si NO encuentras nada similar, incluye "no_encontrado: true"
+
+EXTRAS Y MODIFICACIONES:
+- Si menciona modificaciones (ej: "sin cebolla", "extra queso", "sin gluten"), inclúyelas en "comentarios" del item correspondiente.
+- Si menciona salsas, bebidas o extras que NO están en el menú principal, inclúyelos como items separados con "nombre_detectado" y marca en "comentarios": "extra: true"
+
+OTROS CAMPOS:
 - Si menciona dirección, nombre o teléfono, complétalos en los campos correspondientes.
-- Cualquier otra instrucción (salsas, extras) debe ir en "notas_pedido".
+- Cualquier otra instrucción general (ej: "llamar antes de llegar") debe ir en "notas_pedido".
+
+EJEMPLOS:
+Cliente: "Quiero 2 pizzas margarita y una ensalada césar"
+→ pedido_items: [
+    {"nombre_detectado": "pizzas margarita", "cantidad_detectada": "2", "comentarios": "menu: Pizza Margarita"},
+    {"nombre_detectado": "ensalada césar", "cantidad_detectada": "1", "comentarios": "menu: Ensalada César"}
+  ]
+
+Cliente: "Quiero una pizza napolitana"
+→ pedido_items: [
+    {"nombre_detectado": "pizza napolitana", "cantidad_detectada": "1", "comentarios": "similar: Pizza Margarita"}
+  ]
+
+Cliente: "Quiero una pizza hawaiana"
+→ pedido_items: [
+    {"nombre_detectado": "pizza hawaiana", "cantidad_detectada": "1", "comentarios": "no_encontrado: true"}
+  ]
 
 NOTA SOBRE VALIDACIONES:
 - "comensales_validos": "false" si el número excede el máximo o es menor al mínimo
@@ -1273,7 +1509,7 @@ NOTA SOBRE VALIDACIONES:
     
     // PERFORMANCE: Medir tiempo de llamada a Gemini API
     const apiCallStartTime = Date.now();
-    const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger);
+    const result = await callGeminiWithRetry(model, prompt, 5, geminiLogger, context);
     const text = extractTextFromVertexAIResponse(result);
     const apiCallTime = Date.now() - apiCallStartTime;
     
@@ -2108,6 +2344,62 @@ function findBestMenuMatch(rawName, menuItems = []) {
   return best;
 }
 
+/**
+ * Encuentra los productos más similares del menú (para sugerencias)
+ * @param {string} rawName - Nombre del producto que busca el cliente
+ * @param {Array} menuItems - Array de productos del menú
+ * @param {number} limit - Número máximo de sugerencias (default: 3)
+ * @param {number} minScore - Score mínimo para incluir en sugerencias (default: 0.2)
+ * @returns {Array} Array de productos similares ordenados por score descendente
+ */
+function findSimilarMenuItems(rawName, menuItems = [], limit = 3, minScore = 0.2) {
+  if (!rawName || !menuItems.length) {
+    return [];
+  }
+  
+  const normalizedRaw = normalizeOrderString(rawName);
+  const suggestions = [];
+  
+  menuItems.forEach(item => {
+    const normalizedMenu = normalizeOrderString(item.nombre);
+    const normalizedDesc = item.descripcion ? normalizeOrderString(item.descripcion) : '';
+    
+    let score = 0;
+    
+    // Coincidencia exacta
+    if (normalizedMenu === normalizedRaw) {
+      score = 1;
+    }
+    // Coincidencia parcial en nombre
+    else if (normalizedMenu.includes(normalizedRaw) || normalizedRaw.includes(normalizedMenu)) {
+      score = 0.85;
+    }
+    // Similaridad por tokens en nombre
+    else {
+      score = computeTokenSimilarity(normalizedRaw, normalizedMenu);
+    }
+    
+    // También buscar en descripción si el score es bajo
+    if (score < 0.5 && normalizedDesc) {
+      const descScore = computeTokenSimilarity(normalizedRaw, normalizedDesc);
+      if (descScore > score) {
+        score = descScore * 0.8; // Descuento porque es en descripción, no nombre
+      }
+    }
+    
+    // Solo incluir si supera el score mínimo
+    if (score >= minScore) {
+      suggestions.push({ match: item, score });
+    }
+  });
+  
+  // Ordenar por score descendente y tomar los top N
+  return suggestions
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.match);
+}
+
 function mapOrderItemsFromAnalysis(analysis, menuItems = []) {
   const items = Array.isArray(analysis?.pedido_items) ? analysis.pedido_items : [];
   const mapped = [];
@@ -2132,6 +2424,12 @@ function mapOrderItemsFromAnalysis(analysis, menuItems = []) {
     const { match, score } = findBestMenuMatch(rawName, menuItems);
     const menuMatch = score >= 0.55 ? match : null;
     const price = menuMatch ? Number.parseFloat(menuMatch.precio) : null;
+    
+    // Si no se encontró match, buscar sugerencias
+    let suggestions = [];
+    if (!menuMatch) {
+      suggestions = findSimilarMenuItems(rawName, menuItems, 3, 0.2);
+    }
 
     mapped.push({
       id_menu: menuMatch ? menuMatch.id : null,
@@ -2143,7 +2441,14 @@ function mapOrderItemsFromAnalysis(analysis, menuItems = []) {
       match_score: score,
       menuMatch: Boolean(menuMatch),
       comentarios: item?.comentarios || null,
-      raw: rawName
+      raw: rawName,
+      // Nuevo: sugerencias cuando no hay match
+      suggestions: suggestions.length > 0 ? suggestions.map(s => ({
+        id: s.id,
+        nombre: s.nombre,
+        precio: s.precio,
+        descripcion: s.descripcion
+      })) : []
     });
   });
 
@@ -2258,6 +2563,10 @@ function determineOrderNextStep(order) {
   if (!order.name) {
     return 'order_ask_name';
   }
+  // Preguntar por observaciones/alergias antes de confirmar (solo si no se han proporcionado)
+  if (order.notes === null || order.notes === undefined) {
+    return 'order_ask_notes';
+  }
   return 'order_confirm';
 }
 
@@ -2270,11 +2579,13 @@ function ensureOrderState(state) {
       phone: state.phone || null,
       notes: null,
       total: 0,
-      rawHistory: []
+      rawHistory: [],
+      pendingSuggestions: [] // Sugerencias de productos cuando no se encuentra match
     };
   } else {
     state.order.items = state.order.items || [];
     state.order.rawHistory = state.order.rawHistory || [];
+    state.order.pendingSuggestions = state.order.pendingSuggestions || [];
     if (!state.order.phone && state.phone) {
       state.order.phone = state.phone;
     }
@@ -2294,8 +2605,24 @@ async function updateOrderStateFromAnalysis(state, analysis, userInput, callLogg
   }
 
   const mappedItems = mapOrderItemsFromAnalysis(analysis, menuItems);
+  
+  // Detectar items sin match que tienen sugerencias
+  const itemsWithSuggestions = mappedItems.filter(item => !item.menuMatch && item.suggestions && item.suggestions.length > 0);
+  
   if (mappedItems.length) {
     order.items = mergeOrderItems(order.items, mappedItems);
+    
+    // Guardar sugerencias en el estado del pedido para mostrarlas
+    if (itemsWithSuggestions.length > 0) {
+      order.pendingSuggestions = itemsWithSuggestions.map(item => ({
+        requested: item.raw,
+        cantidad: item.cantidad,
+        suggestions: item.suggestions
+      }));
+    } else {
+      // Limpiar sugerencias si ya no hay items sin match
+      order.pendingSuggestions = [];
+    }
   }
 
   if (analysis?.direccion_entrega && !order.address) {
@@ -2320,7 +2647,8 @@ async function updateOrderStateFromAnalysis(state, analysis, userInput, callLogg
     callLogger.debug('ORDER_STATE_UPDATED', {
       items: order.items.length,
       pendingItems: order.pendingItems,
-      total: order.total
+      total: order.total,
+      itemsWithSuggestions: itemsWithSuggestions.length
     });
   }
 
@@ -2329,8 +2657,35 @@ async function updateOrderStateFromAnalysis(state, analysis, userInput, callLogg
 
 function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
   const summary = buildOrderSummary(order, language, true);
+  
+  // Construir mensaje de sugerencias si hay items sin match
+  let suggestionsMessage = '';
+  if (order.pendingSuggestions && order.pendingSuggestions.length > 0) {
+    const firstSuggestion = order.pendingSuggestions[0];
+    if (firstSuggestion.suggestions && firstSuggestion.suggestions.length > 0) {
+      const suggestionsList = firstSuggestion.suggestions
+        .slice(0, 3)
+        .map((s, idx) => {
+          const priceStr = s.precio ? `${s.precio.toFixed(2)}€` : '';
+          return `${idx + 1}. ${s.nombre}${priceStr ? ` (${priceStr})` : ''}`;
+        })
+        .join(', ');
+      
+      if (language === 'en') {
+        suggestionsMessage = ` I couldn't find "${firstSuggestion.requested}" in our menu. We have similar options: ${suggestionsList}. Which one would you like?`;
+      } else {
+        suggestionsMessage = ` No tenemos "${firstSuggestion.requested}" en nuestro menú. Tenemos opciones similares: ${suggestionsList}. ¿Cuál te gustaría?`;
+      }
+    }
+  }
+  
   switch (step) {
     case 'order_collect_items':
+      // Si hay sugerencias pendientes, mostrarlas primero
+      if (suggestionsMessage) {
+        return suggestionsMessage;
+      }
+      
       return order.items.length > 0 && order.pendingItems === 0
         ? (language === 'en'
             ? `I have your order as: ${summary}. Anything else you would like to add?`
@@ -2350,6 +2705,26 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
       return language === 'en'
         ? 'Could you give me a phone number to contact you if needed?'
         : '¿Me facilitas un número de teléfono para contactarte si hace falta?';
+    case 'order_ask_notes': {
+      const messages = {
+        es: [
+          `Vale, tengo tu pedido: ${summary}. ¿Tienes alguna alergia, restricción alimentaria o algo especial que quieras añadir? Si no, solo di "no" o "nada".`,
+          `Perfecto, tengo anotado: ${summary}. ¿Hay algo más que deba saber? Alergias, preferencias o algo especial. Si no, di "no".`,
+          `Vale, tu pedido es: ${summary}. ¿Alguna alergia o preferencia especial? Si no tienes ninguna, di "no".`,
+          `Perfecto, tengo: ${summary}. ¿Quieres añadir algo más? Alergias, modificaciones o algo especial. Si no, di "nada".`,
+          `Vale, pedido: ${summary}. ¿Tienes alguna alergia o algo que deba saber? Si no, solo di "no".`
+        ],
+        en: [
+          `Perfect. I have your order: ${summary}. Do you have any allergies, dietary restrictions, or special requests? If not, just say "no" or "nothing".`,
+          `Great. Your order is: ${summary}. Is there anything else I should know? Allergies, preferences, or special requests. If not, say "no".`,
+          `Perfect, I have: ${summary}. Any allergies or special preferences? If not, just say "no".`,
+          `Great. Order: ${summary}. Anything else to add? Allergies, modifications, or special requests. If not, say "nothing".`,
+          `Perfect. I have your order: ${summary}. Any allergies or anything I should know? If not, just say "no".`
+        ]
+      };
+      const langMessages = messages[language] || messages.es;
+      return getRandomMessage(langMessages);
+    }
     case 'order_confirm': {
       const totalStr = order.total ? `${order.total.toFixed(2)}€` : (language === 'en' ? 'pending' : 'pendiente');
       return language === 'en'
@@ -2380,18 +2755,93 @@ async function handleOrderIntent(state, analysis, callLogger, userInput) {
 }
 
 async function handleOrderCollectItems(state, userInput, callLogger, performanceMetrics = null) {
+  const order = ensureOrderState(state);
+  
+  // Si hay sugerencias pendientes, verificar si el usuario seleccionó una
+  if (order.pendingSuggestions && order.pendingSuggestions.length > 0) {
+    const firstSuggestion = order.pendingSuggestions[0];
+    const userInputLower = userInput.toLowerCase().trim();
+    
+    // Verificar si el usuario seleccionó una opción numérica (1, 2, 3) o mencionó el nombre
+    let selectedSuggestion = null;
+    
+    // Opción numérica
+    const numberMatch = userInputLower.match(/\b([123]|uno|dos|tres|primera|segunda|tercera|primero|segundo|tercero)\b/);
+    if (numberMatch) {
+      let index = 0;
+      const matchText = numberMatch[1];
+      if (matchText === '1' || matchText === 'uno' || matchText === 'primera' || matchText === 'primero') index = 0;
+      else if (matchText === '2' || matchText === 'dos' || matchText === 'segunda' || matchText === 'segundo') index = 1;
+      else if (matchText === '3' || matchText === 'tres' || matchText === 'tercera' || matchText === 'tercero') index = 2;
+      
+      if (index < firstSuggestion.suggestions.length) {
+        selectedSuggestion = firstSuggestion.suggestions[index];
+      }
+    }
+    
+    // Buscar por nombre del producto
+    if (!selectedSuggestion) {
+      for (const suggestion of firstSuggestion.suggestions) {
+        const suggestionName = suggestion.nombre.toLowerCase();
+        if (userInputLower.includes(suggestionName) || suggestionName.includes(userInputLower)) {
+          selectedSuggestion = suggestion;
+          break;
+        }
+      }
+    }
+    
+    // Si seleccionó una sugerencia, añadirla al pedido
+    if (selectedSuggestion) {
+      const newItem = {
+        id_menu: selectedSuggestion.id,
+        nombre_menu: selectedSuggestion.nombre,
+        nombre: selectedSuggestion.nombre,
+        cantidad: firstSuggestion.cantidad,
+        precio: Number.parseFloat(selectedSuggestion.precio),
+        subtotal: Number.parseFloat(selectedSuggestion.precio) * firstSuggestion.cantidad,
+        match_score: 1,
+        menuMatch: true,
+        comentarios: `Sugerido para: ${firstSuggestion.requested}`,
+        raw: firstSuggestion.requested,
+        suggestions: []
+      };
+      
+      order.items.push(newItem);
+      order.pendingSuggestions = []; // Limpiar sugerencias
+      recalculateOrderTotals(order);
+      
+      const menuItems = await loadMenuItems();
+      const nextStep = determineOrderNextStep(order);
+      state.step = nextStep;
+      
+      const summary = buildOrderSummary(order, state.language || 'es', true);
+      const message = state.language === 'en'
+        ? `Perfect! I've added ${selectedSuggestion.nombre} to your order. ${summary}. Anything else?`
+        : `¡Vale! He añadido ${selectedSuggestion.nombre} a tu pedido. ${summary}. ¿Algo más?`;
+      
+      return {
+        message: message,
+        gather: true
+      };
+    }
+    
+    // Si no seleccionó ninguna sugerencia, continuar con el análisis normal
+    // (puede que esté pidiendo algo diferente)
+  }
+  
+  // Análisis normal con Gemini
   const analysis = await analyzeReservationWithGemini(userInput, { 
     callSid: state.callSid, 
     step: state.step,
     performanceMetrics: performanceMetrics
   });
   await updateOrderStateFromAnalysis(state, analysis || {}, userInput, callLogger);
-  const order = ensureOrderState(state);
+  const orderUpdated = ensureOrderState(state);
   const menuItems = await loadMenuItems();
-  const nextStep = determineOrderNextStep(order);
+  const nextStep = determineOrderNextStep(orderUpdated);
   state.step = nextStep;
   return {
-    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    message: getOrderStepMessage(orderUpdated, nextStep, state.language || 'es', menuItems),
     gather: true
   };
 }
@@ -2434,6 +2884,62 @@ async function handleOrderPhoneStep(state, userInput) {
   }
 
   order.phone = phone;
+  const nextStep = determineOrderNextStep(order);
+  state.step = nextStep;
+  const menuItems = await loadMenuItems();
+  return {
+    message: getOrderStepMessage(order, nextStep, state.language || 'es', menuItems),
+    gather: true
+  };
+}
+
+async function handleOrderNotesStep(state, userInput, callLogger) {
+  const order = ensureOrderState(state);
+  const userInputLower = userInput.toLowerCase().trim();
+  
+  // Detectar si el usuario dice que no tiene nada que añadir
+  const noNotesPatterns = [
+    // Respuestas directas
+    /^(no|nada|ninguna|ninguno|sin|sin nada|ninguna cosa)$/i,
+    /^no (tengo|hay|tiene|necesito|quiero)/i,
+    /^(no hay|no tengo|no tiene|no necesito|no quiero)/i,
+    // Confirmaciones positivas sin observaciones
+    /^(todo bien|está bien|está perfecto|perfecto|bien|ok|okay|vale|correcto)$/i,
+    /^(está todo bien|todo correcto|así está bien|así está perfecto)$/i,
+    // Negaciones más elaboradas
+    /^(no tengo nada|no hay nada|no necesito nada|no quiero nada|sin nada más)$/i,
+    /^(no tengo alergias|no tengo restricciones|sin alergias|sin restricciones)$/i,
+    /^(no, nada|no nada|nada más|nada especial)$/i
+  ];
+  
+  const hasNoNotes = noNotesPatterns.some(pattern => pattern.test(userInputLower));
+  
+  if (hasNoNotes) {
+    // Usuario no tiene observaciones
+    order.notes = '';
+  } else {
+    // Usuario tiene observaciones - usar Gemini para extraer información relevante
+    try {
+      const analysis = await analyzeReservationWithGemini(userInput, {
+        callSid: state.callSid,
+        step: 'order_ask_notes',
+        performanceMetrics: null
+      });
+      
+      // Extraer notas del análisis de Gemini o usar el input directamente
+      if (analysis?.notas_pedido) {
+        order.notes = analysis.notas_pedido;
+      } else {
+        // Si Gemini no extrajo notas específicas, usar el input completo
+        order.notes = userInput.trim();
+      }
+    } catch (error) {
+      // Si falla Gemini, usar el input directamente
+      console.warn('⚠️ [ORDER] Error analizando observaciones con Gemini, usando input directo:', error.message);
+      order.notes = userInput.trim();
+    }
+  }
+  
   const nextStep = determineOrderNextStep(order);
   state.step = nextStep;
   const menuItems = await loadMenuItems();
@@ -3337,6 +3843,9 @@ async function processConversationStep(state, userInput, callLogger, performance
 
     case 'order_ask_phone':
       return await handleOrderPhoneStep(state, userInput);
+
+    case 'order_ask_notes':
+      return await handleOrderNotesStep(state, userInput, callLogger);
 
     case 'order_confirm':
       return await handleOrderConfirm(state, userInput, callLogger);
