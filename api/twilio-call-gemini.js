@@ -1496,6 +1496,148 @@ Responde SOLO con el código de 2 letras, sin explicaciones.`;
 }
 
 /**
+ * Analiza la selección de reserva del usuario usando Gemini
+ * Recibe el input del usuario y un array de reservas
+ * Retorna el índice (0-based) de la reserva seleccionada o null si no se puede determinar
+ */
+async function analyzeReservationSelectionWithGemini(userInput, reservations, language = 'es', context = {}) {
+  try {
+    const client = getGeminiClient();
+    if (!client) {
+      console.warn('⚠️ [GEMINI] Cliente no disponible, usando fallback');
+      // Fallback: intentar extraer número con función existente
+      const optionNumber = extractOptionFromText(userInput);
+      return optionNumber ? optionNumber - 1 : null;
+    }
+
+    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    
+    // Construir lista de reservas para el prompt
+    const reservationsList = reservations.map((reservation, index) => {
+      const date = new Date(reservation.data_reserva);
+      const dateString = date.toISOString().split('T')[0];
+      const formattedDate = formatDateSpanish(dateString);
+      const formattedTime = date.toLocaleTimeString('es-ES', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+      
+      return {
+        index: index + 1,
+        date: formattedDate,
+        time: formattedTime,
+        name: reservation.nom_persona_reserva,
+        people: reservation.num_persones
+      };
+    });
+
+    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada
+    const model = client.preview.getGenerativeModel({
+      model: 'gemini-2.5-flash-lite',
+      generationConfig: {
+        maxOutputTokens: 256,
+        temperature: 0.3,
+        topP: 0.8,
+        topK: 20
+      }
+    });
+
+    // Construir el prompt según el idioma
+    const reservationsText = reservationsList.map(r => {
+      if (language === 'es') {
+        return `  ${r.index}. Reserva el día ${r.date} a las ${r.time} a nombre de ${r.name} para ${r.people} persona${r.people > 1 ? 's' : ''}`;
+      } else if (language === 'en') {
+        return `  ${r.index}. Reservation on ${r.date} at ${r.time} under ${r.name} for ${r.people} person${r.people > 1 ? 's' : ''}`;
+      } else if (language === 'de') {
+        return `  ${r.index}. Reservierung am ${r.date} um ${r.time} unter ${r.name} für ${r.people} Person${r.people > 1 ? 'en' : ''}`;
+      } else if (language === 'fr') {
+        return `  ${r.index}. Réservation le ${r.date} à ${r.time} au nom de ${r.name} pour ${r.people} personne${r.people > 1 ? 's' : ''}`;
+      } else if (language === 'it') {
+        return `  ${r.index}. Prenotazione il ${r.date} alle ${r.time} a nome di ${r.name} per ${r.people} persona${r.people > 1 ? 'e' : ''}`;
+      } else if (language === 'pt') {
+        return `  ${r.index}. Reserva no dia ${r.date} às ${r.time} em nome de ${r.name} para ${r.people} pessoa${r.people > 1 ? 's' : ''}`;
+      }
+      // Fallback a español
+      return `  ${r.index}. Reserva el día ${r.date} a las ${r.time} a nombre de ${r.name} para ${r.people} persona${r.people > 1 ? 's' : ''}`;
+    }).join('\n');
+
+    const prompt = language === 'es'
+      ? `El usuario tiene las siguientes reservas y quiere cancelar una de ellas. Analiza su respuesta y determina qué reserva quiere cancelar.
+
+RESERVAS DISPONIBLES:
+${reservationsText}
+
+RESPUESTA DEL USUARIO: "${userInput}"
+
+El usuario puede referirse a la reserva de diferentes formas:
+- Por número: "la primera", "la segunda", "opción 1", "opción 2", "número 1", "número 2"
+- Por fecha: "la del día X", "la de mañana", "la del viernes"
+- Por hora: "la de las X", "la de las 8"
+- Por nombre: "la de [nombre]"
+- Combinaciones: "la primera reserva", "la segunda opción", "la del día X a las Y"
+
+Responde SOLO con el número de la reserva (1, 2, 3, etc.) sin explicaciones. Si no puedes determinar cuál, responde "null".`
+      : `The user has the following reservations and wants to cancel one of them. Analyze their response and determine which reservation they want to cancel.
+
+AVAILABLE RESERVATIONS:
+${reservationsText}
+
+USER RESPONSE: "${userInput}"
+
+The user may refer to the reservation in different ways:
+- By number: "the first", "the second", "option 1", "option 2", "number 1", "number 2"
+- By date: "the one on day X", "tomorrow's", "Friday's"
+- By time: "the one at X", "the one at 8"
+- By name: "the one under [name]"
+- Combinations: "the first reservation", "the second option", "the one on day X at Y"
+
+Respond ONLY with the reservation number (1, 2, 3, etc.) without explanations. If you cannot determine which one, respond "null".`;
+
+    geminiLogger.info('🔍 GEMINI_RESERVATION_SELECTION_START', { 
+      userInput,
+      reservationsCount: reservations.length,
+      language
+    });
+
+    const result = await callGeminiWithRetry(model, prompt, 2, geminiLogger);
+    const responseText = extractTextFromVertexAIResponse(result).trim();
+    
+    // Intentar extraer el número de la respuesta
+    const numberMatch = responseText.match(/\d+/);
+    if (numberMatch) {
+      const selectedNumber = parseInt(numberMatch[0]);
+      const selectedIndex = selectedNumber - 1; // Convertir a índice 0-based
+      
+      if (selectedIndex >= 0 && selectedIndex < reservations.length) {
+        geminiLogger.info('✅ GEMINI_RESERVATION_SELECTED', { 
+          selectedNumber,
+          selectedIndex,
+          reservation: reservations[selectedIndex]
+        });
+        return selectedIndex;
+      }
+    }
+    
+    geminiLogger.warn('⚠️ GEMINI_RESERVATION_SELECTION_FAILED', { 
+      responseText,
+      reasoning: 'No se pudo determinar la reserva seleccionada'
+    });
+    
+    return null;
+    
+  } catch (error) {
+    console.error('❌ [GEMINI] Error analizando selección de reserva:', error);
+    logger.error('GEMINI_RESERVATION_SELECTION_ERROR', { 
+      message: error.message, 
+      stack: error.stack 
+    });
+    // Fallback: intentar extraer número con función existente
+    const optionNumber = extractOptionFromText(userInput);
+    return optionNumber ? optionNumber - 1 : null;
+  }
+}
+
+/**
  * Determina qué campos faltan después del análisis de Gemini
  * Retorna array con los campos que faltan
  */
@@ -2192,18 +2334,18 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
       return order.items.length > 0 && order.pendingItems === 0
         ? (language === 'en'
             ? `I have your order as: ${summary}. Anything else you would like to add?`
-            : `Tengo anotado: ${summary}. ¿Quieres añadir algo más?`)
+            : `Vale, tengo anotado: ${summary}. ¿Quieres añadir algo más?`)
         : (language === 'en'
             ? `Sure, tell me what you would like to order. ${summarizeMenuSample(menuItems, 'en')}`
             : `Claro, dime qué te gustaría pedir. ${summarizeMenuSample(menuItems, language)}`);
     case 'order_ask_address':
       return language === 'en'
         ? `Great. I have the order as: ${summary}. What is the delivery address?`
-        : `Perfecto. De momento tengo: ${summary}. ¿Cuál es la dirección de entrega?`;
+        : `Vale, de momento tengo: ${summary}. ¿Cuál es la dirección de entrega?`;
     case 'order_ask_name':
       return language === 'en'
         ? 'A name for the order, please.'
-        : '¿A nombre de quién registramos el pedido?';
+        : '¿A nombre de quién será el pedido?';
     case 'order_ask_phone':
       return language === 'en'
         ? 'Could you give me a phone number to contact you if needed?'
@@ -2217,7 +2359,7 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
     case 'order_complete':
       return language === 'en'
         ? 'Perfect! Your delivery order is confirmed. We will prepare it right away.'
-        : '¡Perfecto! Tu pedido a domicilio queda confirmado. Lo preparamos de inmediato.';
+        : '¡Vale! Tu pedido a domicilio queda confirmado. Lo preparamos de inmediato.';
     default:
       return language === 'en'
         ? 'Could you repeat that, please?'
@@ -2286,7 +2428,7 @@ async function handleOrderPhoneStep(state, userInput) {
     return {
       message: state.language === 'en'
         ? 'I could not capture the phone number. Could you repeat it with all the digits, please?'
-        : 'No he captado bien el número de teléfono. ¿Podrías repetirlo con todos los dígitos, por favor?',
+        : 'No he captado bien el número. ¿Podrías repetirlo con todos los dígitos, por favor?',
       gather: true
     };
   }
@@ -2387,7 +2529,7 @@ async function handleOrderConfirm(state, userInput, callLogger) {
     return {
       message: state.language === 'en'
         ? 'Of course. Tell me what changes you would like to make to the order.'
-        : 'Claro. Dime qué cambios te gustaría hacer en el pedido.',
+        : 'Vale. Dime qué cambios quieres hacer en el pedido.',
       gather: true
     };
   }
@@ -2680,29 +2822,39 @@ async function processConversationStep(state, userInput, callLogger, performance
     // Mantener el paso actual y pedir clarificación según el paso
     const unclearMessages = {
       ask_people: [
-        'Disculpe, no he captado bien. ¿Para cuántas personas desean la reserva?',
+        'Disculpe, no he captado bien. ¿Para cuántas personas?',
         'Lo siento, no lo he oído bien. ¿Cuántas personas serán?',
-        'Perdón, no he entendido. ¿Para cuántas personas será la mesa?'
+        'Perdón, no he entendido. ¿Para cuántas personas será la mesa?',
+        'Disculpe, no lo he entendido bien. ¿Cuántas personas?',
+        'Lo siento, no lo he captado. ¿Para cuántas personas?'
       ],
       ask_date: [
         'Perdón, no lo he entendido bien. ¿Para qué día les gustaría venir?',
         'Disculpe, no he captado la fecha. ¿Qué día les conviene?',
-        'Lo siento, no lo he oído bien. ¿Para qué día desean la reserva?'
+        'Lo siento, no lo he oído bien. ¿Para qué día?',
+        'Disculpe, no lo he entendido. ¿Qué día prefieren?',
+        'Perdón, no lo he captado. ¿Para qué día?'
       ],
       ask_time: [
-        'Disculpe, no he captado bien. ¿A qué hora les gustaría hacer la reserva?',
+        'Disculpe, no he captado bien. ¿A qué hora les gustaría venir?',
         'Perdón, no lo he entendido. ¿A qué hora les viene bien?',
-        'Lo siento, no lo he oído bien. ¿A qué hora desean venir?'
+        'Lo siento, no lo he oído bien. ¿A qué hora?',
+        'Disculpe, no lo he entendido. ¿Qué hora prefieren?',
+        'Perdón, no lo he captado. ¿A qué hora?'
       ],
       ask_name: [
-        'Perdón, no lo he entendido. ¿A nombre de quién desean hacer la reserva?',
+        'Perdón, no lo he entendido. ¿A nombre de quién será la reserva?',
         'Disculpe, no he captado el nombre. ¿Cómo se llama?',
-        'Lo siento, no lo he oído bien. ¿Me puede decir su nombre?'
+        'Lo siento, no lo he oído bien. ¿Me puede decir su nombre?',
+        'Disculpe, no lo he entendido. ¿Cuál es su nombre?',
+        'Perdón, no lo he captado. ¿A nombre de quién?'
       ],
       default: [
         'Perdón, no he entendido bien. ¿Podría repetirlo, por favor?',
         'Disculpe, no lo he captado. ¿Podría repetir, por favor?',
-        'Lo siento, no lo he oído bien. ¿Podría decirlo otra vez?'
+        'Lo siento, no lo he oído bien. ¿Podría decirlo otra vez?',
+        'Disculpe, no lo he entendido. ¿Puede repetirlo?',
+        'Perdón, no lo he captado. ¿Puede decirlo otra vez?'
       ]
     };
     
@@ -3162,11 +3314,6 @@ async function processConversationStep(state, userInput, callLogger, performance
       return await handleModifyNoReservations(state, userInput);
 
     // ===== NUEVOS CASOS PARA CANCELACIÓN DE RESERVAS =====
-    case 'cancel_ask_phone_choice':
-      return await handleCancelAskPhoneChoice(state, userInput);
-    case 'cancel_ask_phone':
-      return await handleCancelAskPhone(state, userInput);
-
      case 'cancel_show_multiple':
        return await handleCancelShowMultiple(state, userInput);
 
@@ -4574,26 +4721,21 @@ async function handleCancelShowMultiple(state, userInput) {
   console.log(`🔢 [DEBUG] Input del usuario: "${userInput}"`);
   console.log(`🔢 [DEBUG] Número de reservas disponibles: ${state.cancellationData.reservations.length}`);
   
-  // Extraer número de opción del input usando la función mejorada
-  const optionNumber = extractOptionFromText(userInput);
-  console.log(`🔢 [DEBUG] Número de opción extraído: ${optionNumber}`);
+  const reservations = state.cancellationData.reservations;
   
-  if (!optionNumber) {
+  // Usar Gemini para interpretar la selección del usuario
+  const selectedIndex = await analyzeReservationSelectionWithGemini(
+    userInput, 
+    reservations, 
+    state.language,
+    { callSid: state.callSid, step: 'cancel_show_multiple' }
+  );
+  
+  if (selectedIndex === null || selectedIndex < 0 || selectedIndex >= reservations.length) {
     console.log(`❌ [CANCELACIÓN] No se pudo detectar opción en: "${userInput}"`);
     const unclearMessages = getMultilingualMessages('cancel_unclear_option', state.language);
     return {
       message: getRandomMessage(unclearMessages),
-      gather: true
-    };
-  }
-  
-  const selectedIndex = optionNumber - 1; // Convertir a índice 0-based
-  const reservations = state.cancellationData.reservations;
-  
-  if (selectedIndex < 0 || selectedIndex >= reservations.length) {
-    const invalidMessages = getMultilingualMessages('cancel_invalid_option', state.language);
-    return {
-      message: getRandomMessage(invalidMessages),
       gather: true
     };
   }
@@ -5288,18 +5430,18 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
   const messages = {
     greeting: {
       es: [
-        '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle hoy?',
-        '¡Buenos días! Qué gusto tenerle por aquí. ¿Cómo puedo ayudarle?',
-        '¡Hola! Gracias por llamarnos. ¿En qué puedo asistirle?',
-        '¡Buenas tardes! Bienvenido al restaurante. ¿Qué puedo hacer por usted hoy?',
-        '¡Hola! Encantado de atenderle. ¿Cómo le puedo ayudar?',
-        '¡Buenos días! Bienvenido. Estoy aquí para lo que necesite.',
-        '¡Hola! Qué alegría recibir su llamada. ¿En qué puedo ayudarle?',
-        '¡Hola! Bienvenido. Estaremos encantados de atenderle. ¿En qué puedo ayudarle?',
-        '¡Buenas! Qué placer recibir su llamada. ¿Cómo le puedo ayudar hoy?',
-        '¡Hola! Bienvenido a nuestro restaurante. Estoy aquí para lo que necesite.',
-        '¡Buenos días! Encantado de hablar con usted. ¿En qué puedo ayudarle?',
-        '¡Hola! Gracias por contactarnos. ¿Qué puedo hacer por usted?'
+        '¡Hola! ¿Qué tal? ¿En qué puedo ayudarle hoy?',
+        '¡Buenos días! ¿Cómo está? ¿Qué necesita?',
+        '¡Hola! Gracias por llamar. ¿En qué le puedo ayudar?',
+        '¡Buenas tardes! ¿Qué tal? ¿Cómo puedo ayudarle?',
+        '¡Hola! ¿En qué puedo asistirle?',
+        '¡Buenos días! Dígame, ¿qué necesita?',
+        '¡Hola! ¿Qué tal va el día? ¿En qué puedo ayudarle?',
+        '¡Buenas! Gracias por llamarnos. ¿Qué puedo hacer por usted?',
+        '¡Hola! ¿Cómo está? ¿En qué le puedo ayudar?',
+        '¡Buenos días! ¿Qué tal? ¿Qué necesita hoy?',
+        '¡Hola! Dígame, ¿en qué puedo ayudarle?',
+        '¡Buenas tardes! ¿Cómo está? ¿Qué puedo hacer por usted?'
       ],
       en: [
         'Hello! Welcome to our restaurant. How can I help you?',
@@ -5339,18 +5481,18 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     reservation: {
       es: [
-        '¡Perfecto! Encantado de ayudarle con su reserva. ¿Para cuántas personas será?',
-        '¡Excelente! Me alegra mucho poder ayudarle. ¿Cuántas personas serán?',
-        '¡Muy bien! Con mucho gusto le ayudo. ¿Para cuántos comensales?',
+        '¡Perfecto! Por supuesto, con mucho gusto. ¿Para cuántas personas será?',
+        '¡Claro! Sin problema. ¿Cuántas personas serán?',
+        '¡Vale! Por supuesto. ¿Para cuántos comensales?',
         '¡Perfecto! ¿Para cuántas personas necesita la mesa?',
         '¡Genial! ¿Cuántas personas van a venir?',
-        '¡Por supuesto! Con mucho gusto. ¿Para cuántas personas desean la reserva?',
-        '¡Perfecto! Estaré encantado de ayudarle. ¿Cuántas personas serán?',
-        '¡Claro que sí! Con mucho gusto le ayudo con la reserva. ¿Para cuántas personas?',
-        '¡Por supuesto! Encantado de ayudarles. ¿Cuántas personas van a venir?',
-        '¡Perfecto! Me da mucho gusto ayudarle. ¿Para cuántas personas será la mesa?',
-        '¡Excelente! Con mucho gusto. ¿Cuántas personas serán?',
-        '¡Muy bien! Estaré encantado de reservarles una mesa. ¿Para cuántas personas?'
+        '¡Por supuesto! Con mucho gusto. ¿Para cuántas personas?',
+        '¡Claro! Sin problema. ¿Cuántas personas serán?',
+        '¡Vale! Por supuesto. ¿Para cuántas personas?',
+        '¡Perfecto! ¿Cuántas personas van a venir?',
+        '¡Genial! ¿Para cuántas personas será?',
+        '¡Claro! ¿Cuántas personas serán?',
+        '¡Vale! ¿Para cuántas personas?'
       ],
       en: [
         'Perfect! I\'m delighted to help you with your reservation. For how many people?',
@@ -5406,12 +5548,12 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     clarify: {
       es: [
         'Disculpe, solo puedo ayudarle con reservas. ¿Le gustaría hacer una reserva?',
-        'Lo siento, únicamente puedo ayudarle con reservas de mesa. ¿Quiere hacer una reserva?',
+        'Lo siento, solo puedo ayudarle con reservas de mesa. ¿Quiere hacer una reserva?',
         'Perdón, solo manejo reservas para nuestro restaurante. ¿Le gustaría reservar una mesa?',
-        'Disculpe, solo puedo ayudarle con reservas. ¿Desea hacer una reserva para venir a visitarnos?',
-        'Lo siento, solo puedo ayudarle con reservas. ¿Quiere reservar una mesa para cuando?',
+        'Disculpe, solo puedo ayudarle con reservas. ¿Desea hacer una reserva?',
+        'Lo siento, solo puedo ayudarle con reservas. ¿Quiere reservar una mesa?',
         'Disculpe, en este momento solo puedo ayudarle con reservas de mesa. ¿Le gustaría hacer una reserva?',
-        'Lo siento mucho, pero solo puedo atender reservas. ¿Quiere reservar una mesa?',
+        'Lo siento, pero solo puedo atender reservas. ¿Quiere reservar una mesa?',
         'Perdón, solo puedo ayudarle con reservas. ¿Le gustaría que le reserve una mesa?'
       ],
       en: [
@@ -5453,16 +5595,17 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     people: {
       es: [
         `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día les gustaría venir?`,
-        `Excelente, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día prefieren?`,
-        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo sería la reserva?`,
-        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día la necesitan?`,
+        `Vale, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día prefieren?`,
+        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo sería?`,
+        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
         `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Cuándo les gustaría venir?`,
-        `¡Perfecto! Mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
-        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué fecha desean la reserva?`,
-        `¡Estupendo! ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día les gustaría la reserva?`,
-        `Perfecto, mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les conviene?`,
-        `Excelente, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo desean venir?`,
-        `Muy bien, perfecto. ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les gustaría?`
+        `¡Vale! Mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene mejor?`,
+        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día?`,
+        `¡Perfecto! ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
+        `Vale, mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les conviene?`,
+        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo?`,
+        `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les gustaría?`,
+        `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día?`
       ],
       en: [
         `Perfect, ${variables.people} ${variables.people === 1 ? 'person' : 'people'}. For what date?`,
@@ -5503,16 +5646,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     date: {
       es: [
         `Perfecto, el ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
-        `Excelente, el día ${formatDateSpanish(variables.date)}. ¿Qué hora les conviene más?`,
+        `Vale, el día ${formatDateSpanish(variables.date)}. ¿Qué hora les viene mejor?`,
         `Muy bien, el ${formatDateSpanish(variables.date)}. ¿A qué hora prefieren?`,
         `Perfecto, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
-        `Genial, el ${formatDateSpanish(variables.date)}. ¿A qué hora desean la reserva?`,
-        `¡Perfecto! El ${formatDateSpanish(variables.date)}. ¿Qué hora les gustaría?`,
+        `Genial, el ${formatDateSpanish(variables.date)}. ¿A qué hora?`,
+        `¡Vale! El ${formatDateSpanish(variables.date)}. ¿Qué hora les gustaría?`,
         `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora pueden venir?`,
-        `¡Estupendo! El ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
-        `Perfecto, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les viene mejor?`,
-        `Excelente, el ${formatDateSpanish(variables.date)}. ¿Qué hora les conviene?`,
-        `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora desean hacer la reserva?`
+        `¡Perfecto! El ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
+        `Vale, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les conviene?`,
+        `Perfecto, el ${formatDateSpanish(variables.date)}. ¿Qué hora prefieren?`,
+        `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora?`
       ],
       en: [
         `Perfect, ${formatDateEnglish(variables.date)}. What time?`,
@@ -5553,16 +5696,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     time: {
       es: [
         `Perfecto, a las ${variables.time}. ¿A nombre de quién será la reserva?`,
-        `Excelente, a las ${variables.time}. ¿Cómo me dice su nombre?`,
+        `Vale, a las ${variables.time}. ¿Me dice su nombre?`,
         `Muy bien, a las ${variables.time}. ¿A nombre de quién la hacemos?`,
-        `Perfecto, a las ${variables.time}. ¿Me puede decir su nombre?`,
-        `Genial, a las ${variables.time}. ¿Cómo se llama?`,
-        `¡Perfecto! A las ${variables.time}. ¿A nombre de quién va la reserva?`,
+        `Perfecto, a las ${variables.time}. ¿Cómo se llama?`,
+        `Genial, a las ${variables.time}. ¿Me puede decir su nombre?`,
+        `¡Vale! A las ${variables.time}. ¿A nombre de quién va la reserva?`,
         `Muy bien, a las ${variables.time}. ¿Cuál es su nombre?`,
-        `¡Estupendo! A las ${variables.time}. ¿A nombre de quién será?`,
-        `Perfecto, a las ${variables.time}. ¿Me dice su nombre, por favor?`,
-        `Excelente, a las ${variables.time}. ¿Cómo se llama para la reserva?`,
-        `Muy bien, a las ${variables.time}. ¿A nombre de quién la reservamos?`
+        `¡Perfecto! A las ${variables.time}. ¿A nombre de quién será?`,
+        `Vale, a las ${variables.time}. ¿Me dice su nombre, por favor?`,
+        `Perfecto, a las ${variables.time}. ¿Cómo se llama?`,
+        `Muy bien, a las ${variables.time}. ¿A nombre de quién?`
       ],
       en: [
         `Perfect, at ${variables.time}. Your name?`,
@@ -5603,16 +5746,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     name: {
       es: [
         `Perfecto, ${variables.name}.`,
-        `Excelente, ${variables.name}.`,
+        `Vale, ${variables.name}.`,
         `Muy bien, ${variables.name}.`,
         `Perfecto, ${variables.name}.`,
         `Genial, ${variables.name}.`,
-        `¡Perfecto! ${variables.name}.`,
+        `¡Vale! ${variables.name}.`,
         `Muy bien, ${variables.name}.`,
-        `¡Estupendo! ${variables.name}.`,
-        `Perfecto, encantado ${variables.name}.`,
-        `Excelente, muy bien ${variables.name}.`,
-        `Muy bien, perfecto ${variables.name}.`
+        `¡Perfecto! ${variables.name}.`,
+        `Vale, ${variables.name}.`,
+        `Perfecto, ${variables.name}.`,
+        `Muy bien, ${variables.name}.`
       ],
       en: [
         `Perfect, ${variables.name}.`,
@@ -5741,15 +5884,15 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     confirm: {
       es: [
         '¡Perfecto! Su reserva está confirmada. Les esperamos con muchas ganas. ¡Que tengan un día estupendo!',
-        '¡Excelente! Reserva confirmada. Estaremos encantados de recibirles. ¡Que disfruten el día!',
+        '¡Vale! Reserva confirmada. Estaremos encantados de recibirles. ¡Que disfruten el día!',
         '¡Muy bien! Todo listo y confirmado. Les esperamos con ilusión. ¡Hasta pronto!',
         '¡Genial! Reserva confirmada. Nos vemos muy pronto. ¡Que pasen un día maravilloso!',
         '¡Perfecto! Todo confirmado. Les esperamos con los brazos abiertos. ¡Que disfruten mucho!',
-        '¡Excelente! Su reserva está confirmada. Estamos deseando recibirles. ¡Que tengan un día fantástico!',
+        '¡Vale! Su reserva está confirmada. Estamos deseando recibirles. ¡Que tengan un día fantástico!',
         '¡Perfecto! Todo listo. Les esperamos con mucha ilusión. ¡Que pasen un día estupendo!',
-        '¡Estupendo! Su reserva está confirmada. Les esperamos con muchísimas ganas. ¡Que tengan un día maravilloso!',
-        '¡Perfecto! Reserva confirmada. Estaremos encantados de recibirles. ¡Hasta muy pronto!',
-        '¡Excelente! Todo está listo y confirmado. Les esperamos con ilusión. ¡Que disfruten mucho el día!',
+        '¡Genial! Su reserva está confirmada. Les esperamos con muchísimas ganas. ¡Que tengan un día maravilloso!',
+        '¡Vale! Reserva confirmada. Estaremos encantados de recibirles. ¡Hasta muy pronto!',
+        '¡Perfecto! Todo está listo y confirmado. Les esperamos con ilusión. ¡Que disfruten mucho el día!',
         '¡Muy bien! Reserva confirmada. Estamos deseando verles. ¡Que pasen un día estupendo!'
       ],
       en: [
@@ -5834,14 +5977,14 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     clarify_confirm: {
       es: [
-        '¿Le parece correcto? Puede decir sí para confirmar, no si quiere cambiar algo, o simplemente dígame qué desea modificar.',
+        '¿Le parece bien así? Puede decir sí para confirmar, o si quiere cambiar algo, dígame qué.',
         '¿Está todo bien? Si está de acuerdo, diga sí. Si quiere cambiar algo, dígame qué.',
-        '¿Le parece bien así? Puede confirmar diciendo sí, o si prefiere cambiar algo, dígame qué.',
+        '¿Le viene bien? Puede confirmar diciendo sí, o si prefiere cambiar algo, dígame qué.',
         '¿Es correcto todo? Si está de acuerdo, diga sí. Si quiere modificar algo, dígame qué cambiar.',
-        '¿Le viene bien así? Puede decir sí para confirmar, o si quiere cambiar algo, simplemente dígame qué.',
+        '¿Le parece bien? Puede decir sí para confirmar, o si quiere cambiar algo, dígame qué.',
         'Perfecto, ¿está todo bien así? Si está de acuerdo, dígame sí. Si quiere cambiar algo, dígame qué.',
         'Muy bien, ¿le parece correcto? Puede confirmar con un sí, o si quiere modificar algo, dígame qué.',
-        'Excelente, ¿está todo bien? Si está de acuerdo, diga sí. Si quiere cambiar algo, dígame qué modificar.',
+        'Vale, ¿está todo bien? Si está de acuerdo, diga sí. Si quiere cambiar algo, dígame qué modificar.',
         'Perfecto, ¿le viene bien así? Puede decir sí para confirmar, o si prefiere cambiar algo, dígame qué.'
       ],
       en: [
@@ -6099,6 +6242,22 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Não captei bem sua intenção. Cancela ou continua com a reserva?'
       ]
     },
+    ask_intention: {
+      es: [
+        '¿En qué puedo ayudarle? ¿Quiere hacer una reserva, modificar una existente, cancelar o hacer un pedido a domicilio?',
+        '¿Qué necesita? ¿Una reserva, modificar una reserva, cancelar o un pedido?',
+        '¿Cómo puedo ayudarle? ¿Reserva, modificar, cancelar o pedido a domicilio?',
+        '¿Qué desea hacer? ¿Reservar mesa, modificar reserva, cancelar o pedir a domicilio?',
+        'Dígame, ¿qué necesita? ¿Reserva, modificar, cancelar o pedido?'
+      ],
+      en: [
+        'How can I help you? Would you like to make a reservation, modify an existing one, cancel, or place a delivery order?',
+        'What do you need? A reservation, modify a reservation, cancel, or an order?',
+        'How can I assist you? Reservation, modify, cancel, or delivery order?',
+        'What would you like to do? Book a table, modify a reservation, cancel, or order delivery?',
+        'Tell me, what do you need? Reservation, modify, cancel, or order?'
+      ]
+    },
     default: {
       es: [
         '¿En qué puedo ayudarle? ¿Le gustaría hacer una reserva?',
@@ -6146,11 +6305,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     // ===== MENSAJES PARA MODIFICACIÓN DE RESERVAS =====
     modify_ask_phone_choice: {
       es: [
-        'Perfecto, para modificar su reserva necesito verificar su identidad. ¿Quiere usar el mismo número de teléfono desde el que está llamando o prefiere usar otro número?',
-        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Desea usar este mismo número o tiene otro?',
+        'Vale, para modificar su reserva necesito verificar su identidad. ¿Quiere usar el mismo número desde el que está llamando o prefiere usar otro?',
+        'Perfecto, para buscar su reserva necesito su número. ¿Desea usar este mismo número o tiene otro?',
         'Muy bien, para localizar su reserva necesito su número. ¿Usa el mismo número de esta llamada o prefiere darme otro?',
-        'Perfecto, para modificar necesito verificar su identidad. ¿Quiere usar este número o prefiere usar otro?',
-        'Entendido, para proceder con la modificación necesito su número. ¿Usa el mismo número desde el que llama o tiene otro?'
+        'Vale, para modificar necesito verificar su identidad. ¿Quiere usar este número o prefiere usar otro?',
+        'Perfecto, para proceder con la modificación necesito su número. ¿Usa el mismo número desde el que llama o tiene otro?'
       ],
       en: [
         'Perfect, to modify your reservation I need to verify your identity. Do you want to use the same phone number you are calling from or would you prefer to use another number?',
@@ -6169,11 +6328,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_ask_phone: {
       es: [
-        'Perfecto, para modificar su reserva necesito su número de teléfono. ¿Cuál es su número?',
-        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Podría darme su número?',
-        'Muy bien, para localizar su reserva necesito su número de teléfono. ¿Cuál es?',
-        'Perfecto, para modificar necesito verificar su identidad. ¿Cuál es su número de teléfono?',
-        'Entendido, para proceder con la modificación necesito su número de teléfono. ¿Podría darmelo?'
+        'Vale, para modificar su reserva necesito su número de teléfono. ¿Cuál es su número?',
+        'Perfecto, para buscar su reserva necesito su número. ¿Podría darme su número?',
+        'Muy bien, para localizar su reserva necesito su número. ¿Cuál es?',
+        'Vale, para modificar necesito verificar su identidad. ¿Cuál es su número?',
+        'Perfecto, para proceder con la modificación necesito su número. ¿Podría darmelo?'
       ],
       en: [
         'Perfect, to modify your reservation I need your phone number. What is your number?',
@@ -6193,8 +6352,8 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     modify_show_multiple: {
       es: [
         'Muy bien, aquí están sus reservas:',
-        'Perfecto, he encontrado sus reservas:',
-        'Excelente, estas son sus reservas:',
+        'Vale, he encontrado sus reservas:',
+        'Perfecto, estas son sus reservas:',
         'Aquí tiene sus reservas:',
         'He localizado sus reservas:'
       ],
@@ -6208,11 +6367,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_choose_option: {
       es: [
-        'Por favor, elija qué reserva modificar. Diga el número correspondiente.',
+        'Por favor, dígame qué reserva quiere modificar. Diga el número.',
         '¿Cuál de estas reservas quiere modificar? Diga el número.',
-        'Seleccione la reserva que desea modificar. Indique el número.',
-        '¿Qué reserva quiere modificar? Diga el número de la opción.',
-        'Elija la reserva a modificar. Mencione el número correspondiente.'
+        '¿Qué reserva quiere modificar? Diga el número.',
+        '¿Qué reserva quiere cambiar? Diga el número.',
+        'Dígame qué reserva quiere modificar. Diga el número.'
       ],
       en: [
         'Please choose which reservation to modify. Say the corresponding number.',
@@ -6224,11 +6383,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_ask_field: {
       es: [
-        '¿Qué desea modificar de su reserva? Puede cambiar el nombre, la fecha, la hora o el número de personas.',
+        '¿Qué quiere modificar de su reserva? Puede cambiar el nombre, la fecha, la hora o el número de personas.',
         '¿Qué parte de la reserva quiere cambiar? Puede modificar el nombre, la fecha, la hora o las personas.',
-        '¿Qué campo desea actualizar? Opciones: nombre, fecha, hora o número de personas.',
+        '¿Qué quiere cambiar? Puede modificar el nombre, la fecha, la hora o las personas.',
         '¿Qué información quiere cambiar? Puede actualizar el nombre, la fecha, la hora o las personas.',
-        '¿Qué aspecto de la reserva desea modificar? Nombre, fecha, hora o personas.'
+        '¿Qué quiere modificar? Nombre, fecha, hora o personas.'
       ],
       en: [
         'What would you like to modify about your reservation? You can change the name, date, time or number of people.',
@@ -6240,10 +6399,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_ask_value: {
       es: [
+        'Vale, ¿cuál es el nuevo {field}?',
         'Perfecto, ¿cuál es el nuevo {field}?',
-        'Entendido, ¿cuál es el nuevo {field}?',
         'Muy bien, ¿cuál es el nuevo {field}?',
-        'Perfecto, indique el nuevo {field}.',
+        'Vale, indique el nuevo {field}.',
         '¿Cuál es el nuevo {field}?'
       ],
       en: [
@@ -6256,10 +6415,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_confirm: {
       es: [
-        'Perfecto, voy a cambiar el {field} de "{oldValue}" a "{newValue}". ¿Confirma esta modificación?',
-        'Entendido, cambiaré el {field} de "{oldValue}" a "{newValue}". ¿Está de acuerdo?',
+        'Vale, voy a cambiar el {field} de "{oldValue}" a "{newValue}". ¿Confirma esta modificación?',
+        'Perfecto, cambiaré el {field} de "{oldValue}" a "{newValue}". ¿Está de acuerdo?',
         'Muy bien, actualizaré el {field} de "{oldValue}" a "{newValue}". ¿Confirma?',
-        'Perfecto, modificaré el {field} de "{oldValue}" a "{newValue}". ¿Procedo?',
+        'Vale, modificaré el {field} de "{oldValue}" a "{newValue}". ¿Procedo?',
         '¿Confirma cambiar el {field} de "{oldValue}" a "{newValue}"?'
       ],
       en: [
@@ -6272,11 +6431,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_success: {
       es: [
-        '¡Perfecto! Su reserva ha sido modificada exitosamente. Gracias por avisarnos. ¡Que tenga un buen día!',
-        '¡Excelente! La modificación se ha realizado correctamente. Gracias por contactarnos. ¡Hasta luego!',
+        '¡Vale! Su reserva ha sido modificada exitosamente. Gracias por avisarnos. ¡Que tenga un buen día!',
+        '¡Perfecto! La modificación se ha realizado correctamente. Gracias por contactarnos. ¡Hasta luego!',
         '¡Muy bien! Su reserva ha sido actualizada exitosamente. Gracias por su llamada. ¡Que disfrute!',
-        '¡Perfecto! La modificación se ha completado. Gracias por avisarnos. ¡Que tenga un buen día!',
-        '¡Excelente! Su reserva ha sido modificada correctamente. Gracias por contactarnos. ¡Hasta pronto!'
+        '¡Vale! La modificación se ha completado. Gracias por avisarnos. ¡Que tenga un buen día!',
+        '¡Perfecto! Su reserva ha sido modificada correctamente. Gracias por contactarnos. ¡Hasta pronto!'
       ],
       en: [
         'Perfect! Your reservation has been modified successfully. Thank you for letting us know. Have a great day!',
@@ -6304,7 +6463,7 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_no_reservations: {
       es: [
-        'No he encontrado reservas futuras con ese número de teléfono. ¿Desea hacer una nueva reserva?',
+        'No he encontrado reservas futuras con ese número. ¿Desea hacer una nueva reserva?',
         'No hay reservas activas para ese número. ¿Quiere hacer una nueva reserva?',
         'No he localizado reservas con ese teléfono. ¿Desea reservar una mesa?',
         'No hay reservas registradas para ese número. ¿Quiere hacer una nueva reserva?',
@@ -6336,10 +6495,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_cancelled: {
       es: [
-        'Entendido, no se realizará ninguna modificación. ¿En qué más puedo ayudarle?',
+        'Vale, no se realizará ninguna modificación. ¿En qué más puedo ayudarle?',
         'Perfecto, no modificaremos la reserva. ¿Qué necesita?',
         'Muy bien, no se harán cambios. ¿En qué puedo asistirle?',
-        'Entendido, no se modificará nada. ¿Qué desea hacer?',
+        'Vale, no se modificará nada. ¿Qué desea hacer?',
         'Perfecto, no se realizarán cambios. ¿Cómo puedo ayudarle?'
       ],
       en: [
@@ -6352,10 +6511,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_unclear_option: {
       es: [
-        'No he entendido qué opción quiere seleccionar. Por favor, diga el número de la reserva que desea modificar.',
-        'No he podido identificar la opción. Por favor, mencione el número de la reserva.',
-        'No he entendido su selección. Por favor, diga el número correspondiente.',
-        'No he podido procesar su elección. Por favor, indique el número de la opción.',
+        'No he entendido qué opción quiere. Por favor, diga el número de la reserva que desea modificar.',
+        'No he podido identificar la opción. Por favor, dígame el número de la reserva.',
+        'No he entendido su selección. Por favor, diga el número.',
+        'No he podido procesar su elección. Por favor, dígame el número de la opción.',
         'No he entendido. Por favor, diga el número de la reserva que quiere modificar.'
       ],
       en: [
@@ -6384,11 +6543,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_unclear_field: {
       es: [
-        'No he entendido qué campo quiere modificar. Por favor, diga si quiere cambiar el nombre, la fecha, la hora o el número de personas.',
-        'No he podido identificar qué desea cambiar. Por favor, mencione el campo: nombre, fecha, hora o personas.',
-        'No he entendido su elección. Por favor, especifique qué quiere modificar.',
-        'No he podido procesar su solicitud. Por favor, indique el campo a cambiar.',
-        'No he entendido. Por favor, diga qué campo quiere modificar.'
+        'No he entendido qué quiere modificar. Por favor, diga si quiere cambiar el nombre, la fecha, la hora o el número de personas.',
+        'No he podido identificar qué desea cambiar. Por favor, dígame: nombre, fecha, hora o personas.',
+        'No he entendido su elección. Por favor, dígame qué quiere modificar.',
+        'No he podido procesar su solicitud. Por favor, dígame qué quiere cambiar.',
+        'No he entendido. Por favor, diga qué quiere modificar.'
       ],
       en: [
         'I did not understand which field you want to modify. Please say if you want to change the name, date, time or number of people.',
@@ -6402,8 +6561,8 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
       es: [
         'No he entendido el nuevo {field}. Por favor, dígamelo de nuevo.',
         'No he podido procesar el nuevo {field}. Por favor, repítalo.',
-        'No he entendido el valor para {field}. Por favor, indíquelo de nuevo.',
-        'No he podido identificar el nuevo {field}. Por favor, mencione el valor.',
+        'No he entendido el {field}. Por favor, dígamelo de nuevo.',
+        'No he podido identificar el nuevo {field}. Por favor, dígame el valor.',
         'No he entendido. Por favor, diga el nuevo {field} de nuevo.'
       ],
       en: [
@@ -6416,7 +6575,7 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     modify_unclear_confirmation: {
       es: [
-        'No he entendido su respuesta. Por favor, diga "sí" para confirmar la modificación o "no" para cancelarla.',
+        'No he entendido su respuesta. Por favor, diga "sí" para confirmar o "no" para cancelar.',
         'No he podido procesar su confirmación. Por favor, responda "sí" o "no".',
         'No he entendido. Por favor, confirme con "sí" o cancele con "no".',
         'No he podido identificar su respuesta. Por favor, diga "sí" o "no".',
@@ -6434,11 +6593,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     // ===== MENSAJES PARA CANCELACIÓN DE RESERVAS =====
     cancel_ask_phone_choice: {
       es: [
-        'Perfecto, para cancelar su reserva necesito verificar su identidad. ¿Quiere usar el mismo número de teléfono desde el que está llamando o prefiere usar otro número?',
-        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Desea usar este mismo número o tiene otro?',
+        'Vale, para cancelar su reserva necesito verificar su identidad. ¿Quiere usar el mismo número desde el que está llamando o prefiere usar otro?',
+        'Perfecto, para buscar su reserva necesito su número. ¿Desea usar este mismo número o tiene otro?',
         'Muy bien, para localizar su reserva necesito su número. ¿Usa el mismo número de esta llamada o prefiere darme otro?',
-        'Perfecto, para cancelar necesito verificar su identidad. ¿Quiere usar este número o prefiere usar otro?',
-        'Entendido, para proceder con la cancelación necesito su número. ¿Usa el mismo número desde el que llama o tiene otro?'
+        'Vale, para cancelar necesito verificar su identidad. ¿Quiere usar este número o prefiere usar otro?',
+        'Perfecto, para proceder con la cancelación necesito su número. ¿Usa el mismo número desde el que llama o tiene otro?'
       ],
       en: [
         'Perfect, to cancel your reservation I need to verify your identity. Do you want to use the same phone number you are calling from or would you prefer to use another number?',
@@ -6478,11 +6637,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_ask_phone: {
       es: [
-        'Perfecto, para cancelar su reserva necesito su número de teléfono. ¿Cuál es su número?',
-        'Entendido, para buscar su reserva necesito su número de teléfono. ¿Podría darme su número?',
-        'Muy bien, para localizar su reserva necesito su número de teléfono. ¿Cuál es?',
-        'Perfecto, para cancelar necesito verificar su identidad. ¿Cuál es su número de teléfono?',
-        'Entendido, para proceder con la cancelación necesito su número de teléfono. ¿Podría darmelo?'
+        'Vale, para cancelar su reserva necesito su número. ¿Cuál es su número?',
+        'Perfecto, para buscar su reserva necesito su número. ¿Podría darme su número?',
+        'Muy bien, para localizar su reserva necesito su número. ¿Cuál es?',
+        'Vale, para cancelar necesito verificar su identidad. ¿Cuál es su número?',
+        'Perfecto, para proceder con la cancelación necesito su número. ¿Podría darmelo?'
       ],
       en: [
         'Perfect, to cancel your reservation I need your phone number. What is your number?',
@@ -6523,10 +6682,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     cancel_show_single: {
       es: [
         'He encontrado su reserva:',
-        'Perfecto, he localizado su reserva:',
-        'Excelente, he encontrado su reserva:',
+        'Vale, he localizado su reserva:',
+        'Perfecto, he encontrado su reserva:',
         'Muy bien, aquí está su reserva:',
-        'Perfecto, aquí tiene su reserva:'
+        'Vale, aquí tiene su reserva:'
       ],
       en: [
         'I found your reservation:',
@@ -6567,10 +6726,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     cancel_show_multiple: {
       es: [
         'He encontrado varias reservas a su nombre:',
-        'Perfecto, he localizado múltiples reservas:',
-        'Excelente, he encontrado varias reservas:',
+        'Vale, he localizado múltiples reservas:',
+        'Perfecto, he encontrado varias reservas:',
         'Muy bien, aquí están sus reservas:',
-        'Perfecto, aquí tiene sus reservas:'
+        'Vale, aquí tiene sus reservas:'
       ],
       en: [
         'I found several reservations under your name:',
@@ -6610,11 +6769,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_choose_option: {
       es: [
-        'Por favor, dígame qué opción desea cancelar. Puede decir "opción 1", "opción 2", etc.',
-        '¿Cuál de estas reservas desea cancelar? Diga el número de la opción.',
-        'Por favor, indique qué reserva quiere cancelar. Diga "primera", "segunda", etc.',
-        '¿Qué opción desea cancelar? Puede decir el número de la opción.',
-        'Por favor, elija qué reserva cancelar. Diga el número correspondiente.'
+        'Por favor, dígame qué reserva quiere cancelar. Puede decir "opción 1", "opción 2", etc.',
+        '¿Cuál de estas reservas quiere cancelar? Diga el número.',
+        'Por favor, dígame qué reserva quiere cancelar. Diga "primera", "segunda", etc.',
+        '¿Qué reserva quiere cancelar? Diga el número.',
+        'Dígame qué reserva quiere cancelar. Diga el número.'
       ],
       en: [
         'Please tell me which option you want to cancel. You can say "option 1", "option 2", etc.',
@@ -6654,11 +6813,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_confirm: {
       es: [
-        '¿Está seguro de que desea cancelar esta reserva?',
+        '¿Está seguro de que quiere cancelar esta reserva?',
         '¿Confirma que quiere cancelar esta reserva?',
-        '¿Desea proceder con la cancelación?',
+        '¿Quiere proceder con la cancelación?',
         '¿Está completamente seguro de cancelar?',
-        '¿Confirma la cancelación de esta reserva?'
+        '¿Confirma la cancelación?'
       ],
       en: [
         'Are you sure you want to cancel this reservation?',
@@ -6698,11 +6857,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_confirm_selected: {
       es: [
-        'Perfecto, ha seleccionado:',
-        'Excelente, ha elegido:',
+        'Vale, ha seleccionado:',
+        'Perfecto, ha elegido:',
         'Muy bien, ha escogido:',
-        'Perfecto, su selección es:',
-        'Excelente, ha seleccionado:'
+        'Vale, su selección es:',
+        'Perfecto, ha seleccionado:'
       ],
       en: [
         'Perfect, you selected:',
@@ -6742,11 +6901,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_success: {
       es: [
-        '¡Perfecto! Su reserva ha sido cancelada exitosamente. Gracias por avisarnos. ¡Que tenga un buen día!',
-        '¡Excelente! La reserva ha sido cancelada correctamente. Gracias por notificarnos. ¡Hasta pronto!',
+        '¡Vale! Su reserva ha sido cancelada exitosamente. Gracias por avisarnos. ¡Que tenga un buen día!',
+        '¡Perfecto! La reserva ha sido cancelada correctamente. Gracias por notificarnos. ¡Hasta pronto!',
         '¡Muy bien! Su reserva se ha cancelado exitosamente. Gracias por contactarnos. ¡Que tenga buen día!',
-        '¡Perfecto! La cancelación se ha procesado correctamente. Gracias por avisarnos. ¡Hasta la próxima!',
-        '¡Excelente! Su reserva ha sido cancelada. Gracias por notificarnos a tiempo. ¡Que tenga buen día!'
+        '¡Vale! La cancelación se ha procesado correctamente. Gracias por avisarnos. ¡Hasta la próxima!',
+        '¡Perfecto! Su reserva ha sido cancelada. Gracias por notificarnos a tiempo. ¡Que tenga buen día!'
       ],
       en: [
         'Perfect! Your reservation has been canceled successfully. Thank you for letting us know. Have a great day!',
@@ -6830,7 +6989,7 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_no_reservations: {
       es: [
-        'No he encontrado ninguna reserva activa con ese número de teléfono. ¿Le gustaría hacer una nueva reserva?',
+        'No he encontrado ninguna reserva activa con ese número. ¿Le gustaría hacer una nueva reserva?',
         'No hay reservas registradas para ese número. ¿Quiere hacer una nueva reserva?',
         'No he localizado reservas con ese teléfono. ¿Desea hacer una nueva reserva?',
         'No hay reservas activas para ese número. ¿Le gustaría reservar una mesa?',
@@ -6962,11 +7121,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_unclear_option: {
       es: [
-        'Disculpe, no entendí qué opción desea. Por favor, diga el número de la opción que quiere cancelar.',
-        'No entendí bien. Por favor, indique el número de la opción que desea cancelar.',
+        'Disculpe, no entendí qué opción quiere. Por favor, diga el número de la opción que quiere cancelar.',
+        'No entendí bien. Por favor, dígame el número de la opción.',
         'Perdón, no capté bien. Por favor, diga "opción 1", "opción 2", etc.',
-        'No entendí. Por favor, repita el número de la opción que quiere cancelar.',
-        'Disculpe, no entendí. Por favor, diga claramente el número de la opción.'
+        'No entendí. Por favor, dígame el número de la opción que quiere cancelar.',
+        'Disculpe, no entendí. Por favor, diga el número de la opción.'
       ],
       en: [
         'Sorry, I didn\'t understand which option you want. Please say the number of the option you want to cancel.',
@@ -7050,10 +7209,10 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     cancel_unclear_confirmation: {
       es: [
-        'Disculpe, no entendí bien su respuesta. ¿Desea cancelar la reserva o no?',
+        'Disculpe, no entendí bien su respuesta. ¿Quiere cancelar la reserva o no?',
         'No entendí claramente. Por favor, diga "sí" para cancelar o "no" para mantener la reserva.',
         'Perdón, no capté bien. ¿Confirma que quiere cancelar esta reserva?',
-        'No entendí. Por favor, responda claramente: ¿sí o no?',
+        'No entendí. Por favor, responda: ¿sí o no?',
         'Disculpe, no entendí. ¿Quiere cancelar la reserva?'
       ],
       en: [
@@ -7886,9 +8045,9 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     no_availability: {
       es: [
-        'Disculpe, no hay disponibilidad para esa fecha y hora. ¿Le gustaría que le sugiera otros horarios disponibles?',
+        'Disculpe, no hay disponibilidad para esa fecha y hora. ¿Le gustaría que le sugiera otros horarios?',
         'Lo siento, estamos completos en ese horario. ¿Puedo ofrecerle otras opciones?',
-        'No tenemos disponibilidad en ese momento. ¿Quiere que le proponga horarios alternativos?',
+        'No tenemos disponibilidad en ese momento. ¿Quiere que le proponga otros horarios?',
         'Ese horario está completo. ¿Le parece bien otro horario?',
         'No hay mesas disponibles en ese momento. ¿Puedo sugerirle otras horas?'
       ],
@@ -7934,7 +8093,9 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         '¿Qué tal a las {time}?',
         'Tenemos disponibilidad a las {time}. ¿Le conviene?',
         'Podemos ofrecerle las {time}. ¿Le va bien?',
-        '¿Le funciona a las {time}?'
+        '¿Le funciona a las {time}?',
+        '¿A las {time} le viene bien?',
+        '¿Qué le parece a las {time}?'
       ],
       en: [
         'Would {time} work for you?',
@@ -11311,39 +11472,30 @@ function formatReservationForDisplay(reservation, index, language = 'es', reserv
     minute: '2-digit' 
   });
   
-  // Verificar si hay múltiples reservas con el mismo nombre
-  const sameNameReservations = reservations.filter(r => r.nom_persona_reserva === reservation.nom_persona_reserva);
-  const hasMultipleSameName = sameNameReservations.length > 1;
-  
-  // Si hay múltiples reservas con el mismo nombre, incluir fecha y hora
-  const nameDisplay = hasMultipleSameName 
-    ? `${reservation.nom_persona_reserva} para ${formattedDate} a las ${formattedTime}`
-    : reservation.nom_persona_reserva;
-  
   const messages = {
     es: {
-      option: `Opción ${index + 1}: Reserva a nombre de ${nameDisplay} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `Tiene una reserva a nombre de ${nameDisplay} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Tiene una reserva el día ${formattedDate} a las ${formattedTime} a nombre de ${reservation.nom_persona_reserva} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Tiene una reserva el día ${formattedDate} a las ${formattedTime} a nombre de ${reservation.nom_persona_reserva} para ${reservation.num_persones} persona${reservation.num_persones > 1 ? 's' : ''}`
     },
     en: {
-      option: `Option ${index + 1}: Reservation under ${nameDisplay} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `You have a reservation under ${nameDisplay} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`
+      option: `You have a reservation on ${formattedDate} at ${formattedTime} under ${reservation.nom_persona_reserva} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `You have a reservation on ${formattedDate} at ${formattedTime} under ${reservation.nom_persona_reserva} for ${reservation.num_persones} person${reservation.num_persones > 1 ? 's' : ''}`
     },
     de: {
-      option: `Option ${index + 1}: Reservierung unter ${nameDisplay} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`,
-      single: `Sie haben eine Reservierung unter ${nameDisplay} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`
+      option: `Sie haben eine Reservierung am ${formattedDate} um ${formattedTime} unter ${reservation.nom_persona_reserva} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`,
+      single: `Sie haben eine Reservierung am ${formattedDate} um ${formattedTime} unter ${reservation.nom_persona_reserva} für ${reservation.num_persones} Person${reservation.num_persones > 1 ? 'en' : ''}`
     },
     fr: {
-      option: `Option ${index + 1}: Réservation au nom de ${nameDisplay} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `Vous avez une réservation au nom de ${nameDisplay} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Vous avez une réservation le ${formattedDate} à ${formattedTime} au nom de ${reservation.nom_persona_reserva} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Vous avez une réservation le ${formattedDate} à ${formattedTime} au nom de ${reservation.nom_persona_reserva} pour ${reservation.num_persones} personne${reservation.num_persones > 1 ? 's' : ''}`
     },
     it: {
-      option: `Opzione ${index + 1}: Prenotazione a nome di ${nameDisplay} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`,
-      single: `Hai una prenotazione a nome di ${nameDisplay} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`
+      option: `Hai una prenotazione il ${formattedDate} alle ${formattedTime} a nome di ${reservation.nom_persona_reserva} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`,
+      single: `Hai una prenotazione il ${formattedDate} alle ${formattedTime} a nome di ${reservation.nom_persona_reserva} per ${reservation.num_persones} persona${reservation.num_persones > 1 ? 'e' : ''}`
     },
     pt: {
-      option: `Opção ${index + 1}: Reserva em nome de ${nameDisplay} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`,
-      single: `Você tem uma reserva em nome de ${nameDisplay} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`
+      option: `Você tem uma reserva no dia ${formattedDate} às ${formattedTime} em nome de ${reservation.nom_persona_reserva} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`,
+      single: `Você tem uma reserva no dia ${formattedDate} às ${formattedTime} em nome de ${reservation.nom_persona_reserva} para ${reservation.num_persones} pessoa${reservation.num_persones > 1 ? 's' : ''}`
     }
   };
   
