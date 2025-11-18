@@ -4765,7 +4765,9 @@ async function handleCancelConfirmMultiple(state, userInput) {
 async function handleCancelConfirmation(state, userInput) {
   console.log(`✅ [CANCELACIÓN] Procesando confirmación: ${userInput}`);
   
-  if (isCancellationConfirmation(userInput)) {
+  const confirmationResult = detectCancellationConfirmation(userInput);
+  
+  if (confirmationResult === 'yes') {
     // Confirmar cancelación
     const selectedReservation = state.cancellationData.selectedReservation;
     console.log(`🗑️ [DEBUG] Datos de cancelación:`, {
@@ -4806,7 +4808,7 @@ async function handleCancelConfirmation(state, userInput) {
         gather: false // Terminar llamada
       };
     }
-  } else if (isCancellationDenial(userInput)) {
+  } else if (confirmationResult === 'no') {
     // Rechazar cancelación
     console.log(`🔄 [CANCELACIÓN] Cancelación rechazada`);
     state.step = 'greeting'; // Volver al inicio
