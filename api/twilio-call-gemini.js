@@ -10,17 +10,8 @@ const logger = require('../lib/logging');
 const { sendReservationConfirmationRcs, sendOrderConfirmationRcs } = require('../lib/rcs');
 const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
 
-// Circuit Breaker para servicios externos (opcional, con fallback si no está disponible)
-let CircuitBreaker;
-try {
-  CircuitBreaker = require('opossum');
-  console.log('✅ [CIRCUIT_BREAKER] opossum cargado correctamente');
-} catch (error) {
-  console.warn('⚠️ [CIRCUIT_BREAKER] opossum no disponible, usando modo degradado sin Circuit Breaker');
-  console.warn('⚠️ [CIRCUIT_BREAKER] Error:', error.message);
-  console.warn('⚠️ [CIRCUIT_BREAKER] Asegúrate de que opossum esté instalado: npm install opossum');
-  CircuitBreaker = null;
-}
+// NOTA: Circuit Breaker removido - causaba problemas en Vercel/serverless
+// Se usa retryWithBackoff directamente que es más simple y confiable
 
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
@@ -218,28 +209,70 @@ function getGeminiClient() {
  * @returns {string} Texto extraído de la respuesta
  */
 function extractTextFromVertexAIResponse(result) {
-  // Intentar diferentes formatos de respuesta de Vertex AI
-  if (result.response && typeof result.response.text === 'function') {
-    // Formato de API estándar (compatibilidad)
-    return result.response.text();
-  } else if (result.response && result.response.candidates && result.response.candidates[0]) {
-    // Formato de Vertex AI: acceder a candidates[0].content.parts[0].text
-    return result.response.candidates[0].content.parts[0].text;
-  } else if (result.candidates && result.candidates[0]) {
-    // Formato alternativo de Vertex AI
-    return result.candidates[0].content.parts[0].text;
-  } else if (result.response && result.response.text) {
-    // Si response.text es un string directamente
-    return typeof result.response.text === 'string' ? result.response.text : String(result.response.text);
-  } else {
-    // Último intento: buscar texto en la respuesta
-    const responseStr = JSON.stringify(result);
-    const textMatch = responseStr.match(/"text":\s*"([^"]+)"/);
-    if (textMatch) {
-      return textMatch[1];
-    }
-    throw new Error('No se pudo extraer el texto de la respuesta de Vertex AI. Estructura: ' + JSON.stringify(result).substring(0, 200));
+  // Validar que result existe
+  if (!result) {
+    throw new Error('Result es null o undefined');
   }
+
+  // Intentar diferentes formatos de respuesta de Vertex AI
+  // 1. Formato de API estándar (compatibilidad) - result.response.text() como función
+  if (result.response && typeof result.response.text === 'function') {
+    try {
+      const text = result.response.text();
+      if (text && typeof text === 'string') {
+        return text;
+      }
+    } catch (error) {
+      // Continuar con otros formatos si falla
+    }
+  }
+  
+  // 2. Formato de Vertex AI estándar: result.response.candidates[0].content.parts[0].text
+  if (result.response && result.response.candidates && Array.isArray(result.response.candidates) && result.response.candidates.length > 0) {
+    const candidate = result.response.candidates[0];
+    if (candidate && candidate.content && candidate.content.parts && Array.isArray(candidate.content.parts) && candidate.content.parts.length > 0) {
+      const text = candidate.content.parts[0].text;
+      if (text && typeof text === 'string') {
+        return text;
+      }
+    }
+  }
+  
+  // 3. Formato alternativo: result.candidates[0].content.parts[0].text
+  if (result.candidates && Array.isArray(result.candidates) && result.candidates.length > 0) {
+    const candidate = result.candidates[0];
+    if (candidate && candidate.content && candidate.content.parts && Array.isArray(candidate.content.parts) && candidate.content.parts.length > 0) {
+      const text = candidate.content.parts[0].text;
+      if (text && typeof text === 'string') {
+        return text;
+      }
+    }
+  }
+  
+  // 4. Si response.text es un string directamente
+  if (result.response && result.response.text) {
+    const text = typeof result.response.text === 'string' ? result.response.text : String(result.response.text);
+    if (text && text.trim().length > 0) {
+      return text;
+    }
+  }
+  
+  // 5. Último intento: buscar texto en la respuesta usando regex (más flexible)
+  try {
+    const responseStr = JSON.stringify(result);
+    // Buscar texto con regex más flexible que maneja escapes y múltiples formatos
+    const textMatch = responseStr.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (textMatch && textMatch[1]) {
+      // Decodificar escapes JSON
+      return JSON.parse(`"${textMatch[1]}"`);
+    }
+  } catch (error) {
+    // Ignorar errores de parsing en último intento
+  }
+  
+  // Si nada funciona, lanzar error con información útil
+  const resultPreview = JSON.stringify(result).substring(0, 500);
+  throw new Error(`No se pudo extraer el texto de la respuesta de Vertex AI. Estructura: ${resultPreview}`);
 }
 
 // ===== FUNCIONES DE RESILIENCIA MEJORADAS =====
@@ -366,124 +399,27 @@ function useRuleBasedFallback(userInput, context = {}) {
   };
 }
 
-// ===== CIRCUIT BREAKER PARA GEMINI =====
-let geminiCircuitBreaker = null;
-
-if (CircuitBreaker) {
-  try {
-    // Función que envuelve la llamada a Gemini con retry
-    const geminiCallWithRetry = async (model, prompt, retries = 3, logger = null, context = {}) => {
-      return await retryWithBackoff(
-        async () => {
-          const GEMINI_TIMEOUT_MS = 8000;
-          const generatePromise = model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-              maxOutputTokens: 2048,
-              temperature: 0.7
-            }
-          });
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Gemini API timeout')), GEMINI_TIMEOUT_MS)
-          );
-          
-          return await Promise.race([generatePromise, timeoutPromise]);
-        },
-        {
-          maxRetries: retries,
-          initialDelay: 1000,
-          maxDelay: 10000,
-          factor: 2,
-          jitter: true,
-          retryableErrors: ['429', '503', 'timeout', 'ECONNRESET', 'ETIMEDOUT', 'overloaded', 'Resource exhausted'],
-          logger: logger
-        }
-      );
-    };
-    
-    // Crear Circuit Breaker
-    geminiCircuitBreaker = new CircuitBreaker(geminiCallWithRetry, {
-      timeout: 5000,
-      errorThresholdPercentage: 50,
-      resetTimeout: 30000,
-      rollingCountTimeout: 60000,
-      rollingCountBuckets: 10
-    });
-    
-    // Fallback cuando el circuito está abierto
-    geminiCircuitBreaker.fallback(async (model, prompt, retries, logger, context) => {
-      if (logger) {
-        logger.warn('CIRCUIT_BREAKER_FALLBACK', {
-          reasoning: 'Circuit breaker está abierto, usando fallback basado en reglas'
-        });
-      }
-      // Retornar un objeto que simula la respuesta de Gemini
-      const fallbackResult = useRuleBasedFallback(prompt, context);
-      return {
-        response: {
-          text: () => JSON.stringify(fallbackResult)
-        }
-      };
-    });
-    
-    // Event listeners para monitoreo
-    geminiCircuitBreaker.on('open', () => {
-      console.warn('🔴 [CIRCUIT_BREAKER] Circuito ABIERTO - Gemini está fallando, usando fallback');
-      logger?.warn('CIRCUIT_BREAKER_OPEN', { reasoning: 'Gemini está fallando repetidamente' });
-    });
-    
-    geminiCircuitBreaker.on('halfOpen', () => {
-      console.log('🟡 [CIRCUIT_BREAKER] Circuito HALF-OPEN - Probando si Gemini se recuperó');
-      logger?.info('CIRCUIT_BREAKER_HALF_OPEN', { reasoning: 'Probando recuperación de Gemini' });
-    });
-    
-    geminiCircuitBreaker.on('close', () => {
-      console.log('🟢 [CIRCUIT_BREAKER] Circuito CERRADO - Gemini funcionando normalmente');
-      logger?.info('CIRCUIT_BREAKER_CLOSE', { reasoning: 'Gemini se recuperó' });
-    });
-    
-    console.log('✅ [CIRCUIT_BREAKER] Circuit Breaker inicializado para Gemini');
-  } catch (error) {
-    console.warn('⚠️ [CIRCUIT_BREAKER] Error inicializando Circuit Breaker:', error.message);
-    geminiCircuitBreaker = null;
-  }
-}
+// ===== CIRCUIT BREAKER REMOVIDO =====
+// El Circuit Breaker fue removido porque:
+// 1. No se ejecutaba correctamente en Vercel/serverless
+// 2. Añadía complejidad innecesaria
+// 3. El retryWithBackoff ya maneja bien los errores temporales
+// 4. El fallback basado en reglas se maneja en el nivel superior cuando Gemini falla completamente
 
 // ===== FUNCIÓN DE RETRY PARA LLAMADAS A GEMINI =====
 /**
  * Llama a Gemini con retry automático para manejar rate limiting (429) y otros errores temporales
- * MEJORADO: Ahora usa Circuit Breaker y Exponential Backoff Inteligente
+ * Usa Exponential Backoff Inteligente con jitter
  * @param {Object} model - Modelo de Gemini
  * @param {string} prompt - Prompt a enviar
  * @param {number} retries - Número máximo de reintentos (default: 3)
  * @param {Object} logger - Logger opcional para registrar intentos
- * @param {Object} context - Contexto adicional (para fallback)
+ * @param {Object} context - Contexto adicional (no usado actualmente, mantenido para compatibilidad)
  * @returns {Promise<Object>} Resultado de generateContent
  */
 async function callGeminiWithRetry(model, prompt, retries = 3, logger = null, context = {}) {
-  // Si tenemos Circuit Breaker disponible, usarlo
-  if (geminiCircuitBreaker) {
-    try {
-      return await geminiCircuitBreaker.fire(model, prompt, retries, logger, context);
-    } catch (error) {
-      // Si el Circuit Breaker falla, usar fallback basado en reglas
-      if (logger) {
-        logger.warn('CIRCUIT_BREAKER_ERROR', {
-          error: error.message,
-          reasoning: 'Error en Circuit Breaker, usando fallback'
-        });
-      }
-      // El fallback ya se ejecutó automáticamente, pero si hay error, lanzarlo
-      throw error;
-    }
-  }
-  
-  // FALLBACK: Código original si no hay Circuit Breaker (compatibilidad hacia atrás)
-  let lastError = null;
   const GEMINI_TIMEOUT_MS = 8000;
   
-  // Usar retryWithBackoff mejorado si está disponible
   try {
     return await retryWithBackoff(
       async () => {
@@ -512,16 +448,15 @@ async function callGeminiWithRetry(model, prompt, retries = 3, logger = null, co
       }
     );
   } catch (error) {
-    // Si todos los reintentos fallan, intentar fallback basado en reglas
+    // Si todos los reintentos fallan, loggear el error
     if (logger) {
       logger.warn('GEMINI_ALL_RETRIES_FAILED', {
         error: error.message,
-        reasoning: 'Todos los reintentos fallaron, usando fallback basado en reglas'
+        reasoning: 'Todos los reintentos fallaron. El código que llama debe manejar el error.'
       });
     }
     
-    // Lanzar el error original para mantener compatibilidad
-    // El código que llama a esta función puede manejar el error
+    // Lanzar el error para que el código que llama pueda manejarlo
     throw error;
   }
 }
@@ -1283,6 +1218,15 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
   try {
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     
+    // Validar que userInput existe y no está vacío
+    if (!userInput || typeof userInput !== 'string' || !userInput.trim()) {
+      geminiLogger.warn('GEMINI_INVALID_INPUT', {
+        userInput: userInput,
+        reasoning: 'userInput es null, undefined, no es string o está vacío'
+      });
+      return null;
+    }
+    
     // OPTIMIZACIÓN: Verificar cache antes de hacer la llamada
     const cacheKey = userInput.trim().toLowerCase();
     const cached = geminiAnalysisCache.get(cacheKey);
@@ -1555,8 +1499,44 @@ NOTA SOBRE VALIDACIONES:
     });
     
     // Extraer JSON de la respuesta (puede venir con markdown o texto extra)
-    let jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    // Intentar múltiples estrategias para extraer el JSON
+    let jsonText = null;
+    let analysis = null;
+    
+    // Estrategia 1: Buscar JSON dentro de bloques de código markdown (```json ... ```)
+    const markdownJsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (markdownJsonMatch && markdownJsonMatch[1]) {
+      jsonText = markdownJsonMatch[1];
+    }
+    
+    // Estrategia 2: Buscar el primer objeto JSON válido (más preciso que /\{[\s\S]*\}/)
+    if (!jsonText) {
+      // Buscar desde la primera { hasta la última } balanceada
+      let braceCount = 0;
+      let startIdx = -1;
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === '{') {
+          if (startIdx === -1) startIdx = i;
+          braceCount++;
+        } else if (text[i] === '}') {
+          braceCount--;
+          if (braceCount === 0 && startIdx !== -1) {
+            jsonText = text.substring(startIdx, i + 1);
+            break;
+          }
+        }
+      }
+    }
+    
+    // Estrategia 3: Fallback al regex simple (menos preciso pero puede funcionar)
+    if (!jsonText) {
+      const simpleMatch = text.match(/\{[\s\S]*\}/);
+      if (simpleMatch) {
+        jsonText = simpleMatch[0];
+      }
+    }
+    
+    if (!jsonText) {
       geminiLogger.error('❌ JSON_EXTRACTION_FAILED', { 
         text: text.substring(0, 500),
         reasoning: 'No se pudo extraer JSON de la respuesta de Gemini. La respuesta puede estar mal formateada.'
@@ -1564,16 +1544,31 @@ NOTA SOBRE VALIDACIONES:
       return null;
     }
     
-    let analysis;
+    // Intentar parsear el JSON
     try {
-      analysis = JSON.parse(jsonMatch[0]);
+      analysis = JSON.parse(jsonText);
     } catch (parseError) {
-      geminiLogger.error('❌ JSON_PARSE_ERROR', {
-        error: parseError.message,
-        jsonPreview: jsonMatch[0].substring(0, 500),
-        reasoning: 'Error al parsear el JSON extraído de la respuesta de Gemini'
-      });
-      return null;
+      // Si falla, intentar limpiar el JSON (quitar comentarios, trailing commas, etc.)
+      try {
+        // Intentar limpiar JSON básico (quitar comentarios de línea y trailing commas)
+        let cleanedJson = jsonText
+          .replace(/\/\/.*$/gm, '') // Quitar comentarios de línea
+          .replace(/\/\*[\s\S]*?\*\//g, '') // Quitar comentarios de bloque
+          .replace(/,(\s*[}\]])/g, '$1'); // Quitar trailing commas
+        
+        analysis = JSON.parse(cleanedJson);
+        geminiLogger.warn('JSON_CLEANED_AND_PARSED', {
+          reasoning: 'JSON tenía caracteres inválidos que fueron limpiados'
+        });
+      } catch (cleanError) {
+        geminiLogger.error('❌ JSON_PARSE_ERROR', {
+          error: parseError.message,
+          cleanError: cleanError.message,
+          jsonPreview: jsonText.substring(0, 500),
+          reasoning: 'Error al parsear el JSON extraído de la respuesta de Gemini incluso después de limpiarlo'
+        });
+        return null;
+      }
     }
     
     const totalGeminiTime = Date.now() - geminiStartTime;
@@ -1704,7 +1699,17 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
 
     // OPTIMIZACIÓN: Reducir reintentos a 2 para detección de intención (más rápido)
     const result = await callGeminiWithRetry(model, prompt, 2, geminiLogger);
-    const detectedIntention = extractTextFromVertexAIResponse(result).trim().toLowerCase();
+    const responseText = extractTextFromVertexAIResponse(result);
+    
+    // Validar que la respuesta no esté vacía
+    if (!responseText || typeof responseText !== 'string') {
+      geminiLogger.warn('GEMINI_EMPTY_RESPONSE', {
+        reasoning: 'La respuesta de Gemini está vacía o no es un string'
+      });
+      return { action: 'clarify' };
+    }
+    
+    const detectedIntention = responseText.trim().toLowerCase();
     
     const validIntentions = ['reservation', 'modify', 'cancel', 'clarify'];
     const action = validIntentions.includes(detectedIntention) ? detectedIntention : 'clarify';
@@ -1754,7 +1759,15 @@ Responde SOLO con el código de 2 letras, sin explicaciones.`;
 
     // OPTIMIZACIÓN: Reducir reintentos a 2 para detección de idioma (más rápido)
     const result = await callGeminiWithRetry(model, prompt, 2);
-    const detectedLang = extractTextFromVertexAIResponse(result).trim().toLowerCase().substring(0, 2);
+    const responseText = extractTextFromVertexAIResponse(result);
+    
+    // Validar que la respuesta no esté vacía
+    if (!responseText || typeof responseText !== 'string') {
+      console.warn('⚠️ [GEMINI] Respuesta vacía en detección de idioma, usando fallback');
+      return 'es';
+    }
+    
+    const detectedLang = responseText.trim().toLowerCase().substring(0, 2);
     
     const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
     return validLangs.includes(detectedLang) ? detectedLang : 'es';
@@ -1870,7 +1883,19 @@ Respond ONLY with the reservation number (1, 2, 3, etc.) without explanations. I
     });
 
     const result = await callGeminiWithRetry(model, prompt, 2, geminiLogger);
-    const responseText = extractTextFromVertexAIResponse(result).trim();
+    const rawResponseText = extractTextFromVertexAIResponse(result);
+    
+    // Validar que la respuesta no esté vacía
+    if (!rawResponseText || typeof rawResponseText !== 'string') {
+      geminiLogger.warn('GEMINI_EMPTY_RESPONSE_SELECTION', {
+        reasoning: 'La respuesta de Gemini está vacía o no es un string'
+      });
+      // Fallback: intentar extraer número con función existente
+      const optionNumber = extractOptionFromText(userInput);
+      return optionNumber ? optionNumber - 1 : null;
+    }
+    
+    const responseText = rawResponseText.trim();
     
     // Intentar extraer el número de la respuesta
     const numberMatch = responseText.match(/\d+/);
