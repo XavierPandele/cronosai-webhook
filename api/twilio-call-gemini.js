@@ -3002,10 +3002,10 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
       return order.items.length > 0 && order.pendingItems === 0
         ? (language === 'en'
             ? `I have your order as: ${summary}. Anything else you would like to add?`
-            : `Vale, tengo anotado: ${summary}. ¿Quieres añadir algo más?`)
+            : `Vale, tengo anotado: ${summary}. ¿Quiere añadir algo más?`)
         : (language === 'en'
             ? `Sure, tell me what you would like to order. ${summarizeMenuSample(menuItems, 'en')}`
-            : `Claro, dime qué te gustaría pedir. ${summarizeMenuSample(menuItems, language)}`);
+            : `Claro, dígame qué le gustaría pedir. ${summarizeMenuSample(menuItems, language)}`);
     case 'order_ask_address':
       return language === 'en'
         ? `Great. I have the order as: ${summary}. What is the delivery address?`
@@ -3021,11 +3021,11 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
     case 'order_ask_notes': {
       const messages = {
         es: [
-          `Vale, tengo tu pedido: ${summary}. ¿Tienes alguna alergia, restricción alimentaria o algo especial que quieras añadir? Si no, solo di "no" o "nada".`,
-          `Perfecto, tengo anotado: ${summary}. ¿Hay algo más que deba saber? Alergias, preferencias o algo especial. Si no, di "no".`,
-          `Vale, tu pedido es: ${summary}. ¿Alguna alergia o preferencia especial? Si no tienes ninguna, di "no".`,
-          `Perfecto, tengo: ${summary}. ¿Quieres añadir algo más? Alergias, modificaciones o algo especial. Si no, di "nada".`,
-          `Vale, pedido: ${summary}. ¿Tienes alguna alergia o algo que deba saber? Si no, solo di "no".`
+          `Vale, tengo su pedido: ${summary}. ¿Tiene alguna alergia, restricción alimentaria o algo especial que quiera añadir? Si no, solo diga "no" o "nada".`,
+          `Perfecto, tengo anotado: ${summary}. ¿Hay algo más que deba saber? Alergias, preferencias o algo especial. Si no, diga "no".`,
+          `Vale, su pedido es: ${summary}. ¿Alguna alergia o preferencia especial? Si no tiene ninguna, diga "no".`,
+          `Perfecto, tengo: ${summary}. ¿Quiere añadir algo más? Alergias, modificaciones o algo especial. Si no, diga "nada".`,
+          `Vale, pedido: ${summary}. ¿Tiene alguna alergia o algo que deba saber? Si no, solo diga "no".`
         ],
         en: [
           `Perfect. I have your order: ${summary}. Do you have any allergies, dietary restrictions, or special requests? If not, just say "no" or "nothing".`,
@@ -3047,7 +3047,7 @@ function getOrderStepMessage(order, step, language = 'es', menuItems = []) {
     case 'order_complete':
       return language === 'en'
         ? 'Perfect! Your delivery order is confirmed. We will prepare it right away.'
-        : '¡Vale! Tu pedido a domicilio queda confirmado. Lo preparamos de inmediato.';
+        : '¡Vale! Su pedido a domicilio queda confirmado. Lo preparamos de inmediato.';
     default:
       return language === 'en'
         ? 'Could you repeat that, please?'
@@ -3130,7 +3130,7 @@ async function handleOrderCollectItems(state, userInput, callLogger, performance
       const summary = buildOrderSummary(order, state.language || 'es', true);
       const message = state.language === 'en'
         ? `Perfect! I've added ${selectedSuggestion.nombre} to your order. ${summary}. Anything else?`
-        : `¡Vale! He añadido ${selectedSuggestion.nombre} a tu pedido. ${summary}. ¿Algo más?`;
+        : `¡Vale! He añadido ${selectedSuggestion.nombre} a su pedido. ${summary}. ¿Algo más?`;
       
       return {
         message: message,
@@ -3348,7 +3348,7 @@ async function handleOrderConfirm(state, userInput, callLogger) {
     return {
       message: state.language === 'en'
         ? 'Of course. Tell me what changes you would like to make to the order.'
-        : 'Vale. Dime qué cambios quieres hacer en el pedido.',
+        : 'Vale. Dígame qué cambios quiere hacer en el pedido.',
       gather: true
     };
   }
@@ -6264,7 +6264,7 @@ function getNaturalAcknowledgment(userInput, language = 'es') {
   if (Math.random() > 0.25) return '';
   
   const acknowledgments = {
-    es: ['Aja', 'Vale', 'Claro', 'Perfecto', 'Bien', 'De acuerdo', 'Entendido'],
+    es: ['Okey', 'Vale', 'Claro', 'Perfecto', 'Bien', 'De acuerdo', 'Entendido'],
     en: ['Okay', 'Right', 'Got it', 'Sure', 'Perfect', 'Understood']
   };
   
@@ -6327,12 +6327,12 @@ function detectMessageContext(message, language = 'es') {
 function getProcessingMessage(language = 'es') {
   const messages = {
     es: [
-      'Eeeeh, un segundo por favor, que le confirmo...',
+      'Un segundo por favor, que le confirmo...',
       'Déjeme verificar un momento, por favor...',
       'Un segundo, que lo compruebo ahora mismo...',
       'Muy bien, déjeme revisar eso rápidamente...',
       'Perfecto, un momentito que lo consulto...',
-      'Eeh, déjeme comprobar un instante, por favor...',
+      'Déjeme comprobar un instante, por favor...',
       'Claro, un segundito que lo verifico...',
       'Déjeme confirmar eso ahora mismo...',
       'Un momento, que lo miro aquí...',
