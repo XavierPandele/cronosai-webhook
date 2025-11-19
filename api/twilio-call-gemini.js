@@ -166,9 +166,87 @@ function getGeminiClient() {
         return null;
       }
 
-      const credentials = typeof credentialsJson === 'string' 
-        ? JSON.parse(credentialsJson) 
-        : credentialsJson;
+      // MEJORADO: Parsing robusto del JSON con múltiples estrategias
+      let credentials;
+      if (typeof credentialsJson === 'object' && credentialsJson !== null) {
+        // Ya es un objeto, usarlo directamente
+        credentials = credentialsJson;
+      } else if (typeof credentialsJson === 'string') {
+        try {
+          // Estrategia 1: Parse directo (caso más común)
+          credentials = JSON.parse(credentialsJson);
+        } catch (parseError) {
+          // Estrategia 2: Intentar limpiar problemas comunes de formato
+          try {
+            let cleaned = credentialsJson.trim();
+            
+            // Limpiar comillas simples en keys y valores (excepto en private_key que puede tener \n)
+            cleaned = cleaned
+              .replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3') // Keys con comillas simples
+              .replace(/(:\s*)'([^']*)'(\s*[,}])/g, '$1"$2"$3'); // Valores con comillas simples
+            
+            // Asegurar que los \n en private_key estén correctamente escapados
+            // Si hay \\n (doble escape), convertirlo a \n (escape simple)
+            cleaned = cleaned.replace(/\\\\n/g, '\\n');
+            
+            credentials = JSON.parse(cleaned);
+            logger.warn('GEMINI_JSON_CLEANED', {
+              reasoning: 'JSON limpiado automáticamente (comillas simples y escapes corregidos)'
+            });
+          } catch (cleanError) {
+            // Estrategia 3: Intentar leer como ruta de archivo si parece una ruta
+            const fs = require('fs');
+            const path = require('path');
+            if (fs.existsSync(credentialsJson)) {
+              try {
+                const fileContent = fs.readFileSync(credentialsJson, 'utf8');
+                credentials = JSON.parse(fileContent);
+                logger.info('GEMINI_JSON_FROM_FILE', {
+                  file: credentialsJson,
+                  reasoning: 'JSON cargado desde archivo en lugar de variable de entorno'
+                });
+              } catch (fileError) {
+                throw new Error(`Error parseando JSON desde archivo ${credentialsJson}: ${fileError.message}`);
+              }
+            } else {
+              // Estrategia 4: Intentar decodificar si está en base64 (algunos entornos lo codifican así)
+              try {
+                const base64Decoded = Buffer.from(credentialsJson, 'base64').toString('utf8');
+                credentials = JSON.parse(base64Decoded);
+                logger.info('GEMINI_JSON_FROM_BASE64', {
+                  reasoning: 'JSON decodificado desde base64'
+                });
+              } catch (base64Error) {
+                // Estrategia 5: Intentar parsear línea por línea si parece un JSON multilínea mal formateado
+                try {
+                  // Si el JSON tiene saltos de línea literales sin escapar, intentar arreglarlo
+                  let multilineFixed = credentialsJson
+                    .replace(/\n/g, '\\n')  // Escapar saltos de línea reales
+                    .replace(/\r/g, '')     // Eliminar retornos de carro
+                    .replace(/\\n\\n/g, '\\n'); // Normalizar dobles escapes
+                  
+                  credentials = JSON.parse(multilineFixed);
+                  logger.warn('GEMINI_JSON_MULTILINE_FIXED', {
+                    reasoning: 'JSON multilínea corregido automáticamente'
+                  });
+                } catch (multilineError) {
+                  // Si nada funciona, lanzar error con información útil
+                  const preview = credentialsJson.substring(0, 200);
+                  const errorMsg = `Error parseando GOOGLE_APPLICATION_CREDENTIALS_JSON después de múltiples intentos. ` +
+                    `Error original: ${parseError.message}. ` +
+                    `Error limpieza: ${cleanError.message}. ` +
+                    `Preview (primeros 200 chars): ${preview}... ` +
+                    `Verifica que el JSON esté correctamente formateado. ` +
+                    `En .env, el JSON debe estar en una sola línea con comillas dobles y \\n para saltos de línea.`;
+                  throw new Error(errorMsg);
+                }
+              }
+            }
+          }
+        }
+      } else {
+        throw new Error('GOOGLE_APPLICATION_CREDENTIALS_JSON tiene un formato inesperado');
+      }
 
       const auth = new GoogleAuth({
         credentials: credentials,
@@ -200,6 +278,115 @@ function getGeminiClient() {
     }
   }
   return geminiClient;
+}
+
+// ===== HELPER PARA CREAR MODELOS GEMINI =====
+/**
+ * Crea un modelo de Gemini con configuración optimizada
+ * Elimina duplicación de código en múltiples funciones
+ * @param {Object} options - Opciones de configuración del modelo
+ * @param {string} options.model - Nombre del modelo (default: 'gemini-2.5-flash-lite')
+ * @param {number} options.maxOutputTokens - Tokens máximos de salida
+ * @param {number} options.temperature - Temperatura (0-1)
+ * @param {number} options.topP - Top P sampling
+ * @param {number} options.topK - Top K sampling
+ * @param {Object} logger - Logger opcional
+ * @returns {Object|null} Modelo de Gemini o null si no está disponible
+ */
+function createGeminiModel(options = {}, logger = null) {
+  const {
+    model = 'gemini-2.5-flash-lite',
+    maxOutputTokens = 2048,
+    temperature = 0.7,
+    topP = 0.9,
+    topK = 40
+  } = options;
+
+  const client = getGeminiClient();
+  if (!client) {
+    if (logger) {
+      logger.warn('⚠️ GEMINI_CLIENT_NOT_AVAILABLE', {
+        reasoning: 'Cliente de Vertex AI no disponible. Verificar GOOGLE_APPLICATION_CREDENTIALS_JSON.'
+      });
+    }
+    return null;
+  }
+
+  const geminiModel = client.preview.getGenerativeModel({
+    model: model,
+    generationConfig: {
+      maxOutputTokens: maxOutputTokens,
+      temperature: temperature,
+      topP: topP,
+      topK: topK
+    }
+  });
+
+  if (logger) {
+    logger.debug('🤖 GEMINI_MODEL_INITIALIZED', {
+      model: model,
+      platform: 'Vertex AI',
+      projectId: PROJECT_ID,
+      location: LOCATION,
+      config: { maxOutputTokens, temperature, topP, topK },
+      reasoning: `Modelo de Gemini ${model} inicializado con configuración optimizada.`
+    });
+  }
+
+  return geminiModel;
+}
+
+// ===== HELPER PARA FORMATEAR FECHAS/HORAS DE RESERVAS =====
+/**
+ * Formatea fecha y hora de una reserva para mostrar al usuario
+ * Elimina duplicación de código en múltiples funciones
+ * @param {string|Date} reservationDate - Fecha de la reserva (string o Date)
+ * @param {string} language - Idioma para formateo (default: 'es')
+ * @returns {Object} Objeto con formattedDate y formattedTime
+ */
+function formatReservationDateTime(reservationDate, language = 'es') {
+  const date = reservationDate instanceof Date ? reservationDate : new Date(reservationDate);
+  const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
+  
+  // Formatear fecha según idioma
+  let formattedDate;
+  switch (language) {
+    case 'en':
+      formattedDate = formatDateEnglish(dateString);
+      break;
+    case 'de':
+      formattedDate = formatDateGerman(dateString);
+      break;
+    case 'fr':
+      formattedDate = formatDateFrench(dateString);
+      break;
+    case 'it':
+      formattedDate = formatDateItalian(dateString);
+      break;
+    case 'pt':
+      formattedDate = formatDatePortuguese(dateString);
+      break;
+    default:
+      formattedDate = formatDateSpanish(dateString);
+  }
+  
+  // Formatear hora según idioma
+  const localeMap = {
+    'es': 'es-ES',
+    'en': 'en-US',
+    'de': 'de-DE',
+    'fr': 'fr-FR',
+    'it': 'it-IT',
+    'pt': 'pt-PT'
+  };
+  const locale = localeMap[language] || 'es-ES';
+  
+  const formattedTime = date.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  
+  return { formattedDate, formattedTime, date, dateString };
 }
 
 // ===== HELPER PARA EXTRAER TEXTO DE RESPUESTA DE VERTEX AI =====
@@ -801,6 +988,21 @@ module.exports = async function handler(req, res) {
     // Guardar entrada del usuario si existe
     let userInput = SpeechResult || Digits || '';
     
+    // PROTECCIÓN: Límite de longitud de input para prevenir timeouts y sobrecarga
+    // Límite máximo: 10,000 caracteres (suficiente para inputs normales, previene inputs extremos)
+    const MAX_INPUT_LENGTH = 10000;
+    if (userInput && userInput.length > MAX_INPUT_LENGTH) {
+      const originalLength = userInput.length;
+      userInput = userInput.substring(0, MAX_INPUT_LENGTH);
+      callLogger.warn('INPUT_TRUNCATED', {
+        originalLength,
+        truncatedLength: MAX_INPUT_LENGTH,
+        callSid: CallSid,
+        step: state.step,
+        reasoning: `Input demasiado largo (${originalLength} caracteres). Truncado a ${MAX_INPUT_LENGTH} caracteres para prevenir timeout.`
+      });
+    }
+    
     // Detectar si esta es una request de procesamiento (después del mensaje de "procesando")
     const isProcessing = req.query && req.query.process === 'true';
     
@@ -1214,6 +1416,22 @@ module.exports = async function handler(req, res) {
  * Ideal para producción: velocidad + precisión + estabilidad.
  */
 async function analyzeReservationWithGemini(userInput, context = {}) {
+  // PROTECCIÓN: Validar longitud de input antes de procesar
+  const MAX_INPUT_LENGTH = 10000;
+  if (!userInput || typeof userInput !== 'string') {
+    throw new Error('userInput debe ser un string no vacío');
+  }
+  if (userInput.length > MAX_INPUT_LENGTH) {
+    const originalLength = userInput.length;
+    userInput = userInput.substring(0, MAX_INPUT_LENGTH);
+    const logger = context.logger || require('../lib/logging');
+    logger.warn('INPUT_TRUNCATED_IN_ANALYSIS', {
+      originalLength,
+      truncatedLength: MAX_INPUT_LENGTH,
+      callSid: context.callSid,
+      reasoning: `Input truncado en analyzeReservationWithGemini (${originalLength} > ${MAX_INPUT_LENGTH} caracteres)`
+    });
+  }
   const geminiStartTime = Date.now();
   try {
     const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
@@ -1252,31 +1470,18 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
       reasoning: `Iniciando análisis de Gemini para extraer información de: "${userInput.substring(0, 100)}"`
     });
     
-    const client = getGeminiClient();
-    if (!client) {
-      geminiLogger.warn('⚠️ GEMINI_CLIENT_NOT_AVAILABLE', {
-        reasoning: 'Cliente de Vertex AI no disponible. Verificar GOOGLE_APPLICATION_CREDENTIALS_JSON.'
-      });
+    // REFACTORIZADO: Usar función helper para crear modelo (elimina duplicación)
+    const model = createGeminiModel({
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens: 2048, // Reducir para respuesta más rápida
+      temperature: 0.7,
+      topP: 0.9,
+      topK: 40
+    }, geminiLogger);
+    
+    if (!model) {
       return null;
     }
-
-    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada para velocidad
-    const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-      generationConfig: {
-        maxOutputTokens: 2048, // Reducir para respuesta más rápida
-        temperature: 0.7,
-        topP: 0.9,
-        topK: 40
-      }
-    });
-    geminiLogger.debug('🤖 GEMINI_MODEL_INITIALIZED', { 
-      model: 'gemini-2.5-flash-lite',
-      platform: 'Vertex AI',
-      projectId: PROJECT_ID,
-      location: LOCATION,
-      reasoning: 'Modelo de Gemini 2.5 Flash Lite inicializado con configuración optimizada para velocidad.'
-    });
     
     // PERFORMANCE: Medir tiempo de carga de datos
     const dataLoadStartTime = Date.now();
@@ -1666,22 +1871,21 @@ NOTA SOBRE VALIDACIONES:
  */
 async function detectIntentionWithGemini(text, context = {}) {
   try {
-    const client = getGeminiClient();
-    if (!client) {
+    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    
+    // REFACTORIZADO: Usar función helper para crear modelo (elimina duplicación)
+    const model = createGeminiModel({
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens: 512, // Muy corto para detección de intención
+      temperature: 0.3, // Baja temperatura para respuestas más deterministas
+      topP: 0.8,
+      topK: 20
+    }, geminiLogger);
+    
+    if (!model) {
       // Fallback: asumir reservation si no hay Gemini
       return { action: 'reservation' };
     }
-
-    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada
-    const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-      generationConfig: {
-        maxOutputTokens: 512, // Muy corto para detección de intención
-        temperature: 0.3, // Baja temperatura para respuestas más deterministas
-        topP: 0.8,
-        topK: 20
-      }
-    });
     
     const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
 Responde SOLO con una de estas opciones:
@@ -1694,7 +1898,6 @@ Texto: "${text}"
 
 Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explicaciones.`;
 
-    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     geminiLogger.gemini('INTENTION_ANALYSIS_START', { text });
 
     // OPTIMIZACIÓN: Reducir reintentos a 2 para detección de intención (más rápido)
@@ -1729,21 +1932,18 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
  */
 async function detectLanguageWithGemini(text) {
   try {
-    const client = getGeminiClient();
-    if (!client) {
+    // REFACTORIZADO: Usar función helper para crear modelo (elimina duplicación)
+    const model = createGeminiModel({
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens: 32, // Muy corto para solo código de idioma
+      temperature: 0.1, // Muy baja temperatura para respuesta determinista
+      topP: 0.7,
+      topK: 10
+    });
+    
+    if (!model) {
       return 'es'; // Fallback
     }
-
-    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada para detección rápida
-    const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-      generationConfig: {
-        maxOutputTokens: 32, // Muy corto para solo código de idioma
-        temperature: 0.1, // Muy baja temperatura para respuesta determinista
-        topP: 0.7,
-        topK: 10
-      }
-    });
     
     const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
 - "es" para español
@@ -1785,25 +1985,27 @@ Responde SOLO con el código de 2 letras, sin explicaciones.`;
  */
 async function analyzeReservationSelectionWithGemini(userInput, reservations, language = 'es', context = {}) {
   try {
-    const client = getGeminiClient();
-    if (!client) {
+    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
+    
+    // REFACTORIZADO: Usar función helper para crear modelo (elimina duplicación)
+    const model = createGeminiModel({
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens: 256,
+      temperature: 0.3,
+      topP: 0.8,
+      topK: 20
+    }, geminiLogger);
+    
+    if (!model) {
       console.warn('⚠️ [GEMINI] Cliente no disponible, usando fallback');
       // Fallback: intentar extraer número con función existente
       const optionNumber = extractOptionFromText(userInput);
       return optionNumber ? optionNumber - 1 : null;
     }
-
-    const geminiLogger = logger.withContext({ ...context, module: 'gemini' });
     
-    // Construir lista de reservas para el prompt
+    // REFACTORIZADO: Usar función helper para formatear fechas/horas (elimina duplicación)
     const reservationsList = reservations.map((reservation, index) => {
-      const date = new Date(reservation.data_reserva);
-      const dateString = date.toISOString().split('T')[0];
-      const formattedDate = formatDateSpanish(dateString);
-      const formattedTime = date.toLocaleTimeString('es-ES', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
+      const { formattedDate, formattedTime } = formatReservationDateTime(reservation.data_reserva, language);
       
       return {
         index: index + 1,
@@ -1812,17 +2014,6 @@ async function analyzeReservationSelectionWithGemini(userInput, reservations, la
         name: reservation.nom_persona_reserva,
         people: reservation.num_persones
       };
-    });
-
-    // OPTIMIZACIÓN: Usar gemini-2.5-flash-lite con configuración optimizada
-    const model = client.preview.getGenerativeModel({
-      model: 'gemini-2.5-flash-lite',
-      generationConfig: {
-        maxOutputTokens: 256,
-        temperature: 0.3,
-        topP: 0.8,
-        topK: 20
-      }
     });
 
     // Construir el prompt según el idioma
@@ -5038,10 +5229,13 @@ function getFieldValue(reservation, field) {
     case 'name':
       return reservation.nom_persona_reserva;
     case 'date':
-      return formatDateSpanish(reservation.data_reserva.split(' ')[0]);
+      // REFACTORIZADO: Usar función helper para formatear fecha (elimina duplicación)
+      const { formattedDate } = formatReservationDateTime(reservation.data_reserva, 'es');
+      return formattedDate;
     case 'time':
-      const date = new Date(reservation.data_reserva);
-      return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      // REFACTORIZADO: Usar función helper para formatear hora (elimina duplicación)
+      const { formattedTime } = formatReservationDateTime(reservation.data_reserva, 'es');
+      return formattedTime;
     case 'people':
       return reservation.num_persones;
     default:
@@ -12340,14 +12534,8 @@ async function cancelReservation(reservationId, phoneNumber) {
 
 // Formatear reserva para mostrar al usuario
 function formatReservationForDisplay(reservation, index, language = 'es', reservations = []) {
-  const date = new Date(reservation.data_reserva);
-  // Convertir a string ISO para formatDateSpanish
-  const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
-  const formattedDate = formatDateSpanish(dateString);
-  const formattedTime = date.toLocaleTimeString('es-ES', { 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
+  // REFACTORIZADO: Usar función helper para formatear fecha/hora (elimina duplicación)
+  const { formattedDate, formattedTime } = formatReservationDateTime(reservation.data_reserva, language);
   
   const messages = {
     es: {
