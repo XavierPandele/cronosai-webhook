@@ -4,9 +4,6 @@
     "api/twilio-call-gemini.js": {
       "maxDuration": 30
     },
-    "api/twilio-call-improved.js": {
-      "maxDuration": 30
-    },
     "api/twilio-call.js": {
       "maxDuration": 30
     },
