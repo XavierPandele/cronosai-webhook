@@ -4707,7 +4707,7 @@ async function processConversationStep(state, userInput, callLogger, performance
          };
        }
 
-    case 'clarify_confirm':
+    case 'clarify_confirm': {
       // Manejar respuesta del usuario cuando se le pregunta si quiere hacer una reserva
       // después de detectar datos útiles con intención "clarify"
       if (!state.pendingClarifyData) {
@@ -4835,8 +4835,10 @@ async function processConversationStep(state, userInput, callLogger, performance
           };
         }
       }
+      break;
+    }
 
-     case 'confirm':
+     case 'confirm': {
        const confirmationResult = handleConfirmationResponse(text);
        
       if (confirmationResult.action === 'confirm') {
@@ -4916,12 +4918,14 @@ async function processConversationStep(state, userInput, callLogger, performance
            gather: true
          };
        } else {
-         const clarifyConfirmMessages = getMultilingualMessages('clarify_confirm', state.language);
-         return {
-           message: getRandomMessage(clarifyConfirmMessages),
-           gather: true
-         };
-       }
+        const clarifyConfirmMessages = getMultilingualMessages('clarify_confirm', state.language);
+        return {
+          message: getRandomMessage(clarifyConfirmMessages),
+          gather: true
+        };
+      }
+      break;
+    }
 
     case 'cancelling':
       // Estado de cancelación - manejar confirmación
