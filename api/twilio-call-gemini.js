@@ -1034,9 +1034,44 @@ module.exports = async function handler(req, res) {
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
     
+    // Validación adicional: ignorar resultados muy cortos o que parezcan ruido
+    // Esto ayuda especialmente con ruido de fondo, música, o habla muy corta
+    const isValidInput = userInput && 
+                        userInput.trim().length >= 2 && // Mínimo 2 caracteres
+                        !/^(ah|eh|oh|um|uh|mm|hm|eh|ah|eh)$/i.test(userInput.trim()); // Filtrar sonidos no verbales
+    
+    if (!isValidInput && userInput && !isProcessing) {
+      callLogger.debug('INPUT_FILTERED', {
+        input: userInput,
+        length: userInput ? userInput.trim().length : 0,
+        reasoning: 'Input muy corto o ruido - ignorado'
+      });
+      // Si el input no es válido, mantener el estado actual y pedir que repita
+      // Obtener baseUrl para generar TwiML
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
+      const baseUrl = `${protocol}://${host}`;
+      
+      const unclearMessages = {
+        es: ['Disculpe, no entendí bien. ¿Podría repetir?', 'No escuché claramente. ¿Puede repetir?', 'No entendí. ¿Podría decir eso de nuevo?'],
+        en: ['Sorry, I didn\'t understand well. Could you repeat?', 'I didn\'t hear clearly. Can you repeat?', 'I didn\'t understand. Could you say that again?'],
+        de: ['Entschuldigung, ich habe nicht gut verstanden. Könnten Sie wiederholen?', 'Ich habe nicht klar gehört. Können Sie wiederholen?', 'Ich habe nicht verstanden. Könnten Sie das noch einmal sagen?'],
+        it: ['Scusa, non ho capito bene. Potresti ripetere?', 'Non ho sentito chiaramente. Puoi ripetere?', 'Non ho capito. Potresti dirlo di nuovo?'],
+        fr: ['Désolé, je n\'ai pas bien compris. Pourriez-vous répéter?', 'Je n\'ai pas entendu clairement. Pouvez-vous répéter?', 'Je n\'ai pas compris. Pourriez-vous le redire?'],
+        pt: ['Desculpe, não entendi bem. Você poderia repetir?', 'Não ouvi claramente. Você pode repetir?', 'Não entendi. Você poderia dizer isso novamente?']
+      };
+      const messages = unclearMessages[state.language] || unclearMessages.es;
+      const twiml = generateTwiML({
+        message: getRandomMessage(messages),
+        gather: true
+      }, state.language, null, baseUrl, state.step);
+      res.setHeader('Content-Type', 'text/xml');
+      return res.status(200).send(twiml);
+    }
+
     // OPTIMIZACIÓN: Guardar mensaje del usuario en memoria inmediatamente (no esperar BD)
     // Guardar en BD asíncronamente para no bloquear
-    if (userInput && userInput.trim() && !isProcessing) {
+    if (isValidInput && userInput && userInput.trim() && !isProcessing) {
       const lastEntry = state.conversationHistory[state.conversationHistory.length - 1];
       if (!lastEntry || lastEntry.role !== 'user' || lastEntry.message !== userInput) {
         state.conversationHistory.push({
@@ -5833,6 +5868,26 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
         'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
       ] : ['Sorry, I didn\'t hear your response. Are you still there?']);
       
+      // Palabras clave del dominio para mejorar el reconocimiento de voz
+      // Esto ayuda especialmente con ruido de fondo y habla imperfecta
+      const speechHints = {
+        es: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo',
+        en: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday',
+        de: 'reservierung,tisch,restaurant,personen,datum,uhrzeit,name,telefon,bestätigen,stornieren,ändern,morgen,heute,übermorgen,montag,dienstag,mittwoch,donnerstag,freitag,samstag,sonntag',
+        it: 'prenotazione,tavolo,ristorante,persone,data,ora,nome,telefono,confermare,annullare,modificare,domani,oggi,dopodomani,lunedì,martedì,mercoledì,giovedì,venerdì,sabato,domenica',
+        fr: 'réservation,table,restaurant,personnes,date,heure,nom,téléphone,confirmer,annuler,modifier,demain,aujourd\'hui,après-demain,lundi,mardi,mercredi,jeudi,vendredi,samedi,dimanche',
+        pt: 'reserva,mesa,restaurante,pessoas,data,hora,nome,telefone,confirmar,cancelar,modificar,amanhã,hoje,depois de amanhã,segunda,terça,quarta,quinta,sexta,sábado,domingo'
+      };
+
+      const hints = speechHints[language] || speechHints.es;
+
+      // Configuración mejorada para entornos ruidosos y habla imperfecta:
+      // - speechTimeout="4": da más tiempo después de pausas (importante para discapacidades, borrachos, ruido)
+      // - timeout="10": tiempo total generoso para respuestas lentas
+      // - hints: palabras clave del dominio mejoran el reconocimiento
+      // - partialResultCallback: procesa resultados parciales para mejor experiencia
+      // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
+      // - enhanced: mejora el reconocimiento
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
@@ -5840,10 +5895,13 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="auto"
+    speechTimeout="4"
     timeout="10"
+    hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
-    partialResultCallbackMethod="POST">
+    partialResultCallbackMethod="POST"
+    profanityFilter="true"
+    enhanced="true">
     ${twimlContent}
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
@@ -5920,7 +5978,20 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       });
     }
     
+    // Palabras clave del dominio para mejorar el reconocimiento de voz
+    const speechHints = {
+      es: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo',
+      en: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday',
+      de: 'reservierung,tisch,restaurant,personen,datum,uhrzeit,name,telefon,bestätigen,stornieren,ändern,morgen,heute,übermorgen,montag,dienstag,mittwoch,donnerstag,freitag,samstag,sonntag',
+      it: 'prenotazione,tavolo,ristorante,persone,data,ora,nome,telefono,confermare,annullare,modificare,domani,oggi,dopodomani,lunedì,martedì,mercoledì,giovedì,venerdì,sabato,domenica',
+      fr: 'réservation,table,restaurant,personnes,date,heure,nom,téléphone,confirmer,annuler,modifier,demain,aujourd\'hui,après-demain,lundi,mardi,mercredi,jeudi,vendredi,samedi,dimanche',
+      pt: 'reserva,mesa,restaurante,pessoas,data,hora,nome,telefone,confirmar,cancelar,modificar,amanhã,hoje,depois de amanhã,segunda,terça,quarta,quinta,sexta,sábado,domingo'
+    };
+
+    const hints = speechHints[language] || speechHints.es;
+
     // Usar Gather para capturar la respuesta del usuario
+    // Configuración mejorada para entornos ruidosos y habla imperfecta
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
@@ -5928,10 +5999,13 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="auto"
+    speechTimeout="4"
     timeout="10"
+    hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
-    partialResultCallbackMethod="POST">
+    partialResultCallbackMethod="POST"
+    profanityFilter="true"
+    enhanced="true">
     ${sayContent}
   </Gather>
   <Say voice="${config.voice}" language="${config.language}" rate="slow">${getRandomMessage(language === 'es' ? [

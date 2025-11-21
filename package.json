@@ -7,7 +7,8 @@
     "dev": "vercel dev",
     "build": "echo 'No build step required for static site'",
     "start": "vercel dev",
-    "generate-qr": "node generate-qr.js"
+    "generate-qr": "node generate-qr.js",
+    "convert-to-pdf": "node scripts/convert-to-pdf.js"
   },
   "dependencies": {
     "@google-cloud/aiplatform": "^5.13.0",
@@ -23,6 +24,7 @@
     "moment": "^2.29.4",
     "mysql2": "^3.6.0",
     "nodemailer": "^6.9.7",
+    "opossum": "^9.0.0",
     "qrcode": "^1.5.3",
     "twilio": "^5.3.0"
   },
@@ -37,5 +39,8 @@
     "vercel"
   ],
   "author": "Sistema de Reservas",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "md-to-pdf": "^5.2.5"
+  }
 }

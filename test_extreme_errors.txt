@@ -1,0 +1,905 @@
+[2025-11-19T16:34:11.150Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_very_long_1763570047147",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:34:20.134Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_very_long_1763570047147",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_name",
+  "hora": "09:00"
+}
+[2025-11-19T16:34:21.784Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_very_long_1763570047147",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 515
+}
+[2025-11-19T16:34:22.363Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_very_long_1763570047147",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 501
+}
+[2025-11-19T16:34:22.939Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_very_long_1763570047147",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 501
+}
+[2025-11-19T16:34:24.114Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_very_long_1763570047147",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "complete",
+  "error": "State save timeout",
+  "timeMs": 507
+}
+[2025-11-19T16:34:24.120Z] [ERROR] Validación completa fallida {
+  "errores": [
+    "El restaurante está abierto de 13:00 a 23:00"
+  ]
+}
+[2025-11-19T16:34:24.690Z] [WARN] RCS_SEND_SKIPPED_NO_SERVICE
+[2025-11-19T16:34:26.898Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_intent_changes_1763570066298",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:34:31.572Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_many_corrections_1763570070020",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:34:37.268Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_many_corrections_1763570070020",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_date",
+  "hora": "16:34"
+}
+[2025-11-19T16:34:43.487Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_many_corrections_1763570070020",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 511
+}
+[2025-11-19T16:34:44.067Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_many_corrections_1763570070020",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 503
+}
+[2025-11-19T16:34:44.642Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_many_corrections_1763570070020",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 502
+}
+[2025-11-19T16:34:45.217Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_many_corrections_1763570070020",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 505
+}
+[2025-11-19T16:34:46.834Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_sql_injection_1763570085282",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:34:52.993Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_xss_1763570091354",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:34:59.230Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_special_chars_1763570097493",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:13.694Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_numeric_text_1763570108166",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 501
+}
+[2025-11-19T16:35:14.301Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_numeric_text_1763570108166",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 509
+}
+[2025-11-19T16:35:15.971Z] [WARN] ❌ PEOPLE_MAX_EXCEEDED_GEMINI {
+  "callSid": "CA_max_people_1763570114358",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting",
+  "peopleCount": 100,
+  "maxPersonas": 20,
+  "reasoning": "Gemini detectó que 100 personas excede el máximo permitido (20). Rechazando."
+}
+[2025-11-19T16:35:21.040Z] [WARN] ❌ PEOPLE_MIN_NOT_MET_GEMINI {
+  "callSid": "CA_min_people_1763570119338",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting",
+  "peopleCount": 0,
+  "minPersonas": 1,
+  "reasoning": "Gemini detectó que 0 personas es menor al mínimo permitido (1). Rechazando."
+}
+[2025-11-19T16:35:22.604Z] [WARN] ❌ PEOPLE_MIN_NOT_MET_GEMINI {
+  "callSid": "CA_negative_1763570121051",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting",
+  "peopleCount": -5,
+  "minPersonas": 1,
+  "reasoning": "Gemini detectó que -5 personas es menor al mínimo permitido (1). Rechazando."
+}
+[2025-11-19T16:35:27.633Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:27.660Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:28.606Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.181Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.194Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.317Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.330Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.347Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.393Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.419Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:35:29.937Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_rapid_fire_1763570127000",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_ask_address",
+  "error": "State save timeout",
+  "timeMs": 500
+}
+[2025-11-19T16:35:33.938Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_stress_1763570132272",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:31.571Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_persistence_1763570185958",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 502
+}
+[2025-11-19T16:36:32.147Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_persistence_1763570185958",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 500
+}
+[2025-11-19T16:36:36.201Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_fallback",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:36.212Z] [WARN] CALL_SID_MISSING
+⚠️ [TTS] No se encontró baseUrl. Usando localhost como fallback (solo desarrollo)
+⚠️ [TTS] No se encontró baseUrl. Usando localhost como fallback (solo desarrollo)
+[2025-11-19T16:36:36.222Z] [WARN] CALL_SID_MISSING
+⚠️ [TTS] No se encontró baseUrl. Usando localhost como fallback (solo desarrollo)
+⚠️ [TTS] No se encontró baseUrl. Usando localhost como fallback (solo desarrollo)
+[2025-11-19T16:36:36.807Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "   ",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:37.387Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_invalid",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:37.971Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "1234567890",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:38.548Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_with_special_chars_!@#$%",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:39.141Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:48.521Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_unicode_1763570203179",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 505
+}
+[2025-11-19T16:36:49.145Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_unicode_1763570203179",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 513
+}
+[2025-11-19T16:36:53.657Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_mixed_lang_1763570209210",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "en",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 510
+}
+[2025-11-19T16:36:55.404Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:36:56.471Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "hora": "23:59"
+}
+[2025-11-19T16:36:57.489Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "hora": "00:00"
+}
+[2025-11-19T16:36:58.542Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "hora": "25:00"
+}
+[2025-11-19T16:36:59.695Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "hora": "00:00"
+}
+[2025-11-19T16:37:00.773Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "hora": "12:00"
+}
+[2025-11-19T16:37:01.906Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "hora": "12:00"
+}
+[2025-11-19T16:37:02.957Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_date",
+  "hora": "00:00"
+}
+[2025-11-19T16:37:05.285Z] [WARN] TIME_OUT_OF_HOURS_GEMINI {
+  "callSid": "CA_timezone_1763570213783",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_date",
+  "hora": "08:99"
+}
+[2025-11-19T16:37:07.074Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_date_edges_1763570225347",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:37:09.180Z] [WARN] PEOPLE_ABOVE_MAX {
+  "callSid": "CA_date_edges_1763570225347",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "peopleCount": 2023,
+  "maxPersonas": 20
+}
+[2025-11-19T16:37:10.327Z] [WARN] PEOPLE_ABOVE_MAX {
+  "callSid": "CA_date_edges_1763570225347",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people",
+  "peopleCount": 2024,
+  "maxPersonas": 20
+}
+[2025-11-19T16:37:17.468Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_res_mod_cancel_1763570235944",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:37:20.297Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_res_mod_cancel_1763570235944",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 510
+}
+[2025-11-19T16:37:20.887Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_res_mod_cancel_1763570235944",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 514
+}
+[2025-11-19T16:37:22.042Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_res_mod_cancel_1763570235944",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "complete",
+  "error": "State save timeout",
+  "timeMs": 514
+}
+[2025-11-19T16:37:22.047Z] [ERROR] Validación completa fallida {
+  "errores": [
+    "El restaurante está abierto de 13:00 a 23:00"
+  ]
+}
+[2025-11-19T16:37:22.637Z] [WARN] RCS_SEND_SKIPPED_NO_SERVICE
+[2025-11-19T16:37:29.573Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_order_res_1763570247375",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_collect_items",
+  "error": "State save timeout",
+  "timeMs": 505
+}
+[2025-11-19T16:37:31.298Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_order_res_1763570247375",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_ask_address",
+  "error": "State save timeout",
+  "timeMs": 502
+}
+[2025-11-19T16:37:31.879Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_order_res_1763570247375",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_ask_name",
+  "error": "State save timeout",
+  "timeMs": 505
+}
+[2025-11-19T16:37:32.470Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_order_res_1763570247375",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_ask_notes",
+  "error": "State save timeout",
+  "timeMs": 513
+}
+[2025-11-19T16:37:34.141Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_order_res_1763570247375",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_confirm",
+  "error": "State save timeout",
+  "timeMs": 504
+}
+[2025-11-19T16:37:34.719Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_order_res_1763570247375",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "order_confirm",
+  "error": "State save timeout",
+  "timeMs": 503
+}
+[2025-11-19T16:37:38.085Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 500
+}
+[2025-11-19T16:37:38.667Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 503
+}
+[2025-11-19T16:37:39.813Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "complete",
+  "error": "State save timeout",
+  "timeMs": 507
+}
+[2025-11-19T16:37:39.818Z] [ERROR] Validación completa fallida {
+  "errores": [
+    "El restaurante está abierto de 13:00 a 23:00"
+  ]
+}
+[2025-11-19T16:37:40.386Z] [WARN] RCS_SEND_SKIPPED_NO_SERVICE
+[2025-11-19T16:37:41.530Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "complete",
+  "error": "State save timeout",
+  "timeMs": 502
+}
+[2025-11-19T16:37:41.534Z] [ERROR] Validación completa fallida {
+  "errores": [
+    "El restaurante está abierto de 13:00 a 23:00"
+  ]
+}
+[2025-11-19T16:37:42.127Z] [WARN] RCS_SEND_SKIPPED_NO_SERVICE
+[2025-11-19T16:37:46.108Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 507
+}
+[2025-11-19T16:37:46.688Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "confirm",
+  "error": "State save timeout",
+  "timeMs": 504
+}
+[2025-11-19T16:37:47.827Z] [WARN] STATE_SAVE_TIMEOUT_OR_FAILED {
+  "callSid": "CA_multi_res_seq_1763570254781",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "complete",
+  "error": "State save timeout",
+  "timeMs": 501
+}
+[2025-11-19T16:37:47.832Z] [ERROR] Validación completa fallida {
+  "errores": [
+    "El restaurante está abierto de 13:00 a 23:00"
+  ]
+}
+[2025-11-19T16:37:48.401Z] [WARN] RCS_SEND_SKIPPED_NO_SERVICE
+[2025-11-19T16:37:50.075Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_perf_1763570268456",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:38:11.496Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_missing_fields_1763570290005",
+  "direction": "inbound",
+  "accountSid": "AC_test_account",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:38:13.112Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_invalid_struct_1763570291505",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:38:14.698Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_phone_variations_1763570293122",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:38:30.638Z] [WARN] GEMINI_FALLBACK_GREETING {
+  "callSid": "CA_name_variations_1763570309110",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "greeting"
+}
+[2025-11-19T16:38:38.522Z] [WARN] INPUT_TOO_SHORT {
+  "callSid": "CA_name_variations_1763570309110",
+  "direction": "inbound",
+  "from": "+34600123456",
+  "to": "+34600999888",
+  "accountSid": "AC_test_account",
+  "phone": "+34600123456",
+  "language": "es",
+  "step": "ask_people"
+}
