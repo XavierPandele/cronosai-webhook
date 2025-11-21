@@ -820,7 +820,7 @@ module.exports = async function handler(req, res) {
   }
   
   // LOGGING MEJORADO: Loggear al inicio para debugging
-  console.log(`[TWILIO_WEBHOOK_RECEIVED] Method: ${req.method}, URL: ${req.url}, HasBody: ${Boolean(req.body)}, BodyType: ${typeof req.body}`);
+  console.log(`[WEBHOOK] ${req.method} ${req.url}`);
   logger.info('TWILIO_WEBHOOK_RECEIVED', {
     method: req.method,
     url: req.url,
@@ -884,11 +884,7 @@ module.exports = async function handler(req, res) {
       to: To,
       accountSid: params?.AccountSid
     });
-    callLogger.info('TWILIO_WEBHOOK_PARSED', {
-      callStatus: CallStatus,
-      apiVersion: params?.ApiVersion,
-      hasSpeechResult: Boolean(SpeechResult)
-    });
+    callLogger.info(`[WEBHOOK] status=${CallStatus} hasInput=${Boolean(SpeechResult)}`);
 
     // OPTIMIZACIÓN: Intentar cargar desde memoria primero (más rápido)
     // Solo cargar desde BD si no está en memoria o si es la primera vez
@@ -968,22 +964,9 @@ module.exports = async function handler(req, res) {
       step: state.step
     });
     
-    // Log detallado del estado recuperado (RESTAURADO - logs que el usuario quería)
-    callLogger.info('CONVERSATION_STATE_LOADED', {
-      step: state.step,
-      phone: state.phone,
-      language: state.language,
-      hasData: Boolean(state.data && Object.keys(state.data).length > 0),
-      dataKeys: state.data ? Object.keys(state.data) : [],
-      dataValues: state.data ? {
-        NumeroReserva: state.data.NumeroReserva,
-        FechaReserva: state.data.FechaReserva,
-        HoraReserva: state.data.HoraReserva,
-        NomReserva: state.data.NomReserva,
-        TelefonReserva: state.data.TelefonReserva
-      } : {},
-      conversationHistoryLength: state.conversationHistory ? state.conversationHistory.length : 0
-    });
+    // Log compacto del estado recuperado
+    const dataSummary = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
+    callLogger.info(`[STATE] step=${state.step} lang=${state.language} data=[${dataSummary}] history=${state.conversationHistory?.length || 0}`);
 
     // Guardar entrada del usuario si existe
     let userInput = SpeechResult || Digits || '';
@@ -1109,16 +1092,9 @@ module.exports = async function handler(req, res) {
     }
 
     // Procesar según el paso actual
-    // LOGGING MEJORADO: Loggear antes de procesar para debugging
-    console.log(`[BEFORE_PROCESS_STEP] CallSid: ${CallSid}, Step: ${state.step}, Input: "${userInput ? userInput.substring(0, 100) : 'empty'}", Processing: ${isProcessing}`);
-    callLogger.info('BEFORE_PROCESS_STEP', { 
-      step: state.step, 
-      hasInput: Boolean(userInput), 
-      inputLength: userInput ? userInput.length : 0,
-      inputPreview: userInput ? userInput.substring(0, 100) : 'empty',
-      isProcessing,
-      callSid: CallSid
-    });
+    const inputPreview = userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty';
+    console.log(`[BEFORE] step=${state.step} input="${inputPreview}"`);
+    callLogger.info(`[BEFORE] step=${state.step} input="${inputPreview}"`);
     const previousStep = state.step;
     
     // PERFORMANCE: Pasar métricas al proceso de conversación
@@ -1128,40 +1104,13 @@ module.exports = async function handler(req, res) {
       response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
     } catch (stepError) {
       // LOGGING CRÍTICO: Capturar errores en processConversationStep
-      // IMPORTANTE: Loggear con console.error PRIMERO para visibilidad
-      console.error('========================================');
-      console.error('❌ [ERROR] PROCESS_STEP_ERROR');
-      console.error('========================================');
-      console.error(`📞 CallSid: ${CallSid || 'unknown'}`);
-      console.error(`📍 Step: ${state.step} (anterior: ${previousStep})`);
-      console.error(`💬 User input: ${userInput ? userInput.substring(0, 200) : 'empty'}`);
-      console.error(`🔴 Error: ${stepError.name || 'UnknownError'}`);
-      console.error(`📝 Mensaje: ${stepError.message}`);
-      console.error(`📊 State data:`, JSON.stringify(state.data, null, 2));
-      console.error('📚 Stack trace:');
-      console.error(stepError.stack);
-      console.error('========================================');
-      
-      callLogger.error('PROCESS_STEP_ERROR', {
-        error: stepError.message,
+      const errorInput = userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty';
+      console.error(`[ERROR] step=${state.step} input="${errorInput}" error=${stepError.name}: ${stepError.message}`);
+      callLogger.error(`[ERROR] step=${state.step} input="${errorInput}" error=${stepError.name}: ${stepError.message}`, {
         stack: stepError.stack,
-        step: state.step,
-        userInput: userInput ? userInput.substring(0, 200) : 'empty',
         stateData: state.data,
-        previousStep,
-        callSid: CallSid
+        previousStep
       });
-      
-      // Loggear también en formato JSON
-      console.error('[PROCESS_STEP_ERROR_JSON]', JSON.stringify({
-        error: stepError.message,
-        stack: stepError.stack,
-        step: state.step,
-        userInput: userInput ? userInput.substring(0, 200) : 'empty',
-        stateData: state.data,
-        previousStep,
-        callSid: CallSid
-      }, null, 2));
       
       throw stepError; // Re-lanzar para que el catch principal lo maneje
     }
@@ -1169,22 +1118,12 @@ module.exports = async function handler(req, res) {
     performanceMetrics.processStepTime = processStepTime;
     
     if (previousStep !== state.step) {
-      callLogger.info('STEP_TRANSITION', { 
-        from: previousStep, 
-        to: state.step,
-        processStepTimeMs: processStepTime
-      });
+      callLogger.info(`[TRANSITION] ${previousStep} → ${state.step} (${processStepTime}ms)`);
       callLogger.update({ step: state.step });
     }
-    // LOGGING MEJORADO: Loggear después de procesar
-    console.log(`[AFTER_PROCESS_STEP] CallSid: ${CallSid}, Step: ${state.step}, Time: ${processStepTime}ms, Response: "${response.message ? response.message.substring(0, 100) : 'null'}"`);
-    callLogger.info('AFTER_PROCESS_STEP', { 
-      step: state.step,
-      processStepTimeMs: processStepTime,
-      responseMessage: response.message ? response.message.substring(0, 100) : 'null',
-      reasoning: `Paso procesado en ${processStepTime}ms. Respuesta: "${response.message ? response.message.substring(0, 50) : 'sin mensaje'}..."`,
-      callSid: CallSid
-    });
+    const responsePreview = response.message ? (response.message.length > 60 ? response.message.substring(0, 60) + '...' : response.message) : 'null';
+    console.log(`[AFTER] step=${state.step} time=${processStepTime}ms response="${responsePreview}"`);
+    callLogger.info(`[AFTER] step=${state.step} time=${processStepTime}ms response="${responsePreview}"`);
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -1194,16 +1133,8 @@ module.exports = async function handler(req, res) {
     });
 
     // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para la mayoría de casos
-    callLogger.info('STATE_PERSIST', { 
-      step: state.step,
-      dataKeys: state.data ? Object.keys(state.data) : [],
-      dataValues: state.data ? {
-        NumeroReserva: state.data.NumeroReserva,
-        FechaReserva: state.data.FechaReserva,
-        HoraReserva: state.data.HoraReserva,
-        NomReserva: state.data.NomReserva
-      } : {}
-    });
+    const persistData = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
+    callLogger.info(`[PERSIST] step=${state.step} data=[${persistData}]`);
     conversationStates.set(CallSid, state);
     
     // OPTIMIZACIÓN CRÍTICA: Guardar estado ASÍNCRONAMENTE para no bloquear la respuesta
@@ -1344,20 +1275,8 @@ module.exports = async function handler(req, res) {
     // PERFORMANCE: Calcular tiempo total y loggear métricas
     performanceMetrics.totalTime = Date.now() - requestStartTime;
     
-    callLogger.info('PERFORMANCE_METRICS', {
-      totalTimeMs: performanceMetrics.totalTime,
-      geminiTimeMs: performanceMetrics.geminiTime,
-      stateSaveTimeMs: performanceMetrics.stateSaveTime,
-      availabilityTimeMs: performanceMetrics.availabilityTime,
-      configLoadTimeMs: performanceMetrics.configLoadTime,
-      menuLoadTimeMs: performanceMetrics.menuLoadTime,
-      dbTimeMs: performanceMetrics.dbTime || 0,
-      processStepTimeMs: performanceMetrics.processStepTime || 0,
-      saveReservationTimeMs: performanceMetrics.saveReservationTime || 0,
-      step: state.step,
-      hasInput: Boolean(userInput),
-      callSid: CallSid || state?.callSid || 'unknown'
-    });
+    const perf = performanceMetrics;
+    callLogger.info(`[PERF] total=${perf.totalTime}ms gemini=${perf.geminiTime}ms step=${perf.processStepTime || 0}ms db=${perf.dbTime || 0}ms config=${perf.configLoadTime}ms`);
     
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
@@ -2251,21 +2170,21 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       });
     } else if (!state.language) {
       state.language = detectedLang;
-      log.info('🌐 LANGUAGE_INITIALIZED_IN_APPLY', { 
+      log.info(`[LANG] init=`, { 
         language: detectedLang,
         reasoning: `Idioma inicializado en applyGeminiAnalysisToState: ${detectedLang}`
       });
     }
   } else if (!state.language) {
     state.language = 'es';
-    log.info('🌐 LANGUAGE_FALLBACK_IN_APPLY', { 
+    log.info(`[LANG] fallback=`, { 
       language: 'es',
       reasoning: 'No se detectó idioma en análisis. Usando español como fallback.'
     });
   }
   
   // ===== LOG DETALLADO DE APLICACIÓN DE ANÁLISIS =====
-  log.info('🔄 APPLYING_GEMINI_ANALYSIS', {
+  log.info(`[APPLY] `, {
     analysis: {
       intencion: analysis.intencion,
       comensales: analysis.comensales,
@@ -3771,17 +3690,8 @@ async function processConversationStep(state, userInput, callLogger, performance
         });
         
         if (analysis) {
-          log.info('✅ GEMINI_ANALYSIS_RECEIVED_IN_GREETING', {
-            intencion: analysis.intencion,
-            idioma_detectado: analysis.idioma_detectado,
-            datos_extraidos: {
-              comensales: analysis.comensales,
-              fecha: analysis.fecha,
-              hora: analysis.hora,
-              nombre: analysis.nombre
-            },
-            reasoning: `Gemini completó el análisis. Intención: ${analysis.intencion}, Idioma: ${analysis.idioma_detectado}. Procesando...`
-          });
+          const geminiData = `${analysis.comensales || '-'}p, ${analysis.fecha || '-'}, ${analysis.hora || '-'}, ${analysis.nombre || '-'}`;
+          log.info(`[GEMINI] intent=${analysis.intencion} lang=${analysis.idioma_detectado} data=[${geminiData}]`);
           
           // MEJORADO: Actualizar idioma ANTES de procesar la intención para que todas las respuestas usen el idioma correcto
           if (analysis.idioma_detectado) {
@@ -3794,34 +3704,18 @@ async function processConversationStep(state, userInput, callLogger, performance
             if (detectedLang !== state.language) {
               const oldLanguage = state.language;
               state.language = detectedLang;
-              log.info('🌐 LANGUAGE_UPDATED', { 
-                oldLanguage: oldLanguage,
-                newLanguage: detectedLang,
-                reasoning: `Idioma detectado por Gemini: ${detectedLang}. Actualizando estado del idioma ANTES de generar respuestas.`
-              });
+              log.info(`[LANG] ${oldLanguage} → ${detectedLang}`);
             } else if (!state.language) {
-              // Si no había idioma previo, establecer el detectado
               state.language = detectedLang;
-              log.info('🌐 LANGUAGE_INITIALIZED', { 
-                language: detectedLang,
-                reasoning: `Idioma inicializado desde detección de Gemini: ${detectedLang}`
-              });
+              log.info(`[LANG] init=${detectedLang}`);
             }
           } else if (!state.language) {
-            // Fallback: si no se detectó idioma y no hay uno previo, usar español
             state.language = 'es';
-            log.info('🌐 LANGUAGE_FALLBACK', { 
-              language: 'es',
-              reasoning: 'No se detectó idioma y no hay uno previo. Usando español como fallback.'
-            });
+            log.info(`[LANG] fallback=es`);
           }
           
-          // Verificar intención (ahora el idioma ya está actualizado)
           const intention = analysis.intencion || 'reservation';
-          log.info('🎯 INTENTION_DETECTED_IN_GREETING', { 
-            intention: intention,
-            reasoning: `Intención detectada: ${intention}. ${intention === 'reservation' ? 'Procesando como nueva reserva...' : intention === 'modify' ? 'Procesando como modificación...' : intention === 'cancel' ? 'Procesando como cancelación...' : 'Procesando como pedido...'}`
-          });
+          log.info(`[INTENT] ${intention}`);
           
           if (intention === 'reservation') {
           
@@ -3852,39 +3746,21 @@ async function processConversationStep(state, userInput, callLogger, performance
             // Determinar qué falta
             const missing = determineMissingFields(analysis, state.data);
             
-            log.info('🔍 CHECKING_MISSING_FIELDS', {
-              missingFields: missing,
-              currentData: {
-                personas: state.data?.NumeroReserva || null,
-                fecha: state.data?.FechaReserva || null,
-                hora: state.data?.HoraReserva || null,
-                nombre: state.data?.NomReserva || null,
-                telefono: state.data?.TelefonReserva || state.phone || null
-              },
-              reasoning: `Verificando qué campos faltan. Campos actuales: ${JSON.stringify(state.data)}. Faltan: ${missing.join(', ') || 'ninguno'}`
-            });
+            const currentData = `${state.data?.NumeroReserva || '-'}p, ${state.data?.FechaReserva || '-'}, ${state.data?.HoraReserva || '-'}, ${state.data?.NomReserva || '-'}`;
+            log.info(`[MISSING] checking missing=[${missing.join(',') || 'none'}] current=[${currentData}]`);
             
             // Priorizar fecha si solo tenemos hora
             if (missing.includes('date') && state.data.HoraReserva && !state.data.FechaReserva) {
               missing.splice(missing.indexOf('date'), 1);
               missing.unshift('date');
-              log.info('📅 PRIORITIZING_DATE_BEFORE_TIME', {
-                reasoning: 'Tenemos hora pero no fecha. Priorizando pedir fecha antes que otros campos.'
-              });
+              log.info(`[PRIORITY] date before time`);
             }
             
-            log.info('📋 MISSING_FIELDS_DETERMINED', { 
-              missing: missing,
-              missingCount: missing.length,
-              reasoning: `Se determinaron ${missing.length} campos faltantes: ${missing.join(', ') || 'ninguno'}`
-            });
+            log.info(`[MISSING] determined=${missing.length} fields=[${missing.join(',') || 'none'}]`);
             
             // Si tenemos todo lo esencial, usar teléfono de la llamada directamente y confirmar
             if (missing.length === 0) {
-              log.info('✅ ALL_FIELDS_COMPLETE', {
-                currentData: state.data,
-                reasoning: 'Todos los campos necesarios están completos. Procediendo directamente a confirmación.'
-              });
+              log.info(`[COMPLETE] all fields complete, going to confirm`);
               
               // Asegurar que tenemos teléfono (usar el de la llamada)
               if (!state.data.TelefonReserva) {
@@ -3900,12 +3776,7 @@ async function processConversationStep(state, userInput, callLogger, performance
               state.step = 'confirm';
               const confirmMessage = getConfirmationMessage(state.data, state.language);
               
-              log.info('✅ TRANSITIONING_TO_CONFIRMATION', {
-                oldStep: oldStep,
-                newStep: state.step,
-                data: state.data,
-                reasoning: `Todos los datos están completos. Cambiando de paso '${oldStep}' a 'confirm' y mostrando mensaje de confirmación.`
-              });
+              log.info(`[TRANSITION] ${oldStep} → ${state.step} (all complete)`);
               
               return {
                 message: confirmMessage,
@@ -3915,12 +3786,7 @@ async function processConversationStep(state, userInput, callLogger, performance
               // Falta información, confirmar lo que tenemos y preguntar por lo que falta
               const nextField = missing[0];
               
-              log.info('❓ ASKING_FOR_MISSING_FIELD', {
-                nextField: nextField,
-                allMissing: missing,
-                currentData: state.data,
-                reasoning: `Faltan ${missing.length} campos. Preguntando primero por: ${nextField}. Campos restantes: ${missing.slice(1).join(', ') || 'ninguno'}`
-              });
+              log.info(`[ASK] next=${nextField} missing=[${missing.join(',')}]`);
               
               try {
                 // Usar confirmación parcial que muestra lo capturado y pregunta por lo faltante
@@ -6566,8 +6432,8 @@ function getRandomMessage(messages) {
 function addNaturalInterjection(message, language = 'es', context = 'normal', step = null) {
   if (!message || message.trim().length === 0) return message;
   
-  // NO añadir interjecciones en el saludo inicial (greeting) - suena artificial
-  if (step === 'greeting') return message;
+  // NO añadir interjecciones en el saludo inicial (greeting y ask_intention) - suena artificial
+  if (step === 'greeting' || step === 'ask_intention') return message;
   
   // Probabilidad de añadir interjección (60% para sonar natural pero no excesivo)
   if (Math.random() > 0.6) return message;
