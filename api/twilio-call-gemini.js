@@ -1010,25 +1010,30 @@ module.exports = async function handler(req, res) {
     // Si no hay input del usuario y el estado ya está esperando input,
     // probablemente es un webhook de partialResultCallback que debemos ignorar
     // Solo procesar si:
-    // 1. Hay input del usuario (SpeechResult o Digits)
+    // 1. Hay input del usuario (SpeechResult o Digits) Y es válido
     // 2. Es una request de procesamiento (isProcessing)
-    // 3. Es el primer webhook de la llamada (greeting step y no hay historial)
+    // 3. Es el primer webhook de la llamada (greeting step y no hay historial) Y no hay input previo
     // 4. La llamada está terminando (CallStatus !== 'in-progress')
     const isInitialGreeting = state.step === 'greeting' && (!state.conversationHistory || state.conversationHistory.length === 0);
     const isCallEnding = CallStatus && CallStatus !== 'in-progress';
-    const shouldProcess = userInput || isProcessing || isInitialGreeting || isCallEnding;
+    // MEJORADO: Solo procesar greeting inicial si realmente no hay input previo
+    // Si hay input, validarlo primero antes de procesar
+    const hasValidInput = userInput && userInput.trim().length >= 2;
+    const shouldProcess = (hasValidInput || isProcessing || isCallEnding) && 
+                         (!isInitialGreeting || !userInput || hasValidInput);
     
     if (!shouldProcess) {
-      // Ignorar este webhook - es un partialResultCallback sin input
+      // Ignorar este webhook - es un partialResultCallback sin input válido
       // Devolver un TwiML vacío para evitar procesamiento innecesario
       callLogger.debug('PARTIAL_RESULT_IGNORED', {
         step: state.step,
         hasInput: Boolean(userInput),
+        hasValidInput,
         isProcessing,
         isInitialGreeting,
         isCallEnding,
         callStatus: CallStatus,
-        reasoning: 'Webhook de partialResultCallback sin input - ignorado para evitar bucle infinito'
+        reasoning: 'Webhook sin input válido - ignorado para evitar procesamiento innecesario'
       });
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
@@ -3970,6 +3975,59 @@ async function processConversationStep(state, userInput, callLogger, performance
           } else if (intention === 'order') {
             log.info('ORDER_INTENT_AT_GREETING');
             return await handleOrderIntent(state, analysis, callLogger, userInput);
+          } else {
+            // Intención 'clarify' o no reconocida
+            // MEJORADO: Si hay datos útiles, preguntar al usuario si quiere hacer una reserva
+            // Ejemplo: Usuario dice "a nombre de xavi" → Bot pregunta "¿Desea hacer una reserva a nombre de xavi?"
+            const hasUsefulData = analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales;
+            
+            if (hasUsefulData) {
+              log.info('CLARIFY_WITH_USEFUL_DATA_IN_GREETING', {
+                hasNombre: Boolean(analysis.nombre),
+                hasFecha: Boolean(analysis.fecha),
+                hasHora: Boolean(analysis.hora),
+                hasComensales: Boolean(analysis.comensales),
+                currentStep: state.step,
+                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Preguntando al usuario si quiere hacer una reserva.'
+              });
+              
+              // Guardar temporalmente los datos extraídos para usarlos si el usuario confirma
+              // NO aplicar todavía, solo guardar en un campo temporal
+              state.pendingClarifyData = {
+                nombre: analysis.nombre,
+                fecha: analysis.fecha,
+                hora: analysis.hora,
+                comensales: analysis.comensales,
+                analysis: analysis // Guardar el análisis completo para aplicarlo después
+              };
+              
+              // Determinar qué mensaje mostrar según los datos extraídos
+              // Prioridad: nombre > fecha > hora > comensales
+              if (analysis.nombre) {
+                // Si hay nombre, preguntar si quiere hacer reserva a nombre de X
+                state.step = 'clarify_confirm';
+                const confirmMessages = getMultilingualMessages('clarify_reservation_confirm', state.language, { name: analysis.nombre });
+                return {
+                  message: getRandomMessage(confirmMessages),
+                  gather: true
+                };
+              } else if (analysis.fecha || analysis.hora || analysis.comensales) {
+                // Si hay otros datos pero no nombre, preguntar si quiere hacer reserva
+                state.step = 'clarify_confirm';
+                const clarifyMessages = getMultilingualMessages('clarify', state.language);
+                return {
+                  message: getRandomMessage(clarifyMessages),
+                  gather: true
+                };
+              }
+            }
+            
+            // Si no hay datos útiles, usar mensaje de clarify
+            const clarifyMessages = getMultilingualMessages('clarify', state.language);
+            return {
+              message: getRandomMessage(clarifyMessages),
+              gather: true
+            };
           }
         }
         
@@ -6127,9 +6185,9 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
       const hints = speechHints[language] || speechHints.es;
 
-      // Configuración optimizada para máxima velocidad:
-      // - speechTimeout="auto": usa detección automática de Twilio (más rápido)
-      // - timeout="auto": usa timeout automático de Twilio (más rápido)
+      // Configuración optimizada para máxima velocidad y menos webhooks vacíos:
+      // - speechTimeout="1": muy rápido, suficiente para pausas cortas (reducido para evitar webhooks vacíos)
+      // - timeout="3": tiempo total muy corto para evitar esperas largas y webhooks repetidos
       // - hints: palabras clave del dominio mejoran el reconocimiento
       // - partialResultCallback: procesa resultados parciales para mejor experiencia
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
@@ -6141,8 +6199,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="auto"
-    timeout="auto"
+    speechTimeout="1"
+    timeout="3"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -6245,8 +6303,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="auto"
-    timeout="auto"
+    speechTimeout="1"
+    timeout="3"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -6960,7 +7018,17 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         '¿Quiere reservar a nombre de ${variables.name}?',
         'Perfecto, ¿desea hacer una reserva a nombre de ${variables.name}?',
         'Vale, ¿quiere hacer una reserva a nombre de ${variables.name}?',
-        'Muy bien, ¿desea reservar una mesa a nombre de ${variables.name}?'
+        'Muy bien, ¿desea reservar una mesa a nombre de ${variables.name}?',
+        'Entendido, ¿desea hacer una reserva a nombre de ${variables.name}?',
+        'Perfecto, ¿quiere reservar una mesa a nombre de ${variables.name}?',
+        'Vale, ¿desea hacer una reserva a nombre de ${variables.name}?',
+        'Muy bien, ¿quiere hacer una reserva a nombre de ${variables.name}?',
+        'Claro, ¿desea hacer una reserva a nombre de ${variables.name}?',
+        'Por supuesto, ¿quiere reservar a nombre de ${variables.name}?',
+        'Perfecto, ¿desea reservar una mesa a nombre de ${variables.name}?',
+        'Vale, ¿quiere hacer una reserva a nombre de ${variables.name}?',
+        'Entendido, ¿desea reservar a nombre de ${variables.name}?',
+        'Muy bien, ¿quiere hacer una reserva a nombre de ${variables.name}?'
       ],
       en: [
         'Would you like to make a reservation under the name ${variables.name}?',
