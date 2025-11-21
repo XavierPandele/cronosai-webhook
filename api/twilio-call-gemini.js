@@ -4842,6 +4842,39 @@ async function processConversationStep(state, userInput, callLogger, performance
        const confirmationResult = handleConfirmationResponse(text);
        
       if (confirmationResult.action === 'confirm') {
+        // CRÍTICO: Validar horario y otros datos ANTES de confirmar al usuario
+        // Esto evita decirle al usuario que está confirmada cuando en realidad fallará al guardar
+        const validacionCompleta = await validarReservaCompleta(state.data);
+        
+        if (!validacionCompleta.valido) {
+          log.warn('❌ VALIDATION_FAILED_AT_CONFIRM', {
+            errores: validacionCompleta.errores,
+            data: state.data,
+            reasoning: 'Validación completa falló antes de confirmar. Informando al usuario del error.'
+          });
+          
+          // Si el error es de horario, mostrar mensaje específico
+          const horaError = validacionCompleta.errores.find(e => e.includes('abierto de'));
+          if (horaError) {
+            const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+            return {
+              message: getRandomMessage(timeErrorMessages),
+              gather: true
+            };
+          }
+          
+          // Para otros errores, mostrar mensaje genérico con los errores específicos
+          const errorMessage = state.language === 'es' 
+            ? `Disculpe, ${validacionCompleta.errores.join('. ')}. ¿Podría corregirlo?`
+            : state.language === 'en'
+            ? `Sorry, ${validacionCompleta.errores.join('. ')}. Could you correct it?`
+            : `Entschuldigung, ${validacionCompleta.errores.join('. ')}. Könnten Sie es korrigieren?`;
+          return {
+            message: errorMessage,
+            gather: true
+          };
+        }
+        
         // OPTIMIZACIÓN: Verificar disponibilidad antes de confirmar (con cache)
         const dataCombinada = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
         
@@ -4895,7 +4928,7 @@ async function processConversationStep(state, userInput, callLogger, performance
            };
          }
          
-         // Si hay disponibilidad, proceder con la confirmación
+         // Si hay disponibilidad y validación pasó, proceder con la confirmación
          state.step = 'complete';
          const confirmMessages = getMultilingualMessages('confirm', state.language);
          return {
