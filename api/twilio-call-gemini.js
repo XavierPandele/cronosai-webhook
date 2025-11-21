@@ -4562,7 +4562,12 @@ async function processConversationStep(state, userInput, callLogger, performance
           performanceMetrics: performanceMetrics
         });
       }
+      
+      // MEJORADO: Aplicar análisis de Gemini PRIMERO, incluso si la intención es "clarify"
+      // Esto asegura que si Gemini extrae un nombre (aunque la intención sea "clarify"), se aplique
       if (geminiAnalysis) {
+        // IMPORTANTE: Aplicar el análisis incluso si la intención no es "reservation"
+        // porque en el paso ask_name, cualquier nombre extraído debe aplicarse
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
       }
        
@@ -4598,6 +4603,8 @@ async function processConversationStep(state, userInput, callLogger, performance
        
        const isIncompleteNamePhrase = nameIndicators.some(pattern => pattern.test(textLower));
        
+       // MEJORADO: Verificar si el nombre se aplicó después del análisis de Gemini
+       // Si Gemini extrajo un nombre (incluso con intención "clarify"), debe estar en el estado
        if (state.data.NomReserva) {
          const name = state.data.NomReserva;
          // Después del nombre, usar directamente el teléfono de la llamada y confirmar
@@ -4622,6 +4629,24 @@ async function processConversationStep(state, userInput, callLogger, performance
            gather: true
          };
        } else {
+         // MEJORADO: Intentar extraer nombre con fallback si Gemini no lo extrajo
+         // Esto maneja casos donde Gemini detecta "clarify" pero el texto contiene un nombre
+         const fallbackName = extractName(userInput || '');
+         if (fallbackName && fallbackName.trim().length > 0) {
+           state.data.NomReserva = fallbackName;
+           state.data.TelefonReserva = state.phone;
+           state.step = 'confirm';
+           
+           const nameMessages = getMultilingualMessages('name', state.language, { name: fallbackName });
+           const nameMessage = getRandomMessage(nameMessages);
+           const confirmMessage = getConfirmationMessage(state.data, state.language);
+           const fullMessage = `${nameMessage} ${confirmMessage}`;
+           return {
+             message: fullMessage,
+             gather: true
+           };
+         }
+         
          // No se pudo extraer el nombre, usar mensaje de error/repetición
          const errorResponse = handleUnclearResponse(text, 'name', state.language);
          return {
@@ -5882,8 +5907,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       const hints = speechHints[language] || speechHints.es;
 
       // Configuración mejorada para entornos ruidosos y habla imperfecta:
-      // - speechTimeout="4": da más tiempo después de pausas (importante para discapacidades, borrachos, ruido)
-      // - timeout="10": tiempo total generoso para respuestas lentas
+      // - speechTimeout="2": balance entre responsividad y tolerancia a pausas (reducido de 4 para mejor UX)
+      // - timeout="6": tiempo total optimizado para respuestas más rápidas (reducido de 10)
       // - hints: palabras clave del dominio mejoran el reconocimiento
       // - partialResultCallback: procesa resultados parciales para mejor experiencia
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
@@ -5895,8 +5920,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="4"
-    timeout="10"
+    speechTimeout="2"
+    timeout="6"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -5999,8 +6024,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="4"
-    timeout="10"
+    speechTimeout="2"
+    timeout="6"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -12043,8 +12068,14 @@ function extractTime(text) {
 }
 
 function extractName(text) {
-  // Limpiar el texto
+  if (!text || typeof text !== 'string') return null;
+  
+  // Limpiar el texto - MEJORADO: incluir más patrones comunes
   const cleaned = text
+    .replace(/a nombre de/gi, '')
+    .replace(/nombre de/gi, '')
+    .replace(/los nombres de/gi, '')
+    .replace(/el nombre de/gi, '')
     .replace(/mi nombre es/gi, '')
     .replace(/me llamo/gi, '')
     .replace(/soy/gi, '')
@@ -12054,6 +12085,8 @@ function extractName(text) {
     .replace(/mi chiamo/gi, '')
     .replace(/je m\'appelle/gi, '')
     .replace(/meu nome é/gi, '')
+    .replace(/^por favor[.,]?\s*/gi, '')
+    .replace(/^porfavor[.,]?\s*/gi, '')
     .trim();
   
   if (cleaned.length > 1) {
