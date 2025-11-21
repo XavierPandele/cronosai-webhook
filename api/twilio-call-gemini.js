@@ -16,6 +16,10 @@ const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-
 // Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
 const conversationStates = new Map();
 
+// Sistema de debounce para evitar procesar webhooks duplicados muy cercanos
+const lastWebhookTime = new Map(); // CallSid -> timestamp
+const WEBHOOK_DEBOUNCE_MS = 100; // Ignorar webhooks duplicados dentro de 100ms
+
 // ===== CONFIGURACIÓN GLOBAL DEL RESTAURANTE =====
 // Variables globales para la configuración (se cargan al inicio)
 let restaurantConfig = {
@@ -886,6 +890,29 @@ module.exports = async function handler(req, res) {
     });
     callLogger.info(`[WEBHOOK] status=${CallStatus} hasInput=${Boolean(SpeechResult)}`);
 
+    // CRÍTICO: Filtrar webhooks vacíos ANTES de cargar estado para evitar procesamiento innecesario
+    let userInput = SpeechResult || Digits || '';
+    const isProcessing = req.query && req.query.process === 'true';
+    const isCallEnding = CallStatus && CallStatus !== 'in-progress';
+    const hasValidInput = userInput && userInput.trim().length >= 2;
+    
+    // Debounce: Ignorar webhooks duplicados muy cercanos en el tiempo
+    const now = Date.now();
+    const lastTime = lastWebhookTime.get(CallSid);
+    if (lastTime && (now - lastTime) < WEBHOOK_DEBOUNCE_MS && !hasValidInput && !isProcessing) {
+      callLogger.debug(`[SKIP] duplicate webhook within ${WEBHOOK_DEBOUNCE_MS}ms`);
+      res.setHeader('Content-Type', 'text/xml');
+      return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    }
+    lastWebhookTime.set(CallSid, now);
+    
+    // Si no hay input válido, no es procesamiento, y la llamada sigue activa, ignorar inmediatamente
+    if (!hasValidInput && !isProcessing && !isCallEnding) {
+      callLogger.debug(`[SKIP] no valid input, returning empty TwiML`);
+      res.setHeader('Content-Type', 'text/xml');
+      return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    }
+
     // OPTIMIZACIÓN: Intentar cargar desde memoria primero (más rápido)
     // Solo cargar desde BD si no está en memoria o si es la primera vez
     let state = null;
@@ -968,8 +995,7 @@ module.exports = async function handler(req, res) {
     const dataSummary = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
     callLogger.info(`[STATE] step=${state.step} lang=${state.language} data=[${dataSummary}] history=${state.conversationHistory?.length || 0}`);
 
-    // Guardar entrada del usuario si existe
-    let userInput = SpeechResult || Digits || '';
+    // userInput ya está definido arriba (antes de cargar estado)
     
     // PROTECCIÓN: Límite de longitud de input para prevenir timeouts y sobrecarga
     // Límite máximo: 10,000 caracteres (suficiente para inputs normales, previene inputs extremos)
@@ -986,38 +1012,10 @@ module.exports = async function handler(req, res) {
       });
     }
     
-    // Detectar si esta es una request de procesamiento (después del mensaje de "procesando")
-    const isProcessing = req.query && req.query.process === 'true';
-    
-    // CRÍTICO: Filtrar webhooks de partialResultCallback sin input
-    // Si no hay input del usuario y el estado ya está esperando input,
-    // probablemente es un webhook de partialResultCallback que debemos ignorar
-    // Solo procesar si:
-    // 1. Hay input del usuario (SpeechResult o Digits) Y es válido
-    // 2. Es una request de procesamiento (isProcessing)
-    // 3. Es el primer webhook de la llamada (greeting step y no hay historial) Y no hay input previo
-    // 4. La llamada está terminando (CallStatus !== 'in-progress')
-    const isInitialGreeting = state.step === 'greeting' && (!state.conversationHistory || state.conversationHistory.length === 0);
-    const isCallEnding = CallStatus && CallStatus !== 'in-progress';
-    // MEJORADO: Solo procesar greeting inicial si realmente no hay input previo
-    // Si hay input, validarlo primero antes de procesar
-    const hasValidInput = userInput && userInput.trim().length >= 2;
-    const shouldProcess = (hasValidInput || isProcessing || isCallEnding) && 
-                         (!isInitialGreeting || !userInput || hasValidInput);
-    
-    if (!shouldProcess) {
-      // Ignorar este webhook - es un partialResultCallback sin input válido
-      // Devolver un TwiML vacío para evitar procesamiento innecesario
-      callLogger.debug('PARTIAL_RESULT_IGNORED', {
-        step: state.step,
-        hasInput: Boolean(userInput),
-        hasValidInput,
-        isProcessing,
-        isInitialGreeting,
-        isCallEnding,
-        callStatus: CallStatus,
-        reasoning: 'Webhook sin input válido - ignorado para evitar procesamiento innecesario'
-      });
+    // isProcessing, isCallEnding, hasValidInput ya están definidos arriba
+    // Verificación adicional: si no hay input válido después de cargar estado, ignorar
+    if (!hasValidInput && !isProcessing && !isCallEnding) {
+      callLogger.debug(`[SKIP] no valid input after state load`);
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
@@ -1172,13 +1170,17 @@ module.exports = async function handler(req, res) {
     }
     
     // Guardar asíncronamente en background (no bloquea la respuesta)
+    // MEJORADO: Usar timeout para evitar que errores de BD bloqueen
     setImmediate(() => {
-      saveCallState(CallSid, state).catch(err => {
-        callLogger.warn('STATE_SAVE_FAILED_ASYNC', { 
-          error: err.message,
-          callSid: CallSid,
-          step: state.step
-        });
+      Promise.race([
+        saveCallState(CallSid, state),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Async save timeout')), 2000))
+      ]).catch(err => {
+        // Solo loggear si no es timeout (los timeouts son esperados cuando BD está lenta)
+        if (!err.message.includes('timeout')) {
+          callLogger.warn(`[STATE] async save failed: ${err.message}`);
+        }
+        // Continuar - el estado está en memoria y funcionará correctamente
       });
     });
 
