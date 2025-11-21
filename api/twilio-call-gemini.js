@@ -4842,6 +4842,10 @@ async function processConversationStep(state, userInput, callLogger, performance
        const confirmationResult = handleConfirmationResponse(text);
        
       if (confirmationResult.action === 'confirm') {
+        // CRÍTICO: Cargar configuración completa del restaurante antes de validar
+        // Esto asegura que todas las validaciones usen la configuración más reciente
+        await loadRestaurantConfig();
+        
         // CRÍTICO: Validar horario y otros datos ANTES de confirmar al usuario
         // Esto evita decirle al usuario que está confirmada cuando en realidad fallará al guardar
         const validacionCompleta = await validarReservaCompleta(state.data);
@@ -6123,9 +6127,9 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
       const hints = speechHints[language] || speechHints.es;
 
-      // Configuración mejorada para entornos ruidosos y habla imperfecta:
-      // - speechTimeout="2": balance entre responsividad y tolerancia a pausas (reducido de 4 para mejor UX)
-      // - timeout="6": tiempo total optimizado para respuestas más rápidas (reducido de 10)
+      // Configuración optimizada para máxima velocidad:
+      // - speechTimeout="auto": usa detección automática de Twilio (más rápido)
+      // - timeout="auto": usa timeout automático de Twilio (más rápido)
       // - hints: palabras clave del dominio mejoran el reconocimiento
       // - partialResultCallback: procesa resultados parciales para mejor experiencia
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
@@ -6137,8 +6141,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="2"
-    timeout="6"
+    speechTimeout="auto"
+    timeout="auto"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -6241,8 +6245,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="2"
-    timeout="6"
+    speechTimeout="auto"
+    timeout="auto"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -6282,6 +6286,10 @@ async function saveReservation(state, performanceMetrics = null) {
   const saveStartTime = Date.now();
   try {
     logger.reservation('Guardando reserva en base de datos...', { data: state.data });
+    
+    // CRÍTICO: Cargar configuración completa del restaurante antes de validar
+    // Esto asegura que todas las validaciones usen la configuración más reciente
+    await loadRestaurantConfig();
     
     const data = state.data;
     
