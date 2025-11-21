@@ -4119,77 +4119,46 @@ async function processConversationStep(state, userInput, callLogger, performance
             return await handleOrderIntent(state, analysis, callLogger, userInput);
           } else {
             // Intención 'clarify' o no reconocida
-            // MEJORADO: Aplicar análisis de Gemini incluso si la intención es "clarify"
-            // porque puede contener datos útiles (nombre, fecha, hora, personas)
-            // Esto permite que el usuario diga múltiples cosas en diferentes turnos
-            // Ejemplo: "8 personas para mañana" -> luego "a las 14 horas a nombre de xavi"
+            // MEJORADO: Si hay datos útiles, preguntar al usuario si quiere hacer una reserva
+            // Ejemplo: Usuario dice "a nombre de xavi" → Bot pregunta "¿Desea hacer una reserva a nombre de xavi?"
             const hasUsefulData = analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales;
             
             if (hasUsefulData) {
-              log.info('APPLYING_GEMINI_DATA_FROM_CLARIFY', {
+              log.info('CLARIFY_WITH_USEFUL_DATA', {
                 hasNombre: Boolean(analysis.nombre),
                 hasFecha: Boolean(analysis.fecha),
                 hasHora: Boolean(analysis.hora),
                 hasComensales: Boolean(analysis.comensales),
                 currentStep: state.step,
-                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Aplicando al estado y continuando flujo de reserva.'
+                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Preguntando al usuario si quiere hacer una reserva.'
               });
               
-              // Aplicar análisis al estado (esto extraerá nombre, fecha, hora, personas si están presentes)
-              const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+              // Guardar temporalmente los datos extraídos para usarlos si el usuario confirma
+              // NO aplicar todavía, solo guardar en un campo temporal
+              state.pendingClarifyData = {
+                nombre: analysis.nombre,
+                fecha: analysis.fecha,
+                hora: analysis.hora,
+                comensales: analysis.comensales,
+                analysis: analysis // Guardar el análisis completo para aplicarlo después
+              };
               
-              // Verificar errores de validación
-              if (!applyResult.success && applyResult.error === 'people_too_many') {
-                const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+              // Determinar qué mensaje mostrar según los datos extraídos
+              // Prioridad: nombre > fecha > hora > comensales
+              if (analysis.nombre) {
+                // Si hay nombre, preguntar si quiere hacer reserva a nombre de X
+                state.step = 'clarify_confirm';
+                const confirmMessages = getMultilingualMessages('clarify_reservation_confirm', state.language, { name: analysis.nombre });
                 return {
-                  message: getRandomMessage(maxPeopleMessages),
+                  message: getRandomMessage(confirmMessages),
                   gather: true
                 };
-              }
-              
-              // Verificar error de horario
-              if (state.data.horaError === 'fuera_horario') {
-                const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
-                delete state.data.HoraReserva;
-                delete state.data.horaError;
+              } else if (analysis.fecha || analysis.hora || analysis.comensales) {
+                // Si hay otros datos pero no nombre, preguntar si quiere hacer reserva
+                state.step = 'clarify_confirm';
+                const clarifyMessages = getMultilingualMessages('clarify', state.language);
                 return {
-                  message: getRandomMessage(timeErrorMessages),
-                  gather: true
-                };
-              }
-              
-              // Después de aplicar datos, determinar qué falta y continuar con el flujo de reserva
-              // Esto permite que el usuario complete la reserva en múltiples turnos
-              const missingFields = determineMissingFields(analysis, state.data);
-              
-              // Si no falta nada, ir directamente a confirmación
-              if (missingFields.length === 0) {
-                if (!state.data.TelefonReserva) {
-                  state.data.TelefonReserva = state.phone;
-                }
-                state.step = 'confirm';
-                const confirmMessage = getConfirmationMessage(state.data, state.language);
-                return {
-                  message: confirmMessage,
-                  gather: true
-                };
-              }
-              
-              // Si falta información, continuar preguntando por lo que falta
-              const nextField = missingFields[0];
-              state.step = `ask_${nextField}`;
-              
-              try {
-                const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
-                return {
-                  message: partialMessage,
-                  gather: true
-                };
-              } catch (error) {
-                log.error('ERROR_GENERATING_PARTIAL_MESSAGE', { error: error.message });
-                const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
-                return {
-                  message: getRandomMessage(fieldMessages),
+                  message: getRandomMessage(clarifyMessages),
                   gather: true
                 };
               }
@@ -4738,6 +4707,134 @@ async function processConversationStep(state, userInput, callLogger, performance
          };
        }
 
+    case 'clarify_confirm':
+      // Manejar respuesta del usuario cuando se le pregunta si quiere hacer una reserva
+      // después de detectar datos útiles con intención "clarify"
+      if (!state.pendingClarifyData) {
+        // Si no hay datos pendientes, volver a ask_intention
+        log.warn('CLARIFY_CONFIRM_NO_PENDING_DATA');
+        state.step = 'ask_intention';
+        const intentionMessages = getMultilingualMessages('ask_intention', state.language);
+        return {
+          message: getRandomMessage(intentionMessages),
+          gather: true
+        };
+      }
+      
+      // Verificar si el usuario confirmó
+      const confirmationResult = handleConfirmationResponse(userInput || '');
+      
+      if (confirmationResult.action === 'confirm') {
+        // Usuario confirmó: aplicar los datos guardados y continuar con el flujo de reserva
+        log.info('CLARIFY_CONFIRM_ACCEPTED', {
+          pendingData: state.pendingClarifyData,
+          reasoning: 'Usuario confirmó que quiere hacer una reserva. Aplicando datos extraídos y continuando flujo.'
+        });
+        
+        // Guardar el análisis antes de limpiar
+        const savedAnalysis = state.pendingClarifyData.analysis;
+        
+        // Aplicar el análisis guardado al estado
+        const applyResult = await applyGeminiAnalysisToState(
+          savedAnalysis, 
+          state, 
+          callLogger, 
+          userInput
+        );
+        
+        // Limpiar datos pendientes
+        delete state.pendingClarifyData;
+        
+        // Verificar errores de validación
+        if (!applyResult.success && applyResult.error === 'people_too_many') {
+          const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+          return {
+            message: getRandomMessage(maxPeopleMessages),
+            gather: true
+          };
+        }
+        
+        // Verificar error de horario
+        if (state.data.horaError === 'fuera_horario') {
+          const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+          delete state.data.HoraReserva;
+          delete state.data.horaError;
+          return {
+            message: getRandomMessage(timeErrorMessages),
+            gather: true
+          };
+        }
+        
+        // Determinar qué campos faltan y continuar con el flujo de reserva
+        const missingFields = determineMissingFields(savedAnalysis || {}, state.data);
+        
+        // Si no falta nada, ir directamente a confirmación
+        if (missingFields.length === 0) {
+          if (!state.data.TelefonReserva) {
+            state.data.TelefonReserva = state.phone;
+          }
+          state.step = 'confirm';
+          const confirmMessage = getConfirmationMessage(state.data, state.language);
+          return {
+            message: confirmMessage,
+            gather: true
+          };
+        }
+        
+        // Si falta información, continuar preguntando por lo que falta
+        const nextField = missingFields[0];
+        state.step = `ask_${nextField}`;
+        
+        try {
+          const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+          return {
+            message: partialMessage,
+            gather: true
+          };
+        } catch (error) {
+          log.error('ERROR_GENERATING_PARTIAL_MESSAGE', { error: error.message });
+          const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+          return {
+            message: getRandomMessage(fieldMessages),
+            gather: true
+          };
+        }
+      } else if (confirmationResult.action === 'deny' || confirmationResult.action === 'restart') {
+        // Usuario negó o quiere empezar de nuevo
+        log.info('CLARIFY_CONFIRM_DENIED', {
+          reasoning: 'Usuario negó o quiere empezar de nuevo. Limpiando datos pendientes y volviendo a ask_intention.'
+        });
+        
+        // Limpiar datos pendientes
+        delete state.pendingClarifyData;
+        state.step = 'ask_intention';
+        const intentionMessages = getMultilingualMessages('ask_intention', state.language);
+        return {
+          message: getRandomMessage(intentionMessages),
+          gather: true
+        };
+      } else {
+        // Respuesta no clara, volver a preguntar
+        log.warn('CLARIFY_CONFIRM_UNclear', {
+          userInput: userInput?.substring(0, 50),
+          reasoning: 'Respuesta del usuario no fue clara. Volviendo a preguntar.'
+        });
+        
+        // Volver a preguntar con el mismo mensaje
+        if (state.pendingClarifyData?.nombre) {
+          const confirmMessages = getMultilingualMessages('clarify_reservation_confirm', state.language, { name: state.pendingClarifyData.nombre });
+          return {
+            message: getRandomMessage(confirmMessages),
+            gather: true
+          };
+        } else {
+          const clarifyMessages = getMultilingualMessages('clarify', state.language);
+          return {
+            message: getRandomMessage(clarifyMessages),
+            gather: true
+          };
+        }
+      }
 
      case 'confirm':
        const confirmationResult = handleConfirmationResponse(text);
@@ -6809,6 +6906,53 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'Lo siento, pero solo puedo atender reservas. ¿Quiere reservar una mesa?',
         'Perdón, solo puedo ayudarle con reservas. ¿Le gustaría que le reserve una mesa?'
       ],
+    clarify_reservation_confirm: {
+      es: [
+        '¿Desea hacer una reserva a nombre de ${variables.name}?',
+        '¿Quiere hacer una reserva a nombre de ${variables.name}?',
+        '¿Le gustaría hacer una reserva a nombre de ${variables.name}?',
+        '¿Desea reservar una mesa a nombre de ${variables.name}?',
+        '¿Quiere reservar a nombre de ${variables.name}?',
+        'Perfecto, ¿desea hacer una reserva a nombre de ${variables.name}?',
+        'Vale, ¿quiere hacer una reserva a nombre de ${variables.name}?',
+        'Muy bien, ¿desea reservar una mesa a nombre de ${variables.name}?'
+      ],
+      en: [
+        'Would you like to make a reservation under the name ${variables.name}?',
+        'Do you want to make a reservation under the name ${variables.name}?',
+        'Would you like to book a table under the name ${variables.name}?',
+        'Do you want to reserve a table under the name ${variables.name}?',
+        'Perfect, would you like to make a reservation under the name ${variables.name}?'
+      ],
+      de: [
+        'Möchten Sie eine Reservierung unter dem Namen ${variables.name} vornehmen?',
+        'Möchten Sie eine Reservierung unter dem Namen ${variables.name} machen?',
+        'Möchten Sie einen Tisch unter dem Namen ${variables.name} reservieren?',
+        'Perfekt, möchten Sie eine Reservierung unter dem Namen ${variables.name} vornehmen?',
+        'Vale, möchten Sie eine Reservierung unter dem Namen ${variables.name} machen?'
+      ],
+      it: [
+        'Vuole fare una prenotazione a nome di ${variables.name}?',
+        'Vuole prenotare un tavolo a nome di ${variables.name}?',
+        'Perfetto, vuole fare una prenotazione a nome di ${variables.name}?',
+        'Va bene, vuole prenotare a nome di ${variables.name}?',
+        'Molto bene, vuole fare una prenotazione a nome di ${variables.name}?'
+      ],
+      fr: [
+        'Souhaitez-vous faire une réservation au nom de ${variables.name}?',
+        'Voulez-vous faire une réservation au nom de ${variables.name}?',
+        'Voulez-vous réserver une table au nom de ${variables.name}?',
+        'Parfait, souhaitez-vous faire une réservation au nom de ${variables.name}?',
+        'Très bien, voulez-vous réserver au nom de ${variables.name}?'
+      ],
+      pt: [
+        'Gostaria de fazer uma reserva em nome de ${variables.name}?',
+        'Quer fazer uma reserva em nome de ${variables.name}?',
+        'Quer reservar uma mesa em nome de ${variables.name}?',
+        'Perfeito, gostaria de fazer uma reserva em nome de ${variables.name}?',
+        'Muito bem, quer fazer uma reserva em nome de ${variables.name}?'
+      ]
+    },
       en: [
         'Sorry, I can only help you with reservations. Would you like to make a reservation?',
         'I apologize, I can only help with reservations. Do you want to make a reservation?',
