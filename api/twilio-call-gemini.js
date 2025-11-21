@@ -4118,7 +4118,84 @@ async function processConversationStep(state, userInput, callLogger, performance
           } else if (intention === 'order') {
             return await handleOrderIntent(state, analysis, callLogger, userInput);
           } else {
-            // Intención no reconocida o 'clarify'
+            // Intención 'clarify' o no reconocida
+            // MEJORADO: Aplicar análisis de Gemini incluso si la intención es "clarify"
+            // porque puede contener datos útiles (nombre, fecha, hora, personas)
+            // Esto permite que el usuario diga múltiples cosas en diferentes turnos
+            // Ejemplo: "8 personas para mañana" -> luego "a las 14 horas a nombre de xavi"
+            const hasUsefulData = analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales;
+            
+            if (hasUsefulData) {
+              log.info('APPLYING_GEMINI_DATA_FROM_CLARIFY', {
+                hasNombre: Boolean(analysis.nombre),
+                hasFecha: Boolean(analysis.fecha),
+                hasHora: Boolean(analysis.hora),
+                hasComensales: Boolean(analysis.comensales),
+                currentStep: state.step,
+                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Aplicando al estado y continuando flujo de reserva.'
+              });
+              
+              // Aplicar análisis al estado (esto extraerá nombre, fecha, hora, personas si están presentes)
+              const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+              
+              // Verificar errores de validación
+              if (!applyResult.success && applyResult.error === 'people_too_many') {
+                const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+                return {
+                  message: getRandomMessage(maxPeopleMessages),
+                  gather: true
+                };
+              }
+              
+              // Verificar error de horario
+              if (state.data.horaError === 'fuera_horario') {
+                const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+                delete state.data.HoraReserva;
+                delete state.data.horaError;
+                return {
+                  message: getRandomMessage(timeErrorMessages),
+                  gather: true
+                };
+              }
+              
+              // Después de aplicar datos, determinar qué falta y continuar con el flujo de reserva
+              // Esto permite que el usuario complete la reserva en múltiples turnos
+              const missingFields = determineMissingFields(analysis, state.data);
+              
+              // Si no falta nada, ir directamente a confirmación
+              if (missingFields.length === 0) {
+                if (!state.data.TelefonReserva) {
+                  state.data.TelefonReserva = state.phone;
+                }
+                state.step = 'confirm';
+                const confirmMessage = getConfirmationMessage(state.data, state.language);
+                return {
+                  message: confirmMessage,
+                  gather: true
+                };
+              }
+              
+              // Si falta información, continuar preguntando por lo que falta
+              const nextField = missingFields[0];
+              state.step = `ask_${nextField}`;
+              
+              try {
+                const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+                return {
+                  message: partialMessage,
+                  gather: true
+                };
+              } catch (error) {
+                log.error('ERROR_GENERATING_PARTIAL_MESSAGE', { error: error.message });
+                const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+                return {
+                  message: getRandomMessage(fieldMessages),
+                  gather: true
+                };
+              }
+            }
+            
+            // Si no hay datos útiles, usar mensaje de clarify
             const clarifyMessages = getMultilingualMessages('clarify', state.language);
             return {
               message: getRandomMessage(clarifyMessages),
@@ -4604,7 +4681,7 @@ async function processConversationStep(state, userInput, callLogger, performance
        const isIncompleteNamePhrase = nameIndicators.some(pattern => pattern.test(textLower));
        
        // MEJORADO: Verificar si el nombre se aplicó después del análisis de Gemini
-       // Si Gemini extrajo un nombre (incluso con intención "clarify"), debe estar en el estado
+       // Gemini es la prioridad - si extrajo el nombre, usarlo directamente
        if (state.data.NomReserva) {
          const name = state.data.NomReserva;
          // Después del nombre, usar directamente el teléfono de la llamada y confirmar
@@ -4629,10 +4706,16 @@ async function processConversationStep(state, userInput, callLogger, performance
            gather: true
          };
        } else {
-         // MEJORADO: Intentar extraer nombre con fallback si Gemini no lo extrajo
-         // Esto maneja casos donde Gemini detecta "clarify" pero el texto contiene un nombre
+         // FALLBACK: Si Gemini no extrajo el nombre, intentar con extractName como último recurso
+         // Esto solo se usa si Gemini realmente falló (no detectó nombre con suficiente confianza)
+         // Prioridad: Gemini primero, extractName solo si Gemini falla
          const fallbackName = extractName(userInput || '');
          if (fallbackName && fallbackName.trim().length > 0) {
+           log.info('NAME_EXTRACTED_FALLBACK', {
+             nombre: fallbackName,
+             originalText: userInput?.substring(0, 50),
+             reasoning: 'Gemini no extrajo nombre con suficiente confianza. Usando fallback extractName.'
+           });
            state.data.NomReserva = fallbackName;
            state.data.TelefonReserva = state.phone;
            state.step = 'confirm';
@@ -4647,7 +4730,7 @@ async function processConversationStep(state, userInput, callLogger, performance
            };
          }
          
-         // No se pudo extraer el nombre, usar mensaje de error/repetición
+         // Si ni Gemini ni el fallback pudieron extraer el nombre, usar mensaje de error/repetición
          const errorResponse = handleUnclearResponse(text, 'name', state.language);
          return {
            message: errorResponse,
