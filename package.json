@@ -7,7 +7,7 @@
     "dev": "vercel dev",
     "build": "echo 'No build step required for static site'",
     "start": "vercel dev",
-    "generate-qr": "node generate-qr.js",
+    "generate-qr": "node scripts/generate-qr.js",
     "convert-to-pdf": "node scripts/convert-to-pdf.js"
   },
   "dependencies": {
