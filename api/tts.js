@@ -2,6 +2,8 @@
  * API endpoint para generar audio usando Google Cloud Text-to-Speech
  * Usa las voces Chirp optimizadas para cada idioma
  * REQUIERE: Google Cloud Text-to-Speech API habilitada
+ * 
+ * Updated: 2025-11-25
  */
 
 const crypto = require('crypto');
