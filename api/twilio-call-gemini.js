@@ -6102,10 +6102,11 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
       const hints = speechHints[language] || speechHints.es;
 
-      // Configuración optimizada para dar tiempo a pensar sin afectar velocidad de respuesta:
-      // - speechTimeout="4": permite pausas para pensar (si el usuario habla, procesa inmediatamente)
-      // - timeout="15": tiempo total generoso para usuarios que necesitan pensar
-      // - IMPORTANTE: Si el usuario habla, Twilio procesa INMEDIATAMENTE (no espera estos timeouts)
+      // Configuración optimizada para máxima velocidad y naturalidad:
+      // - speechTimeout="auto": Twilio detecta automáticamente cuando el usuario terminó de hablar (más rápido y natural)
+      // - timeout="auto": Twilio ajusta automáticamente el tiempo total según el contexto
+      // - IMPORTANTE: "auto" detecta pausas naturales y procesa inmediatamente cuando detecta que terminaste de hablar
+      // - Esto da la sensación de respuesta instantánea sin vacíos entre frases
       // - hints: palabras clave del dominio mejoran el reconocimiento
       // - partialResultCallback: procesa resultados parciales para mejor experiencia
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
@@ -6117,8 +6118,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="4"
-    timeout="15"
+    speechTimeout="auto"
+    timeout="auto"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -6221,8 +6222,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="4"
-    timeout="15"
+    speechTimeout="auto"
+    timeout="auto"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
