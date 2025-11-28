@@ -874,41 +874,11 @@ module.exports = async function handler(req, res) {
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
 
-    // OPTIMIZACIÓN: Intentar cargar desde memoria primero (más rápido)
-    // Solo cargar desde BD si no está en memoria o si es la primera vez
-    let state = null;
-    let stateFromMemory = conversationStates.get(CallSid);
-    let stateFromDatabase = null;
+    // OPTIMIZACIÓN: Usar solo memoria para conversaciones en tiempo real (más rápido y confiable)
+    // La BD es lenta y falla frecuentemente - la memoria es suficiente para conversaciones activas
+    let state = conversationStates.get(CallSid);
     
-    // Si tenemos estado en memoria, usarlo inmediatamente (más rápido)
-    if (stateFromMemory) {
-      state = stateFromMemory;
-      
-      // Cargar desde BD en background para sincronizar (no bloquea)
-      setImmediate(async () => {
-        try {
-          const dbState = await loadCallState(CallSid);
-          if (dbState && dbState.updated_at > (state.updated_at || 0)) {
-            conversationStates.set(CallSid, dbState);
-          }
-        } catch (error) {
-          // Error silencioso - no crítico
-        }
-      });
-    } else {
-      // Si no hay estado en memoria, cargar desde BD (solo cuando es necesario)
-      try {
-        stateFromDatabase = await loadCallState(CallSid);
-        if (stateFromDatabase) {
-          state = stateFromDatabase;
-          conversationStates.set(CallSid, state);
-        }
-      } catch (error) {
-        // Error silencioso - se creará nuevo estado
-      }
-    }
-    
-    // Si aún no tenemos estado, crear uno nuevo
+    // Si no hay estado en memoria, crear uno nuevo
     if (!state) {
       state = {
         step: 'greeting',
@@ -994,9 +964,7 @@ module.exports = async function handler(req, res) {
           timestamp: new Date().toISOString()
         });
         conversationStates.set(CallSid, state);
-        setImmediate(() => {
-          saveCallState(CallSid, state).catch(() => {});
-        });
+        // No guardar en BD aquí - solo en memoria para velocidad
       }
     }
     
@@ -1064,43 +1032,23 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato)
+    // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para conversaciones en tiempo real
     conversationStates.set(CallSid, state);
     
-    // OPTIMIZACIÓN CRÍTICA: Guardar estado ASÍNCRONAMENTE para no bloquear la respuesta
-    // Esto reduce la latencia percibida significativamente (similar a Ringr.ai)
-    // Solo guardamos críticamente antes de pasos importantes (complete, confirm, order steps)
-    // CRÍTICO: También guardar síncronamente para pasos de pedido para evitar pérdida de estado
-    const isCriticalStep = state.step === 'complete' || state.step === 'confirm' || state.step === 'success' ||
-      state.step === 'order_ask_address' || state.step === 'order_ask_name' || state.step === 'order_ask_phone' ||
-      state.step === 'order_ask_notes' || state.step === 'order_confirm' || state.step === 'order_collect_items';
-    
-    if (isCriticalStep) {
-      // Para pasos críticos, guardar síncronamente pero con timeout corto
-      const stateSaveStartTime = Date.now();
-      try {
-        // Usar Promise.race para timeout de 500ms máximo
-        await Promise.race([
+    // Guardado en BD completamente asíncrono y no bloqueante
+    // Solo guardar en pasos críticos (complete) para persistencia a largo plazo
+    // La memoria es suficiente para la conversación en tiempo real
+    if (state.step === 'complete') {
+      // Guardar asíncronamente en background con timeout muy corto (no bloquea)
+      setImmediate(() => {
+        Promise.race([
           saveCallState(CallSid, state),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SYNC_SAVE_TIMEOUT')), 500))
-        ]);
-        performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-      } catch (error) {
-        performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-        // Continuar - el estado está en memoria y se guardará asíncronamente
-      }
-    }
-    
-    // Guardar asíncronamente en background (no bloquea la respuesta)
-    // MEJORADO: Usar timeout para evitar que errores de BD bloqueen
-    setImmediate(() => {
-      Promise.race([
-        saveCallState(CallSid, state),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_ASYNC_SAVE_TIMEOUT')), 2000))
-      ]).catch(() => {
-        // Error silencioso - el estado está en memoria y funcionará correctamente
+          new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SAVE_TIMEOUT')), 1000))
+        ]).catch(() => {
+          // Error silencioso - el estado está en memoria y la reserva ya se guardó
+        });
       });
-    });
+    }
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -1140,16 +1088,7 @@ module.exports = async function handler(req, res) {
         state.step = 'confirm';
         state.data.originalFechaHora = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
         conversationStates.set(CallSid, state);
-        // OPTIMIZACIÓN: Guardado asíncrono (no crítico en este punto)
-        setImmediate(() => {
-          saveCallState(CallSid, state).catch(err => {
-            logger.error('STATE_SAVE_FAILED_ASYNC', { 
-              error: err.message,
-              callSid: CallSid,
-              step: state.step
-            });
-          });
-        });
+        // No guardar en BD aquí - solo en memoria para velocidad en tiempo real
         
         // Obtener URL base para generar URLs públicas de audio TTS
         const protocol = req.headers['x-forwarded-proto'] || 'https';
