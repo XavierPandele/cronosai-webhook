@@ -6007,11 +6007,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
-      // Añadir pausa inicial ocasional para sonar más natural
+      // Sin pausas aleatorias (suenan raras) - solo pausas cuando son necesarias
       let redirectTwiML = '';
-      if (addNaturalFlow !== false && Math.random() > 0.6) {
-        redirectTwiML = `<Pause length="1"/>\n  `;
-      }
       redirectTwiML += `<Play>${escapeXml(audioUrl)}</Play>`;
       
       return `<?xml version="1.0" encoding="UTF-8"?>
@@ -6052,26 +6049,17 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       let twimlContent = '';
       
       if (messageFragments.length === 1) {
-        // Mensaje corto: una sola reproducción con posible pausa inicial
-        if (addNaturalFlow !== false && Math.random() > 0.5) {
-          // Pausa inicial ocasional (40% de probabilidad)
-          twimlContent = `<Pause length="1"/>\n    `;
-        }
-        twimlContent += `<Play>${escapeXml(audioUrl)}</Play>`;
+        // Mensaje corto: una sola reproducción sin pausas aleatorias
+        twimlContent = `<Play>${escapeXml(audioUrl)}</Play>`;
       } else {
-        // Mensaje largo: fragmentar con pausas naturales entre fragmentos
+        // Mensaje largo: fragmentar con pausas mínimas y consistentes entre fragmentos
         messageFragments.forEach((fragment, index) => {
-          if (index === 0 && addNaturalFlow !== false && Math.random() > 0.5) {
-            // Pausa inicial ocasional
-            twimlContent += `<Pause length="1"/>\n    `;
-          }
           // Generar URL TTS para cada fragmento
           const fragmentAudioUrl = getTtsAudioUrl(fragment, language, baseUrl);
           twimlContent += `<Play>${escapeXml(fragmentAudioUrl)}</Play>`;
           if (index < messageFragments.length - 1) {
-            // Pausa entre fragmentos (0.5-1 segundo aleatorio para sonar natural)
-            const pauseLength = Math.random() > 0.5 ? '1' : '2';
-            twimlContent += `\n    <Pause length="${pauseLength}"/>`;
+            // Pausa mínima y consistente entre fragmentos (0.5s siempre)
+            twimlContent += `\n    <Pause length="0.5"/>`;
           }
         });
       }
@@ -6181,22 +6169,16 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   }
 
   if (gather) {
-    // Construir contenido con pausas naturales
+    // Construir contenido sin pausas aleatorias (suenan raras)
     let sayContent = '';
     if (messageFragments.length === 1) {
-      if (addNaturalFlow !== false && Math.random() > 0.5) {
-        sayContent = `<Pause length="1"/>\n    `;
-      }
-      sayContent += `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fallbackMessage)}</Say>`;
+      sayContent = `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fallbackMessage)}</Say>`;
     } else {
       messageFragments.forEach((fragment, index) => {
-        if (index === 0 && addNaturalFlow !== false && Math.random() > 0.5) {
-          sayContent += `<Pause length="1"/>\n    `;
-        }
         sayContent += `<Say voice="${config.voice}" language="${config.language}" rate="slow">${escapeXml(fragment)}</Say>`;
         if (index < messageFragments.length - 1) {
-          const pauseLength = Math.random() > 0.5 ? '1' : '2';
-          sayContent += `\n    <Pause length="${pauseLength}"/>`;
+          // Pausa mínima y consistente entre fragmentos (0.5s siempre)
+          sayContent += `\n    <Pause length="0.5"/>`;
         }
       });
     }
@@ -6488,15 +6470,15 @@ function addNaturalInterjection(message, language = 'es', context = 'normal', st
   // NO añadir interjecciones en el saludo inicial (greeting y ask_intention) - suena artificial
   if (step === 'greeting' || step === 'ask_intention') return message;
   
-  // Probabilidad de añadir interjección (60% para sonar natural pero no excesivo)
-  if (Math.random() > 0.6) return message;
+  // Probabilidad de añadir interjección (15% para sonar natural pero no repetitivo)
+  if (Math.random() > 0.15) return message;
   
   const interjections = {
     es: {
       thinking: ['Emm', 'Aja', 'Déjame ver', 'A ver', 'Vale', 'Claro', 'Bueno'],
-      confirming: ['Perfecto', 'Vale', 'Claro', 'De acuerdo', 'Bien', 'Aja', 'Perfecto, vale'],
-      processing: ['Aja', 'Vale', 'Claro', 'Perfecto', 'Bien', 'Déjame ver'],
-      normal: ['Vale', 'Claro', 'Bien', 'Perfecto', 'Aja', 'Emm', 'Bueno']
+      confirming: ['Vale', 'Claro', 'De acuerdo', 'Bien', 'Aja', 'Entendido', 'Muy bien'],
+      processing: ['Aja', 'Vale', 'Claro', 'Bien', 'Déjame ver', 'Un momento'],
+      normal: ['Vale', 'Claro', 'Bien', 'Aja', 'Emm', 'Bueno', 'De acuerdo']
     },
     en: {
       thinking: ['Hmm', 'Well', 'Let me see', 'Okay', 'Right', 'Uh'],
@@ -6565,8 +6547,8 @@ function getNaturalAcknowledgment(userInput, language = 'es') {
   if (Math.random() > 0.25) return '';
   
   const acknowledgments = {
-    es: ['Okey', 'Vale', 'Claro', 'Perfecto', 'Bien', 'De acuerdo', 'Entendido'],
-    en: ['Okay', 'Right', 'Got it', 'Sure', 'Perfect', 'Understood']
+    es: ['Okey', 'Vale', 'Claro', 'Bien', 'De acuerdo', 'Entendido', 'Muy bien'],
+    en: ['Okay', 'Right', 'Got it', 'Sure', 'Understood', 'Alright']
   };
   
   const langAcks = acknowledgments[language] || acknowledgments.es;
@@ -6853,11 +6835,11 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     reservation: {
       es: [
-        '¡Perfecto! Por supuesto, con mucho gusto. ¿Para cuántas personas será?',
+        '¡Por supuesto! Con mucho gusto. ¿Para cuántas personas será?',
         '¡Claro! Sin problema. ¿Cuántas personas serán?',
         '¡Vale! Por supuesto. ¿Para cuántos comensales?',
-        '¡Perfecto! ¿Para cuántas personas necesita la mesa?',
-        '¡Genial! ¿Cuántas personas van a venir?',
+        '¡Genial! ¿Para cuántas personas necesita la mesa?',
+        '¡De acuerdo! ¿Cuántas personas van a venir?',
         '¡Por supuesto! Con mucho gusto. ¿Para cuántas personas?',
         '¡Claro! Sin problema. ¿Cuántas personas serán?',
         '¡Vale! Por supuesto. ¿Para cuántas personas?',
@@ -6935,16 +6917,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         '¿Le gustaría hacer una reserva a nombre de ${variables.name}?',
         '¿Desea reservar una mesa a nombre de ${variables.name}?',
         '¿Quiere reservar a nombre de ${variables.name}?',
-        'Perfecto, ¿desea hacer una reserva a nombre de ${variables.name}?',
+        '¿Desea hacer una reserva a nombre de ${variables.name}?',
         'Vale, ¿quiere hacer una reserva a nombre de ${variables.name}?',
         'Muy bien, ¿desea reservar una mesa a nombre de ${variables.name}?',
         'Entendido, ¿desea hacer una reserva a nombre de ${variables.name}?',
-        'Perfecto, ¿quiere reservar una mesa a nombre de ${variables.name}?',
+        '¿Quiere reservar una mesa a nombre de ${variables.name}?',
         'Vale, ¿desea hacer una reserva a nombre de ${variables.name}?',
         'Muy bien, ¿quiere hacer una reserva a nombre de ${variables.name}?',
         'Claro, ¿desea hacer una reserva a nombre de ${variables.name}?',
         'Por supuesto, ¿quiere reservar a nombre de ${variables.name}?',
-        'Perfecto, ¿desea reservar una mesa a nombre de ${variables.name}?',
+        '¿Desea reservar una mesa a nombre de ${variables.name}?',
         'Vale, ¿quiere hacer una reserva a nombre de ${variables.name}?',
         'Entendido, ¿desea reservar a nombre de ${variables.name}?',
         'Muy bien, ¿quiere hacer una reserva a nombre de ${variables.name}?'
@@ -7023,16 +7005,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     people: {
       es: [
-        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día les gustaría venir?`,
+        `Mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día les gustaría venir?`,
         `Vale, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día prefieren?`,
         `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo sería?`,
-        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
-        `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Cuándo les gustaría venir?`,
+        `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
+        `De acuerdo, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Cuándo les gustaría venir?`,
         `¡Vale! Mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene mejor?`,
         `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día?`,
-        `¡Perfecto! ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
+        `Entendido, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les viene bien?`,
         `Vale, mesa para ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les conviene?`,
-        `Perfecto, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo?`,
+        `Claro, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para cuándo?`,
         `Muy bien, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Qué día les gustaría?`,
         `Genial, ${variables.people} ${variables.people === 1 ? 'persona' : 'personas'}. ¿Para qué día?`
       ],
@@ -7074,16 +7056,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     date: {
       es: [
-        `Perfecto, el ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
+        `El ${formatDateSpanish(variables.date)}. ¿A qué hora les gustaría venir?`,
         `Vale, el día ${formatDateSpanish(variables.date)}. ¿Qué hora les viene mejor?`,
         `Muy bien, el ${formatDateSpanish(variables.date)}. ¿A qué hora prefieren?`,
-        `Perfecto, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
-        `Genial, el ${formatDateSpanish(variables.date)}. ¿A qué hora?`,
+        `Genial, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
+        `De acuerdo, el ${formatDateSpanish(variables.date)}. ¿A qué hora?`,
         `¡Vale! El ${formatDateSpanish(variables.date)}. ¿Qué hora les gustaría?`,
         `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora pueden venir?`,
-        `¡Perfecto! El ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
+        `Entendido, el ${formatDateSpanish(variables.date)}. ¿A qué hora les viene bien?`,
         `Vale, el día ${formatDateSpanish(variables.date)}. ¿A qué hora les conviene?`,
-        `Perfecto, el ${formatDateSpanish(variables.date)}. ¿Qué hora prefieren?`,
+        `Claro, el ${formatDateSpanish(variables.date)}. ¿Qué hora prefieren?`,
         `Muy bien, el día ${formatDateSpanish(variables.date)}. ¿A qué hora?`
       ],
       en: [
@@ -7124,16 +7106,16 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
     },
     time: {
       es: [
-        `Perfecto, a las ${variables.time}. ¿A nombre de quién será la reserva?`,
+        `A las ${variables.time}. ¿A nombre de quién será la reserva?`,
         `Vale, a las ${variables.time}. ¿Me dice su nombre?`,
         `Muy bien, a las ${variables.time}. ¿A nombre de quién la hacemos?`,
-        `Perfecto, a las ${variables.time}. ¿Cómo se llama?`,
-        `Genial, a las ${variables.time}. ¿Me puede decir su nombre?`,
+        `Genial, a las ${variables.time}. ¿Cómo se llama?`,
+        `De acuerdo, a las ${variables.time}. ¿Me puede decir su nombre?`,
         `¡Vale! A las ${variables.time}. ¿A nombre de quién va la reserva?`,
         `Muy bien, a las ${variables.time}. ¿Cuál es su nombre?`,
-        `¡Perfecto! A las ${variables.time}. ¿A nombre de quién será?`,
+        `Entendido, a las ${variables.time}. ¿A nombre de quién será?`,
         `Vale, a las ${variables.time}. ¿Me dice su nombre, por favor?`,
-        `Perfecto, a las ${variables.time}. ¿Cómo se llama?`,
+        `Claro, a las ${variables.time}. ¿Cómo se llama?`,
         `Muy bien, a las ${variables.time}. ¿A nombre de quién?`
       ],
       en: [
@@ -12422,7 +12404,7 @@ function getConfirmationMessage(data, language = 'es') {
   }
   
   const confirmations = {
-    es: `Perfecto, ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, el día ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}${phoneFormatted ? `, teléfono ${phoneFormatted}` : ''}. ¿Les parece correcto?`,
+    es: `Muy bien, ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'personas'}, el día ${formatDateSpanish(data.FechaReserva)} a las ${data.HoraReserva}, a nombre de ${data.NomReserva}${phoneFormatted ? `, teléfono ${phoneFormatted}` : ''}. ¿Les parece correcto?`,
     en: `I confirm: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'person' : 'people'}, ${formatDateEnglish(data.FechaReserva)} at ${data.HoraReserva}, under the name of ${data.NomReserva}${phoneFormatted ? `, phone ${phoneFormatted}` : ''}. Is it correct?`,
     de: `Ich bestätige: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'Person' : 'Personen'}, ${formatDateGerman(data.FechaReserva)} um ${data.HoraReserva}, unter dem Namen ${data.NomReserva}${phoneFormatted ? `, Telefon ${phoneFormatted}` : ''}. Ist es richtig?`,
     it: `Confermo: ${data.NumeroReserva} ${data.NumeroReserva === 1 ? 'persona' : 'persone'}, ${formatDateItalian(data.FechaReserva)} alle ${data.HoraReserva}, a nome di ${data.NomReserva}${phoneFormatted ? `, telefono ${phoneFormatted}` : ''}. È corretto?`,
