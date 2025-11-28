@@ -178,9 +178,7 @@ async function generateSpeech(text, lang = 'es') {
   const originalLength = text.length;
   const preparedLength = preparedText.length;
   
-  if (originalLength > preparedLength) {
-    console.log(`✂️ [TTS] Texto recortado de ${originalLength} a ${preparedLength} caracteres para reducir latencia`);
-  }
+  // Log solo en DEBUG si se recorta texto (demasiado ruido en producción)
   
   const voice = voiceConfig[lang] || voiceConfig.es;
   const hash = crypto.createHash('md5').update(`${preparedText}-${voice.languageCode}-${voice.voiceName}`).digest('hex');
@@ -190,7 +188,7 @@ async function generateSpeech(text, lang = 'es') {
   if (cached) {
     const age = Date.now() - cached.timestamp;
     if (age < CACHE_TTL_MS) {
-      console.log(`✅ [TTS] Cache hit para hash: ${hash.substring(0, 8)}... (${cached.audio.length} bytes, edad: ${Math.round(age / 1000)}s)`);
+      // Log solo en DEBUG (demasiado ruido en producción)
       return { audio: cached.audio, hash };
     } else {
       // Entrada expirada - eliminar
@@ -202,7 +200,7 @@ async function generateSpeech(text, lang = 'es') {
     const client = getTTSClient();
     const ttsGenerationStartTime = Date.now();
     
-    console.log(`🎤 [TTS] Generando audio con Google Cloud TTS: "${preparedText.substring(0, 50)}..." (${voice.languageCode}, ${voice.voiceName}) - INICIO`);
+    // Log solo en DEBUG (demasiado ruido en producción)
 
     // Construir la solicitud
     const request = {
@@ -257,7 +255,10 @@ async function generateSpeech(text, lang = 'es') {
     });
 
     const ttsGenerationTime = Date.now() - ttsGenerationStartTime;
-    console.log(`✅ [TTS] Audio generado exitosamente en ${ttsGenerationTime}ms (${audioBuffer.length} bytes)`);
+    // Log solo si es lento (>1000ms) o en DEBUG (demasiado ruido en producción)
+    if (ttsGenerationTime > 1000) {
+      console.warn(JSON.stringify({ts: new Date().toISOString(), level: 'WARN', msg: 'TTS_SLOW', timeMs: ttsGenerationTime, sizeBytes: audioBuffer.length}));
+    }
 
     return { audio: audioBuffer, hash };
   } catch (error) {
@@ -293,7 +294,7 @@ module.exports = async function handler(req, res) {
         // OPTIMIZACIÓN: Buscar por hash primero (más rápido)
         const cached = audioCache.get(hash);
         if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-          console.log(`✅ [TTS] Cache hit por hash: ${hash.substring(0, 8)}... (${cached.audio.length} bytes)`);
+          // Log solo en DEBUG (demasiado ruido en producción)
           audioData = { audio: cached.audio, hash };
         } else {
           return res.status(404).json({ error: 'Audio not found in cache' });
@@ -305,11 +306,10 @@ module.exports = async function handler(req, res) {
         // OPTIMIZACIÓN: Verificar cache antes de generar
         const cached = audioCache.get(textHash);
         if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-          console.log(`✅ [TTS] Cache hit por texto: "${decodedText.substring(0, 30)}..." (${cached.audio.length} bytes)`);
+          // Log solo en DEBUG (demasiado ruido en producción)
           audioData = { audio: cached.audio, hash: textHash };
         } else {
-          // Generar audio
-          console.log(`🎤 [TTS] Generando audio para: "${decodedText.substring(0, 50)}..."`);
+          // Generar audio (sin log - demasiado ruido)
           try {
             audioData = await generateSpeech(decodedText, language);
           } catch (error) {

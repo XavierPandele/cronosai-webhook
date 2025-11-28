@@ -887,19 +887,22 @@ module.exports = async function handler(req, res) {
       to: To,
       accountSid: params?.AccountSid
     });
-    callLogger.info(`[WEBHOOK] status=${CallStatus} hasInput=${Boolean(SpeechResult)}`);
-
     // CRÍTICO: Filtrar webhooks vacíos ANTES de cargar estado para evitar procesamiento innecesario
     let userInput = SpeechResult || Digits || '';
     const isProcessing = req.query && req.query.process === 'true';
     const isCallEnding = CallStatus && CallStatus !== 'in-progress';
     const hasValidInput = userInput && userInput.trim().length >= 2;
     
+    // Solo loggear webhooks con input válido o eventos importantes (no webhooks vacíos repetitivos)
+    if (hasValidInput || isCallEnding || isProcessing) {
+      callLogger.info('WEBHOOK_RECEIVED', { status: CallStatus, hasInput: hasValidInput, processing: isProcessing, ending: isCallEnding });
+    }
+    
     // Debounce: Ignorar webhooks duplicados muy cercanos en el tiempo
     const now = Date.now();
     const lastTime = lastWebhookTime.get(CallSid);
     if (lastTime && (now - lastTime) < WEBHOOK_DEBOUNCE_MS && !hasValidInput && !isProcessing) {
-      callLogger.debug(`[SKIP] duplicate webhook within ${WEBHOOK_DEBOUNCE_MS}ms`);
+      // No loggear webhooks duplicados vacíos (solo ruido)
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
@@ -907,7 +910,7 @@ module.exports = async function handler(req, res) {
     
     // Si no hay input válido, no es procesamiento, y la llamada sigue activa, ignorar inmediatamente
     if (!hasValidInput && !isProcessing && !isCallEnding) {
-      callLogger.debug(`[SKIP] no valid input, returning empty TwiML`);
+      // No loggear webhooks vacíos (solo ruido)
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
@@ -5970,7 +5973,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   const { message, gather = true, redirect, voiceConfig: responseVoiceConfig, useAlgieba = true, addNaturalFlow = true } = response;
 
   const twimlStartTime = Date.now();
-  console.log(`🎤 [TTS] generateTwiML INICIO - Idioma: ${language}, Mensaje: "${message ? message.substring(0, 50) : 'null'}...", UseAlgieba: ${useAlgieba}, NaturalFlow: ${addNaturalFlow}, Step: ${currentStep || 'unknown'}`);
+  // Log solo en DEBUG (demasiado ruido en producción)
 
   // MEJORADO: Procesar mensaje para añadir fluidez natural (interjecciones, fragmentación)
   let processedMessage = message;
@@ -5981,7 +5984,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     // Añadir interjecciones naturales (evitar en greeting)
     processedMessage = addNaturalInterjection(message, language, context, currentStep);
     
-    console.log(`🎤 [NATURAL_FLOW] Contexto: ${context}, Mensaje procesado: "${processedMessage.substring(0, 60)}..."`);
+    // Log solo en DEBUG (demasiado ruido en producción)
   }
 
   // MEJORADO: Usar voz Algieba de Google Cloud Text-to-Speech
@@ -5990,7 +5993,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   if (useAlgieba !== false) {
     // Fragmentar mensaje largo para añadir pausas naturales
     const messageFragments = fragmentLongMessage(processedMessage, 120);
-    console.log(`🎤 [NATURAL_FLOW] Mensaje fragmentado en ${messageFragments.length} partes`);
+    // Log solo en DEBUG (demasiado ruido en producción)
     
     // OPTIMIZACIÓN: Intentar usar TTS Play (voz Algieba Flash) con fallback a Say si falla
     const ttsUrlStartTime = Date.now();
@@ -6000,7 +6003,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     // Usar TTS Play (voz Algieba Flash) - con fallback a Say si hay error
     const useTtsPlay = true;
     
-    console.log(`🎤 [TTS] URL generada en ${ttsUrlTime}ms. Usando TTS Play (Algieba Flash) con fallback a Say si falla`);
+    // Log solo en DEBUG (demasiado ruido en producción)
 
     // Si hay redirect, mostrar mensaje y redirigir (para mensajes de procesamiento)
     if (redirect) {
@@ -6074,7 +6077,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       }
       
       // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
-      console.log(`🎤 [TTS] TwiML generado en ${twimlTime}ms - usando SOLO Play (Algieba Flash) con ${messageFragments.length} fragmento(s)`);
+      // Log solo en DEBUG (demasiado ruido en producción)
       const noInputMessage = getRandomMessage(language === 'es' ? [
         'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
         'Perdón, no he oído nada. ¿Sigue en la línea?',
