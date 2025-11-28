@@ -44,7 +44,7 @@ async function loadMenuItems(force = false) {
   const now = Date.now();
   if (!force && menuItemsCache.length > 0 && (now - menuLoadedAt) < MENU_CACHE_TTL_MS) {
     const cacheTime = Date.now() - menuLoadStartTime;
-    logger.debug('MENU_CACHE_HIT', { cacheTimeMs: cacheTime, itemsCount: menuItemsCache.length });
+    // Cache hit - no log necesario
     return menuItemsCache;
   }
 
@@ -60,7 +60,7 @@ async function loadMenuItems(force = false) {
     }));
     menuLoadedAt = now;
     const loadTime = Date.now() - menuLoadStartTime;
-    logger.debug('MENU_LOADED', { timeMs: loadTime, itemsCount: menuItemsCache.length });
+    // Menu loaded - no log necesario
   } catch (error) {
     const errorTime = Date.now() - menuLoadStartTime;
     logger.error('MENU_LOAD_FAILED', { message: error.message, timeMs: errorTime });
@@ -92,7 +92,7 @@ async function loadRestaurantConfig() {
   // Esto permite que funcione bien en serverless donde las instancias se reciclan
   if (configLoaded && restaurantConfig) {
     const cacheTime = Date.now() - configLoadStartTime;
-    logger.debug('CONFIG_MEMORY_CACHE_HIT', { cacheTimeMs: cacheTime });
+    // Config cache hit - no log necesario
     // Aún así, verificar que el cache interno de getRestaurantConfig esté actualizado
     // (pero no esperar si ya tenemos config en memoria)
     return restaurantConfig;
@@ -122,9 +122,9 @@ async function loadRestaurantConfig() {
     
     // Solo loggear si tarda más de 50ms (indica carga desde BD, no cache)
     if (loadTime > 50) {
-      logger.info('CONFIG_LOADED', { ...restaurantConfig, loadTimeMs: loadTime });
+      // Config loaded - no log necesario
     } else {
-      logger.debug('CONFIG_CACHE_HIT', { loadTimeMs: loadTime });
+      // Config cache hit - no log necesario
     }
     
     return restaurantConfig;
@@ -194,9 +194,6 @@ function getGeminiClient() {
             cleaned = cleaned.replace(/\\\\n/g, '\\n');
             
             credentials = JSON.parse(cleaned);
-            logger.warn('GEMINI_JSON_CLEANED', {
-              reasoning: 'JSON limpiado automáticamente (comillas simples y escapes corregidos)'
-            });
           } catch (cleanError) {
             // Estrategia 3: Intentar leer como ruta de archivo si parece una ruta
             const fs = require('fs');
@@ -205,10 +202,6 @@ function getGeminiClient() {
               try {
                 const fileContent = fs.readFileSync(credentialsJson, 'utf8');
                 credentials = JSON.parse(fileContent);
-                logger.info('GEMINI_JSON_FROM_FILE', {
-                  file: credentialsJson,
-                  reasoning: 'JSON cargado desde archivo en lugar de variable de entorno'
-                });
               } catch (fileError) {
                 throw new Error(`Error parseando JSON desde archivo ${credentialsJson}: ${fileError.message}`);
               }
@@ -217,9 +210,6 @@ function getGeminiClient() {
               try {
                 const base64Decoded = Buffer.from(credentialsJson, 'base64').toString('utf8');
                 credentials = JSON.parse(base64Decoded);
-                logger.info('GEMINI_JSON_FROM_BASE64', {
-                  reasoning: 'JSON decodificado desde base64'
-                });
               } catch (base64Error) {
                 // Estrategia 5: Intentar parsear línea por línea si parece un JSON multilínea mal formateado
                 try {
@@ -230,9 +220,6 @@ function getGeminiClient() {
                     .replace(/\\n\\n/g, '\\n'); // Normalizar dobles escapes
                   
                   credentials = JSON.parse(multilineFixed);
-                  logger.warn('GEMINI_JSON_MULTILINE_FIXED', {
-                    reasoning: 'JSON multilínea corregido automáticamente'
-                  });
                 } catch (multilineError) {
                   // Si nada funciona, lanzar error con información útil
                   const preview = credentialsJson.substring(0, 200);
@@ -265,12 +252,7 @@ function getGeminiClient() {
         }
       });
       
-      logger.info('✅ [Gemini] Cliente de Vertex AI inicializado', {
-        projectId: PROJECT_ID,
-        location: LOCATION,
-        clientEmail: credentials.client_email,
-        reasoning: `Cliente de Vertex AI inicializado correctamente para Gemini. Proyecto: ${PROJECT_ID}, Región: ${LOCATION}`
-      });
+      // Gemini client initialized - no log necesario
     } catch (error) {
       console.error('❌ [Gemini] Error inicializando cliente de Vertex AI:', error);
       logger.error('GEMINI_VERTEX_AI_INIT_ERROR', {
@@ -327,14 +309,7 @@ function createGeminiModel(options = {}, logger = null) {
   });
 
   if (logger) {
-    logger.debug('🤖 GEMINI_MODEL_INITIALIZED', {
-      model: model,
-      platform: 'Vertex AI',
-      projectId: PROJECT_ID,
-      location: LOCATION,
-      config: { maxOutputTokens, temperature, topP, topK },
-      reasoning: `Modelo de Gemini ${model} inicializado con configuración optimizada.`
-    });
+    // Gemini model initialized - no log necesario
   }
 
   return geminiModel;
@@ -749,10 +724,7 @@ async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMe
     timestamp: Date.now()
   });
   
-  logger.debug('💾 AVAILABILITY_CACHED', {
-    cacheKey: cacheKey,
-    reasoning: `Resultado guardado en cache para futuras consultas (TTL: ${AVAILABILITY_CACHE_TTL_MS/1000}s)`
-  });
+  // Availability cached - no log necesario
   
   cleanAvailabilityCache();
   
@@ -819,18 +791,9 @@ module.exports = async function handler(req, res) {
   const configLoadTime = Date.now() - configStartTime;
   performanceMetrics.configLoadTime = configLoadTime;
   // Log solo si tarda más de 50ms (indica que no fue cache hit)
-  if (configLoadTime > 50) {
-    logger.debug('CONFIG_LOADED_FROM_DB', { timeMs: configLoadTime });
-  }
+  // Config loaded - no log necesario
   
-  // LOGGING MEJORADO: Loggear al inicio para debugging (compacto)
-  logger.info('TWILIO_WEBHOOK_RECEIVED', {
-    method: req.method,
-    url: req.url,
-    hasBody: Boolean(req.body),
-    bodyType: typeof req.body,
-    hasQuery: Object.keys(req.query || {}).length > 0
-  });
+  // Log eliminado - información redundante
 
   try {
     // Extraer parámetros de Twilio
@@ -842,16 +805,13 @@ module.exports = async function handler(req, res) {
       if (typeof req.body === 'string') {
         const querystring = require('querystring');
         params = querystring.parse(req.body);
-        logger.debug('TWILIO_BODY_PARSED_STRING');
       } else if (typeof req.body === 'object') {
         // Si ya es un objeto, usarlo directamente
         params = req.body;
-        logger.debug('TWILIO_BODY_USED_AS_OBJECT');
       }
     } else if (req.query) {
       // Si no hay body, usar query (para GET requests)
       params = req.query;
-      logger.debug('TWILIO_USING_QUERY_PARAMS');
     }
     
     // Si CallSid no se extrajo antes, intentar extraerlo de params
@@ -869,7 +829,6 @@ module.exports = async function handler(req, res) {
     
     // Si no hay CallSid, generar respuesta de saludo inicial
     if (!CallSid) {
-      logger.warn('CALL_SID_MISSING');
       const greetingMessage = '¡Hola! Bienvenido a nuestro restaurante. ¿En qué puedo ayudarle?';
       const twiml = generateTwiML({
         message: greetingMessage,
@@ -893,9 +852,9 @@ module.exports = async function handler(req, res) {
     const isCallEnding = CallStatus && CallStatus !== 'in-progress';
     const hasValidInput = userInput && userInput.trim().length >= 2;
     
-    // Solo loggear webhooks con input válido o eventos importantes (no webhooks vacíos repetitivos)
+    // Log consolidado solo para webhooks con input válido o eventos importantes
     if (hasValidInput || isCallEnding || isProcessing) {
-      callLogger.info('WEBHOOK_RECEIVED', { status: CallStatus, hasInput: hasValidInput, processing: isProcessing, ending: isCallEnding });
+      // Este log se completará más abajo con toda la información
     }
     
     // Debounce: Ignorar webhooks duplicados muy cercanos en el tiempo
@@ -924,22 +883,16 @@ module.exports = async function handler(req, res) {
     // Si tenemos estado en memoria, usarlo inmediatamente (más rápido)
     if (stateFromMemory) {
       state = stateFromMemory;
-      callLogger.debug('STATE_SOURCE_MEMORY_FAST', {
-        step: state.step,
-        reasoning: 'Estado cargado desde memoria para respuesta rápida'
-      });
       
       // Cargar desde BD en background para sincronizar (no bloquea)
       setImmediate(async () => {
         try {
           const dbState = await loadCallState(CallSid);
           if (dbState && dbState.updated_at > (state.updated_at || 0)) {
-            // Si el estado de BD es más reciente, actualizar memoria
             conversationStates.set(CallSid, dbState);
-            callLogger.debug('STATE_SYNCED_FROM_DB_BACKGROUND');
           }
         } catch (error) {
-          callLogger.warn('STATE_SYNC_FROM_DB_FAILED', { error: error.message });
+          // Error silencioso - no crítico
         }
       });
     } else {
@@ -948,15 +901,10 @@ module.exports = async function handler(req, res) {
         stateFromDatabase = await loadCallState(CallSid);
         if (stateFromDatabase) {
           state = stateFromDatabase;
-          // Actualizar memoria con estado de BD para próximas requests
           conversationStates.set(CallSid, state);
-          callLogger.debug('STATE_LOADED_FROM_DB', {
-            step: state.step,
-            hasData: Boolean(state.data && Object.keys(state.data).length > 0)
-          });
         }
       } catch (error) {
-        callLogger.warn('STATE_LOAD_FROM_DB_FAILED', { error: error.message });
+        // Error silencioso - se creará nuevo estado
       }
     }
     
@@ -969,7 +917,6 @@ module.exports = async function handler(req, res) {
         conversationHistory: [],
         language: 'es'
       };
-      callLogger.debug('STATE_SOURCE_NEW');
     }
 
     // Asegurar datos críticos en el estado
@@ -984,7 +931,6 @@ module.exports = async function handler(req, res) {
     // Asegurar que state.data existe y es un objeto
     if (!state.data || typeof state.data !== 'object') {
       state.data = {};
-      callLogger.warn('STATE_DATA_INVALID_RESET');
     }
     
     callLogger.update({
@@ -992,32 +938,18 @@ module.exports = async function handler(req, res) {
       language: state.language,
       step: state.step
     });
-    
-    // Log compacto del estado recuperado
-    const dataSummary = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
-    callLogger.info(`[STATE] step=${state.step} lang=${state.language} data=[${dataSummary}] history=${state.conversationHistory?.length || 0}`);
 
     // userInput ya está definido arriba (antes de cargar estado)
     
     // PROTECCIÓN: Límite de longitud de input para prevenir timeouts y sobrecarga
-    // Límite máximo: 10,000 caracteres (suficiente para inputs normales, previene inputs extremos)
     const MAX_INPUT_LENGTH = 10000;
     if (userInput && userInput.length > MAX_INPUT_LENGTH) {
-      const originalLength = userInput.length;
       userInput = userInput.substring(0, MAX_INPUT_LENGTH);
-      callLogger.warn('INPUT_TRUNCATED', {
-        originalLength,
-        truncatedLength: MAX_INPUT_LENGTH,
-        callSid: CallSid,
-        step: state.step,
-        reasoning: `Input demasiado largo (${originalLength} caracteres). Truncado a ${MAX_INPUT_LENGTH} caracteres para prevenir timeout.`
-      });
     }
     
     // isProcessing, isCallEnding, hasValidInput ya están definidos arriba
     // Verificación adicional: si no hay input válido después de cargar estado, ignorar
     if (!hasValidInput && !isProcessing && !isCallEnding) {
-      callLogger.debug(`[SKIP] no valid input after state load`);
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
@@ -1029,11 +961,6 @@ module.exports = async function handler(req, res) {
                         !/^(ah|eh|oh|um|uh|mm|hm|eh|ah|eh)$/i.test(userInput.trim()); // Filtrar sonidos no verbales
     
     if (!isValidInput && userInput && !isProcessing) {
-      callLogger.debug('INPUT_FILTERED', {
-        input: userInput,
-        length: userInput ? userInput.trim().length : 0,
-        reasoning: 'Input muy corto o ruido - ignorado'
-      });
       // Si el input no es válido, mantener el estado actual y pedir que repita
       // Obtener baseUrl para generar TwiML
       const protocol = req.headers['x-forwarded-proto'] || 'https';
@@ -1058,7 +985,6 @@ module.exports = async function handler(req, res) {
     }
 
     // OPTIMIZACIÓN: Guardar mensaje del usuario en memoria inmediatamente (no esperar BD)
-    // Guardar en BD asíncronamente para no bloquear
     if (isValidInput && userInput && userInput.trim() && !isProcessing) {
       const lastEntry = state.conversationHistory[state.conversationHistory.length - 1];
       if (!lastEntry || lastEntry.role !== 'user' || lastEntry.message !== userInput) {
@@ -1067,14 +993,9 @@ module.exports = async function handler(req, res) {
           message: userInput,
           timestamp: new Date().toISOString()
         });
-        callLogger.debug('USER_MESSAGE_RECORDED', { message: userInput });
-        // Actualizar memoria inmediatamente
         conversationStates.set(CallSid, state);
-        // Guardar asíncronamente (no bloquear)
         setImmediate(() => {
-          saveCallState(CallSid, state).catch(err => {
-            callLogger.warn('STATE_SAVE_FAILED_ASYNC_BEFORE_REDIRECT', { error: err.message });
-          });
+          saveCallState(CallSid, state).catch(() => {});
         });
       }
     }
@@ -1087,14 +1008,12 @@ module.exports = async function handler(req, res) {
         .find(entry => entry.role === 'user');
       if (lastUserEntry) {
         userInput = lastUserEntry.message;
-        callLogger.debug('USER_INPUT_RECOVERED_FROM_HISTORY', { userInput });
       }
     }
 
     // Procesar según el paso actual
-    const inputPreview = userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty';
-    callLogger.info('STEP_BEFORE', { step: state.step, input: inputPreview });
     const previousStep = state.step;
+    const dataSummary = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
     
     // PERFORMANCE: Pasar métricas al proceso de conversación
     const processStepStartTime = Date.now();
@@ -1102,28 +1021,41 @@ module.exports = async function handler(req, res) {
     try {
       response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
     } catch (stepError) {
-      // LOGGING CRÍTICO: Capturar errores en processConversationStep (compacto)
+      // Log consolidado de error con toda la información
       const errorInput = userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty';
-      callLogger.error('STEP_ERROR', {
-        step: state.step,
+      callLogger.error('REQUEST_ERROR', {
         input: errorInput,
+        step: state.step,
+        previousStep,
+        data: dataSummary,
+        error: stepError.message,
         errorName: stepError.name,
-        errorMessage: stepError.message,
-        stack: stepError.stack?.substring(0, 200),
-        previousStep
+        stack: stepError.stack?.substring(0, 300)
       });
-      
-      throw stepError; // Re-lanzar para que el catch principal lo maneje
+      throw stepError;
     }
     const processStepTime = Date.now() - processStepStartTime;
     performanceMetrics.processStepTime = processStepTime;
     
-    if (previousStep !== state.step) {
-      callLogger.info('STEP_TRANSITION', { from: previousStep, to: state.step, timeMs: processStepTime });
-      callLogger.update({ step: state.step });
+    // LOG CONSOLIDADO: Toda la información importante en un solo log
+    if (hasValidInput || isCallEnding || isProcessing) {
+      const responsePreview = response.message ? (response.message.length > 60 ? response.message.substring(0, 60) + '...' : response.message) : 'null';
+      const logData = {
+        input: userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty',
+        step: state.step,
+        previousStep: previousStep !== state.step ? previousStep : null,
+        data: dataSummary,
+        response: responsePreview,
+        timeMs: processStepTime,
+        geminiMs: performanceMetrics.geminiTime || 0,
+        dbMs: performanceMetrics.stateSaveTime || 0
+      };
+      
+      callLogger.info('REQUEST', logData);
+      if (previousStep !== state.step) {
+        callLogger.update({ step: state.step });
+      }
     }
-    const responsePreview = response.message ? (response.message.length > 60 ? response.message.substring(0, 60) + '...' : response.message) : 'null';
-    callLogger.info('STEP_AFTER', { step: state.step, timeMs: processStepTime, response: responsePreview });
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -1132,9 +1064,7 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para la mayoría de casos
-    const persistData = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
-    callLogger.info(`[PERSIST] step=${state.step} data=[${persistData}]`);
+    // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato)
     conversationStates.set(CallSid, state);
     
     // OPTIMIZACIÓN CRÍTICA: Guardar estado ASÍNCRONAMENTE para no bloquear la respuesta
@@ -1155,20 +1085,8 @@ module.exports = async function handler(req, res) {
           new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SYNC_SAVE_TIMEOUT')), 500))
         ]);
         performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-        callLogger.info('STATE_SAVED_SYNC', { 
-          step: state.step, 
-          timeMs: performanceMetrics.stateSaveTime,
-          saved: true
-        });
       } catch (error) {
         performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
-        const isTimeout = error.message.includes('TIMEOUT') || error.code === 'ETIMEDOUT';
-        callLogger.warn('STATE_SAVE_TIMEOUT_OR_FAILED', { 
-          error: error.message || error.code,
-          step: state.step,
-          timeMs: performanceMetrics.stateSaveTime,
-          timeout: isTimeout
-        });
         // Continuar - el estado está en memoria y se guardará asíncronamente
       }
     }
@@ -1179,16 +1097,8 @@ module.exports = async function handler(req, res) {
       Promise.race([
         saveCallState(CallSid, state),
         new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_ASYNC_SAVE_TIMEOUT')), 2000))
-      ]).catch(err => {
-        // Solo loggear si no es timeout (los timeouts son esperados cuando BD está lenta)
-        const isTimeout = err.message.includes('timeout') || err.message.includes('TIMEOUT') || err.code === 'ETIMEDOUT';
-        if (!isTimeout) {
-          callLogger.warn('STATE_ASYNC_SAVE_FAILED', {
-            error: err.message || err.code,
-            callSid: CallSid?.substring(0, 20)
-          });
-        }
-        // Continuar - el estado está en memoria y funcionará correctamente
+      ]).catch(() => {
+        // Error silencioso - el estado está en memoria y funcionará correctamente
       });
     });
 
@@ -1197,14 +1107,9 @@ module.exports = async function handler(req, res) {
       const saveReservationStartTime = Date.now();
       const saved = await saveReservation(state, performanceMetrics);
       performanceMetrics.saveReservationTime = Date.now() - saveReservationStartTime;
-      callLogger.info('RESERVATION_SAVE_COMPLETED', { 
-        saved,
-        timeMs: performanceMetrics.saveReservationTime 
-      });
       
       // Si no se pudo guardar por falta de disponibilidad, manejar el error
       if (!saved && state.availabilityError) {
-        callLogger.warn('RESERVATION_NOT_SAVED_NO_AVAILABILITY', { error: state.availabilityError });
         
         // Obtener alternativas si no las tenemos
         if (!state.availabilityError.alternativas || state.availabilityError.alternativas.length === 0) {
@@ -1258,7 +1163,7 @@ module.exports = async function handler(req, res) {
       // Limpiar el estado después de guardar
       conversationStates.delete(CallSid);
       await deleteCallState(CallSid);
-      callLogger.info('RESERVATION_COMPLETED');
+      // Reservation completed - no log necesario
 
       await sendReservationConfirmationRcs({
         phone: state.data.TelefonReserva || state.phone,
@@ -1271,7 +1176,7 @@ module.exports = async function handler(req, res) {
     } else if (state.step === 'order_complete') {
       conversationStates.delete(CallSid);
       await deleteCallState(CallSid);
-      callLogger.info('ORDER_COMPLETED');
+      // Order completed - no log necesario
     }
 
     // Obtener URL base para generar URLs públicas de audio TTS
@@ -1286,12 +1191,17 @@ module.exports = async function handler(req, res) {
     performanceMetrics.totalTime = Date.now() - requestStartTime;
     
     const perf = performanceMetrics;
-    callLogger.info('PERF_METRICS', {
+    // Log consolidado final con todas las métricas y estado final
+    const finalDataSummary = state.data ? `${state.data.NumeroReserva || '-'}p, ${state.data.FechaReserva || '-'}, ${state.data.HoraReserva || '-'}, ${state.data.NomReserva || '-'}` : 'empty';
+    callLogger.info('REQUEST_COMPLETE', {
+      step: state.step,
+      data: finalDataSummary,
       totalMs: perf.totalTime,
-      geminiMs: perf.geminiTime,
+      geminiMs: perf.geminiTime || 0,
       stepMs: perf.processStepTime || 0,
       dbMs: perf.dbTime || 0,
-      configMs: perf.configLoadTime
+      configMs: perf.configLoadTime || 0,
+      reservationSaved: state.step === 'complete' ? true : false
     });
     
     res.setHeader('Content-Type', 'text/xml');
@@ -2929,12 +2839,7 @@ async function updateOrderStateFromAnalysis(state, analysis, userInput, callLogg
   recalculateOrderTotals(order);
 
   if (callLogger) {
-    callLogger.debug('ORDER_STATE_UPDATED', {
-      items: order.items.length,
-      pendingItems: order.pendingItems,
-      total: order.total,
-      itemsWithSuggestions: itemsWithSuggestions.length
-    });
+    // Order state updated - no log necesario
   }
 
   return order;
@@ -3270,7 +3175,7 @@ async function saveOrder(state, callLogger) {
     await connection.commit();
     const orderId = result.insertId;
     if (callLogger) {
-      callLogger.info('ORDER_SAVED', { orderId, total: order.total });
+      // Order saved - no log necesario (ya está en PERF_METRICS)
     }
     return { success: true, orderId };
   } catch (error) {
@@ -3338,7 +3243,7 @@ async function processConversationStep(state, userInput, callLogger, performance
   const stepStartTime = Date.now();
   const inputPreview = userInput ? (userInput.length > 100 ? userInput.substring(0, 100) + '...' : userInput) : 'empty';
   if (callLogger) {
-    callLogger.info('PROCESS_STEP_START', { step: state.step, input: inputPreview, processing: isProcessing });
+    // Process step start - no log necesario
   }
   
   const step = state.step;
@@ -4221,16 +4126,13 @@ async function processConversationStep(state, userInput, callLogger, performance
         // MEJORADO: Si Gemini retornó null para comensales, SIEMPRE intentar fallback
         // No solo cuando tiene alta credibilidad, porque a veces Gemini no está seguro pero el número está ahí
         if (!peopleAnalysis.comensales) {
-          callLogger.debug('PEOPLE_NULL_FROM_GEMINI_TRYING_FALLBACK', { 
-            userInput: userInput.substring(0, 50),
-            credibilidad: peopleAnalysis.comensales_porcentaje_credivilidad
-          });
+          // People null from Gemini - trying fallback - no log necesario
           
           // Primero intentar con regex para capturar cualquier número (sin límite)
           const numberMatch = userInput.match(/\b(\d+)\s*(?:personas?|personas|gente|comensales?|invitados?|personas más|personas adicionales)\b/i);
           if (numberMatch) {
             const regexNumber = parseInt(numberMatch[1]);
-            callLogger.info('PEOPLE_EXTRACTED_REGEX', { number: regexNumber });
+            // People extracted via regex - no log necesario
             peopleAnalysis.comensales = regexNumber.toString();
             peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
           } else {
@@ -4238,7 +4140,7 @@ async function processConversationStep(state, userInput, callLogger, performance
             const numberMatch2 = userInput.match(/(?:para|de|con|son|y para|y|otras|otros|además)\s+(\d+)/i);
             if (numberMatch2) {
               const regexNumber2 = parseInt(numberMatch2[1]);
-              callLogger.info('PEOPLE_EXTRACTED_REGEX2', { number: regexNumber2 });
+              // People extracted via regex2 - no log necesario
               peopleAnalysis.comensales = regexNumber2.toString();
               peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
             } else {
@@ -4260,7 +4162,7 @@ async function processConversationStep(state, userInput, callLogger, performance
               }
               
               if (foundWordNumber) {
-                callLogger.info('PEOPLE_EXTRACTED_WORD', { number: foundWordNumber });
+                // People extracted via word - no log necesario
                 peopleAnalysis.comensales = foundWordNumber.toString();
                 peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
               } else {
@@ -4270,7 +4172,7 @@ async function processConversationStep(state, userInput, callLogger, performance
                   const anyNumber = parseInt(anyNumberMatch[1]);
                   // Validar que sea un número razonable (1-20)
                   if (anyNumber >= 1 && anyNumber <= 20) {
-                    callLogger.info('PEOPLE_EXTRACTED_ANY_NUMBER', { number: anyNumber });
+                    // People extracted via any number - no log necesario
                     peopleAnalysis.comensales = anyNumber.toString();
                     peopleAnalysis.comensales_porcentaje_credivilidad = '90%';
                   }
@@ -4278,7 +4180,7 @@ async function processConversationStep(state, userInput, callLogger, performance
                   // Último intento: usar extractPeopleCount (limitado a 1-20)
                   const extractedNumber = extractPeopleCount(userInput);
                   if (extractedNumber && extractedNumber > 0) {
-                    callLogger.info('PEOPLE_EXTRACTED_EXTRACT_FUNCTION', { number: extractedNumber });
+                    // People extracted via extract function - no log necesario
                     peopleAnalysis.comensales = extractedNumber.toString();
                     peopleAnalysis.comensales_porcentaje_credivilidad = '100%';
                   }
@@ -6291,7 +6193,7 @@ async function saveReservation(state, performanceMetrics = null) {
       advertencias: validacionCompleta.advertencias || [],
       reasoning: `Validación completa completada en ${validationTime}ms. Válida: ${validacionCompleta.valida}`
     });
-    logger.debug('VALIDATION_COMPLETED', { timeMs: validationTime });
+    // Validation completed - no log necesario
     
     if (!validacionCompleta.valido) {
       logger.error('Validación completa fallida', { errores: validacionCompleta.errores });
@@ -6349,7 +6251,7 @@ async function saveReservation(state, performanceMetrics = null) {
     // Conectar a base de datos
     const connection = await createConnection();
     const connectionTime = Date.now() - dbStartTime;
-    logger.debug('DB_CONNECTION_ESTABLISHED', { timeMs: connectionTime });
+    // DB connection established - no log necesario
     if (performanceMetrics) {
       performanceMetrics.dbTime += connectionTime;
     }
@@ -6418,12 +6320,8 @@ async function saveReservation(state, performanceMetrics = null) {
       }
       
       const totalSaveTime = Date.now() - saveStartTime;
-      logger.info('RESERVATION_SAVE_SUCCESS', { 
-        idReserva, 
-        totalTimeMs: totalSaveTime,
-        dbTimeMs: performanceMetrics ? performanceMetrics.dbTime : 0,
-        validationTimeMs: validationTime
-      });
+      // Reservation saved - no log necesario (ya está en PERF_METRICS)
+      // Reservation saved - no log necesario (ya está en PERF_METRICS)
       
       return true;
 
