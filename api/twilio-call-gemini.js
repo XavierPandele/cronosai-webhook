@@ -823,8 +823,7 @@ module.exports = async function handler(req, res) {
     logger.debug('CONFIG_LOADED_FROM_DB', { timeMs: configLoadTime });
   }
   
-  // LOGGING MEJORADO: Loggear al inicio para debugging
-  console.log(`[WEBHOOK] ${req.method} ${req.url}`);
+  // LOGGING MEJORADO: Loggear al inicio para debugging (compacto)
   logger.info('TWILIO_WEBHOOK_RECEIVED', {
     method: req.method,
     url: req.url,
@@ -1091,8 +1090,7 @@ module.exports = async function handler(req, res) {
 
     // Procesar según el paso actual
     const inputPreview = userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty';
-    console.log(`[BEFORE] step=${state.step} input="${inputPreview}"`);
-    callLogger.info(`[BEFORE] step=${state.step} input="${inputPreview}"`);
+    callLogger.info('STEP_BEFORE', { step: state.step, input: inputPreview });
     const previousStep = state.step;
     
     // PERFORMANCE: Pasar métricas al proceso de conversación
@@ -1101,12 +1099,14 @@ module.exports = async function handler(req, res) {
     try {
       response = await processConversationStep(state, userInput, callLogger, performanceMetrics, isProcessing);
     } catch (stepError) {
-      // LOGGING CRÍTICO: Capturar errores en processConversationStep
+      // LOGGING CRÍTICO: Capturar errores en processConversationStep (compacto)
       const errorInput = userInput ? (userInput.length > 50 ? userInput.substring(0, 50) + '...' : userInput) : 'empty';
-      console.error(`[ERROR] step=${state.step} input="${errorInput}" error=${stepError.name}: ${stepError.message}`);
-      callLogger.error(`[ERROR] step=${state.step} input="${errorInput}" error=${stepError.name}: ${stepError.message}`, {
-        stack: stepError.stack,
-        stateData: state.data,
+      callLogger.error('STEP_ERROR', {
+        step: state.step,
+        input: errorInput,
+        errorName: stepError.name,
+        errorMessage: stepError.message,
+        stack: stepError.stack?.substring(0, 200),
         previousStep
       });
       
@@ -1116,12 +1116,11 @@ module.exports = async function handler(req, res) {
     performanceMetrics.processStepTime = processStepTime;
     
     if (previousStep !== state.step) {
-      callLogger.info(`[TRANSITION] ${previousStep} → ${state.step} (${processStepTime}ms)`);
+      callLogger.info('STEP_TRANSITION', { from: previousStep, to: state.step, timeMs: processStepTime });
       callLogger.update({ step: state.step });
     }
     const responsePreview = response.message ? (response.message.length > 60 ? response.message.substring(0, 60) + '...' : response.message) : 'null';
-    console.log(`[AFTER] step=${state.step} time=${processStepTime}ms response="${responsePreview}"`);
-    callLogger.info(`[AFTER] step=${state.step} time=${processStepTime}ms response="${responsePreview}"`);
+    callLogger.info('STEP_AFTER', { step: state.step, timeMs: processStepTime, response: responsePreview });
     
     // Guardar el mensaje del bot
     state.conversationHistory.push({
@@ -1150,7 +1149,7 @@ module.exports = async function handler(req, res) {
         // Usar Promise.race para timeout de 500ms máximo
         await Promise.race([
           saveCallState(CallSid, state),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('State save timeout')), 500))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SYNC_SAVE_TIMEOUT')), 500))
         ]);
         performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
         callLogger.info('STATE_SAVED_SYNC', { 
@@ -1160,10 +1159,12 @@ module.exports = async function handler(req, res) {
         });
       } catch (error) {
         performanceMetrics.stateSaveTime = Date.now() - stateSaveStartTime;
+        const isTimeout = error.message.includes('TIMEOUT') || error.code === 'ETIMEDOUT';
         callLogger.warn('STATE_SAVE_TIMEOUT_OR_FAILED', { 
-          error: error.message,
+          error: error.message || error.code,
           step: state.step,
-          timeMs: performanceMetrics.stateSaveTime
+          timeMs: performanceMetrics.stateSaveTime,
+          timeout: isTimeout
         });
         // Continuar - el estado está en memoria y se guardará asíncronamente
       }
@@ -1174,11 +1175,15 @@ module.exports = async function handler(req, res) {
     setImmediate(() => {
       Promise.race([
         saveCallState(CallSid, state),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Async save timeout')), 2000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_ASYNC_SAVE_TIMEOUT')), 2000))
       ]).catch(err => {
         // Solo loggear si no es timeout (los timeouts son esperados cuando BD está lenta)
-        if (!err.message.includes('timeout')) {
-          callLogger.warn(`[STATE] async save failed: ${err.message}`);
+        const isTimeout = err.message.includes('timeout') || err.message.includes('TIMEOUT') || err.code === 'ETIMEDOUT';
+        if (!isTimeout) {
+          callLogger.warn('STATE_ASYNC_SAVE_FAILED', {
+            error: err.message || err.code,
+            callSid: CallSid?.substring(0, 20)
+          });
         }
         // Continuar - el estado está en memoria y funcionará correctamente
       });
@@ -1274,11 +1279,17 @@ module.exports = async function handler(req, res) {
     // Generar TwiML response (pasar step actual para evitar interjecciones en greeting)
     const twiml = generateTwiML(response, state.language, null, baseUrl, state.step);
     
-    // PERFORMANCE: Calcular tiempo total y loggear métricas
+    // PERFORMANCE: Calcular tiempo total y loggear métricas (compacto)
     performanceMetrics.totalTime = Date.now() - requestStartTime;
     
     const perf = performanceMetrics;
-    callLogger.info(`[PERF] total=${perf.totalTime}ms gemini=${perf.geminiTime}ms step=${perf.processStepTime || 0}ms db=${perf.dbTime || 0}ms config=${perf.configLoadTime}ms`);
+    callLogger.info('PERF_METRICS', {
+      totalMs: perf.totalTime,
+      geminiMs: perf.geminiTime,
+      stepMs: perf.processStepTime || 0,
+      dbMs: perf.dbTime || 0,
+      configMs: perf.configLoadTime
+    });
     
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
@@ -1287,20 +1298,7 @@ module.exports = async function handler(req, res) {
     // PERFORMANCE: Loggear tiempo total incluso en caso de error
     const errorTotalTime = Date.now() - requestStartTime;
     
-    // LOGGING CRÍTICO: Loggear TODA la información del error para debugging
-    // IMPORTANTE: Usar console.error PRIMERO para asegurar visibilidad en Vercel
-    console.error('========================================');
-    console.error('❌ [ERROR CRÍTICO] APPLICATION ERROR EN TWILIO HANDLER');
-    console.error('========================================');
-    console.error(`⏱️  Tiempo total: ${errorTotalTime}ms`);
-    console.error(`📞 CallSid: ${CallSid || 'unknown'}`);
-    console.error(`🔴 Error: ${error.name || 'UnknownError'}`);
-    console.error(`📝 Mensaje: ${error.message}`);
-    console.error(`📍 URL: ${req.method} ${req.url}`);
-    console.error(`📦 Body type: ${typeof req.body}`);
-    console.error(`📋 Body keys: ${req.body && typeof req.body === 'object' ? Object.keys(req.body).join(', ') : 'N/A'}`);
-    console.error(`🔍 Query keys: ${req.query ? Object.keys(req.query).join(', ') : 'N/A'}`);
-    
+    // LOGGING CRÍTICO: Loggear TODA la información del error para debugging (compacto)
     // Intentar extraer userInput si está disponible
     let userInputPreview = 'N/A';
     try {
@@ -1311,12 +1309,25 @@ module.exports = async function handler(req, res) {
     } catch (e) {
       // Ignorar errores al extraer userInput
     }
-    console.error(`💬 User input: ${userInputPreview}`);
     
-    // Stack trace completo
-    console.error('📚 Stack trace:');
-    console.error(error.stack);
-    console.error('========================================');
+    // Log compacto de error crítico
+    const criticalErrorLog = {
+      ts: new Date().toISOString(),
+      level: 'ERROR',
+      msg: 'CRITICAL_HANDLER_ERROR',
+      totalTimeMs: errorTotalTime,
+      callSid: CallSid || 'unknown',
+      errorName: error.name || 'UnknownError',
+      errorMessage: error.message,
+      method: req.method,
+      url: req.url,
+      bodyType: typeof req.body,
+      bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body).join(',') : 'N/A',
+      queryKeys: req.query ? Object.keys(req.query).join(',') : 'N/A',
+      userInput: userInputPreview,
+      stack: error.stack?.substring(0, 500)
+    };
+    console.error(JSON.stringify(criticalErrorLog));
     
     const errorContext = {
       message: error.message,
@@ -1349,11 +1360,8 @@ module.exports = async function handler(req, res) {
         : error.response.data;
     }
     
-    // Loggear con logger estructurado también
+    // Loggear con logger estructurado (ya está en formato compacto)
     logger.error('TWILIO_CALL_HANDLER_ERROR', errorContext);
-    
-    // Loggear también con console.error en formato JSON para búsqueda
-    console.error('[ERROR_JSON]', JSON.stringify(errorContext, null, 2));
     
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -1816,7 +1824,7 @@ NOTA SOBRE VALIDACIONES:
         : error.response.data;
     }
     
-    console.error('❌ [ERROR] GEMINI_ANALYSIS_ERROR:', JSON.stringify(errorInfo, null, 2));
+    // Log compacto de error de Gemini (ya formateado por logger)
     geminiLogger.error('GEMINI_ANALYSIS_ERROR', errorInfo);
     
     if (context.performanceMetrics) {
@@ -3323,9 +3331,12 @@ async function handleOrderConfirm(state, userInput, callLogger) {
 }
 
 async function processConversationStep(state, userInput, callLogger, performanceMetrics = null, isProcessing = false) {
-  // LOGGING: Loggear entrada a processConversationStep
+  // LOGGING: Loggear entrada a processConversationStep (compacto)
   const stepStartTime = Date.now();
-  console.log(`[PROCESS_CONVERSATION_STEP_START] Step: ${state.step}, Input: "${userInput ? userInput.substring(0, 100) : 'empty'}", Processing: ${isProcessing}`);
+  const inputPreview = userInput ? (userInput.length > 100 ? userInput.substring(0, 100) + '...' : userInput) : 'empty';
+  if (callLogger) {
+    callLogger.info('PROCESS_STEP_START', { step: state.step, input: inputPreview, processing: isProcessing });
+  }
   
   const step = state.step;
   const text = userInput.toLowerCase();
@@ -4360,8 +4371,31 @@ async function processConversationStep(state, userInput, callLogger, performance
        }
 
     case 'ask_date':
-      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
-      // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_date'
+      // MEJORADO: Verificar PRIMERO si ya tenemos fecha (puede venir de análisis previo)
+      if (state.data.FechaReserva && !userInput) {
+        // Ya tenemos fecha, verificar qué falta y avanzar
+        const missing = determineMissingFields(null, state.data);
+        if (missing.length === 0) {
+          if (!state.data.TelefonReserva) {
+            state.data.TelefonReserva = state.phone;
+          }
+          state.step = 'confirm';
+          return {
+            message: getConfirmationMessage(state.data, state.language),
+            gather: true
+          };
+        }
+        const nextField = missing[0];
+        if (nextField === 'people') state.step = 'ask_people';
+        else if (nextField === 'time') state.step = 'ask_time';
+        else if (nextField === 'name') state.step = 'ask_name';
+        return {
+          message: getPartialConfirmationMessage(state.data, nextField, state.language),
+          gather: true
+        };
+      }
+      
+      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo
       if (!geminiAnalysis && userInput && userInput.trim()) {
         geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
@@ -4373,26 +4407,23 @@ async function processConversationStep(state, userInput, callLogger, performance
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
       }
        
-       if (state.data.FechaReserva) {
-         // Determinar siguiente paso según qué falta
-         const missing = determineMissingFields(null, state.data);
-         
-         if (missing.length === 0) {
-           // Tiene todo, asegurar teléfono y ir a confirmación
-           if (!state.data.TelefonReserva) {
-             state.data.TelefonReserva = state.phone;
-           }
-           state.step = 'confirm';
-           const confirmMessage = getConfirmationMessage(state.data, state.language);
-           return {
-             message: confirmMessage,
-             gather: true
-           };
+       // Después de aplicar Gemini, verificar qué tenemos y qué falta
+       const missing = determineMissingFields(null, state.data);
+       
+       if (missing.length === 0) {
+         if (!state.data.TelefonReserva) {
+           state.data.TelefonReserva = state.phone;
          }
-         
+         state.step = 'confirm';
+         return {
+           message: getConfirmationMessage(state.data, state.language),
+           gather: true
+         };
+       }
+       
+       // Si tenemos fecha pero falta otra cosa, avanzar a lo que falta
+       if (state.data.FechaReserva) {
          const nextField = missing[0];
-         
-         // Actualizar el paso según el siguiente campo faltante
          if (nextField === 'people') {
            state.step = 'ask_people';
          } else if (nextField === 'time') {
@@ -4400,8 +4431,6 @@ async function processConversationStep(state, userInput, callLogger, performance
          } else if (nextField === 'name') {
            state.step = 'ask_name';
          }
-         
-         // Usar confirmación parcial para mostrar todo lo capturado y preguntar por lo faltante
          try {
            const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
            return {
@@ -4409,8 +4438,7 @@ async function processConversationStep(state, userInput, callLogger, performance
              gather: true
            };
          } catch (error) {
-           console.error('❌ [ERROR] Error generando mensaje parcial en ask_date:', error);
-           // Fallback: usar mensaje simple
+           callLogger.error('PARTIAL_CONFIRMATION_ERROR', { error: error.message, nextField });
            const date = state.data.FechaReserva;
            const dateMessages = getMultilingualMessages('date', state.language, { date });
            return {
@@ -4428,10 +4456,33 @@ async function processConversationStep(state, userInput, callLogger, performance
        }
 
     case 'ask_time':
+      // MEJORADO: Verificar PRIMERO si ya tenemos hora (puede venir de análisis previo)
+      if (state.data.HoraReserva && !userInput) {
+        // Ya tenemos hora, verificar qué falta y avanzar
+        const missing = determineMissingFields(null, state.data);
+        if (missing.length === 0) {
+          if (!state.data.TelefonReserva) {
+            state.data.TelefonReserva = state.phone;
+          }
+          state.step = 'confirm';
+          return {
+            message: getConfirmationMessage(state.data, state.language),
+            gather: true
+          };
+        }
+        const nextField = missing[0];
+        if (nextField === 'people') state.step = 'ask_people';
+        else if (nextField === 'date') state.step = 'ask_date';
+        else if (nextField === 'name') state.step = 'ask_name';
+        return {
+          message: getPartialConfirmationMessage(state.data, nextField, state.language),
+          gather: true
+        };
+      }
+      
       // Detectar respuestas parciales como "a las" sin hora completa
       const partialTimePatterns = /^a\s+las?$/i;
       if (partialTimePatterns.test(userInput.trim())) {
-        // Es una respuesta parcial, pedir que complete
         const errorResponse = handleUnclearResponse(text, 'time', state.language);
         return {
           message: errorResponse,
@@ -4439,8 +4490,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         };
       }
       
-      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
-      // El análisis ya se hizo arriba en la verificación de cancelación si step === 'ask_time'
+      // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo
       if (!geminiAnalysis && userInput && userInput.trim()) {
         geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
@@ -4449,10 +4499,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         });
       }
       if (geminiAnalysis) {
-        // Si Gemini detecta "clarify" pero estamos en ask_time, no es un error real
-        // simplemente no pudo extraer la hora, pero seguimos en el mismo paso
         if (geminiAnalysis.intencion === 'clarify' && !geminiAnalysis.hora) {
-          // No hay hora detectada, pedir que repita
           const errorResponse = handleUnclearResponse(text, 'time', state.language);
           return {
             message: errorResponse,
@@ -4465,7 +4512,6 @@ async function processConversationStep(state, userInput, callLogger, performance
        // Verificar si hay error de horario (validado por Gemini)
        if (state.data.horaError === 'fuera_horario') {
          const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
-         // Limpiar el error y la hora para que el usuario pueda proporcionar otra
          delete state.data.HoraReserva;
          delete state.data.horaError;
          return {
@@ -4474,32 +4520,30 @@ async function processConversationStep(state, userInput, callLogger, performance
          };
        }
        
-       if (state.data.HoraReserva) {
-         // Determinar siguiente paso según qué falta
-         const missing = determineMissingFields(null, state.data);
-         
-         if (missing.length === 0) {
-           // Tiene todo, asegurar teléfono y ir a confirmación
-           if (!state.data.TelefonReserva) {
-             state.data.TelefonReserva = state.phone;
-           }
-           state.step = 'confirm';
-           const confirmMessage = getConfirmationMessage(state.data, state.language);
-           return {
-             message: confirmMessage,
-             gather: true
-           };
+       // Después de aplicar Gemini, verificar qué tenemos y qué falta
+       const missing = determineMissingFields(null, state.data);
+       
+       if (missing.length === 0) {
+         if (!state.data.TelefonReserva) {
+           state.data.TelefonReserva = state.phone;
          }
-         
+         state.step = 'confirm';
+         return {
+           message: getConfirmationMessage(state.data, state.language),
+           gather: true
+         };
+       }
+       
+       // Si tenemos hora pero falta otra cosa, avanzar a lo que falta
+       if (state.data.HoraReserva) {
          const nextField = missing[0];
-         
-         if (nextField === 'name') {
-           state.step = 'ask_name';
+         if (nextField === 'people') {
+           state.step = 'ask_people';
          } else if (nextField === 'date') {
            state.step = 'ask_date';
+         } else if (nextField === 'name') {
+           state.step = 'ask_name';
          }
-         
-         // Usar confirmación parcial para mostrar todo lo capturado y preguntar por lo faltante
          try {
            const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
            return {
@@ -4507,8 +4551,7 @@ async function processConversationStep(state, userInput, callLogger, performance
              gather: true
            };
          } catch (error) {
-           console.error('❌ [ERROR] Error generando mensaje parcial en ask_time:', error);
-           // Fallback: usar mensaje simple
+           callLogger.error('PARTIAL_CONFIRMATION_ERROR', { error: error.message, nextField });
            const time = state.data.HoraReserva;
            const timeMessages = getMultilingualMessages('time', state.language, { time });
            return {
@@ -4517,6 +4560,7 @@ async function processConversationStep(state, userInput, callLogger, performance
            };
          }
        } else {
+         // No tenemos hora, pedirla
          const errorResponse = handleUnclearResponse(text, 'time', state.language);
          return {
            message: errorResponse,
