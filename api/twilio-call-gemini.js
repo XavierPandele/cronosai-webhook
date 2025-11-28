@@ -4370,7 +4370,7 @@ async function processConversationStep(state, userInput, callLogger, performance
          }
        }
 
-    case 'ask_date':
+    case 'ask_date': {
       // MEJORADO: Verificar PRIMERO si ya tenemos fecha (puede venir de análisis previo)
       if (state.data.FechaReserva && !userInput) {
         // Ya tenemos fecha, verificar qué falta y avanzar
@@ -4454,8 +4454,9 @@ async function processConversationStep(state, userInput, callLogger, performance
            gather: true
          };
        }
+    }
 
-    case 'ask_time':
+    case 'ask_time': {
       // MEJORADO: Verificar PRIMERO si ya tenemos hora (puede venir de análisis previo)
       if (state.data.HoraReserva && !userInput) {
         // Ya tenemos hora, verificar qué falta y avanzar
@@ -4567,6 +4568,7 @@ async function processConversationStep(state, userInput, callLogger, performance
            gather: true
          };
        }
+    }
 
     case 'ask_name':
       // OPTIMIZACIÓN: Reutilizar análisis de Gemini si ya se hizo (evita llamadas duplicadas)
@@ -6097,9 +6099,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
       const hints = speechHints[language] || speechHints.es;
 
-      // Configuración optimizada para máxima velocidad y menos webhooks vacíos:
-      // - speechTimeout="1": muy rápido, suficiente para pausas cortas (reducido para evitar webhooks vacíos)
-      // - timeout="3": tiempo total muy corto para evitar esperas largas y webhooks repetidos
+      // Configuración optimizada para dar tiempo a pensar sin afectar velocidad de respuesta:
+      // - speechTimeout="4": permite pausas para pensar (si el usuario habla, procesa inmediatamente)
+      // - timeout="15": tiempo total generoso para usuarios que necesitan pensar
+      // - IMPORTANTE: Si el usuario habla, Twilio procesa INMEDIATAMENTE (no espera estos timeouts)
       // - hints: palabras clave del dominio mejoran el reconocimiento
       // - partialResultCallback: procesa resultados parciales para mejor experiencia
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
@@ -6111,8 +6114,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="1"
-    timeout="3"
+    speechTimeout="4"
+    timeout="15"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
@@ -6215,8 +6218,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="1"
-    timeout="3"
+    speechTimeout="4"
+    timeout="15"
     hints="${hints}"
     partialResultCallback="/api/twilio-call-gemini"
     partialResultCallbackMethod="POST"
