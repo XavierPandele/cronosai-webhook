@@ -3659,7 +3659,7 @@ async function processConversationStep(state, userInput, callLogger, performance
             // Aplicar los datos extraídos al estado
             const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
             // Guardar estado en memoria después de aplicar análisis
-            conversationStates.set(CallSid, state);
+            conversationStates.set(state.callSid, state);
             
             // Si hay error de validación (ej: demasiadas personas), manejar
             if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -3910,7 +3910,7 @@ async function processConversationStep(state, userInput, callLogger, performance
             // Aplicar análisis de Gemini al estado
             const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
             // Guardar estado en memoria después de aplicar análisis
-            conversationStates.set(CallSid, state);
+            conversationStates.set(state.callSid, state);
             
             // Si hay error de validación (ej: demasiadas personas), manejar
             if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -4214,7 +4214,7 @@ async function processConversationStep(state, userInput, callLogger, performance
          
         const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
          
          // Si hay error de validación (ej: demasiadas personas), mostrar mensaje
          if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -4336,7 +4336,7 @@ async function processConversationStep(state, userInput, callLogger, performance
       if (geminiAnalysis) {
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
       }
        
        // Después de aplicar Gemini, verificar qué tenemos y qué falta
@@ -4442,7 +4442,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         }
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
       }
        
        // Verificar si hay error de horario (validado por Gemini)
@@ -4524,7 +4524,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         // porque en el paso ask_name, cualquier nombre extraído debe aplicarse
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
       }
        
        // MEJORADO: Verificar si el usuario dijo "a nombre de" sin completar
@@ -4652,7 +4652,7 @@ async function processConversationStep(state, userInput, callLogger, performance
           userInput
         );
         // Guardar estado en memoria después de aplicar análisis
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
         
         // Limpiar datos pendientes
         delete state.pendingClarifyData;
