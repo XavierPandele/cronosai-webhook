@@ -8,7 +8,7 @@ const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservat
 const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
 const logger = require('../lib/logging');
 const { sendReservationConfirmationRcs, sendOrderConfirmationRcs } = require('../lib/rcs');
-const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
+const { deleteCallState } = require('../lib/state-manager');
 
 // NOTA: Circuit Breaker removido - causaba problemas en Vercel/serverless
 // Se usa retryWithBackoff directamente que es más simple y confiable
@@ -874,33 +874,12 @@ module.exports = async function handler(req, res) {
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
 
-    // OPTIMIZACIÓN: Usar memoria primero (más rápido), pero cargar desde BD si no está en memoria
-    // Esto es crítico en entornos serverless donde la memoria se pierde entre invocaciones
+    // OPTIMIZACIÓN: Usar solo memoria para el estado durante la conversación
+    // NO usamos BD durante la conversación para evitar timeouts y problemas de conexión
+    // El estado se construye en memoria y solo se persiste cuando la reserva está completa
     let state = conversationStates.get(CallSid);
     
-    // Si no hay estado en memoria, intentar cargar desde BD
-    if (!state) {
-      try {
-        const dbState = await loadCallState(CallSid);
-        if (dbState) {
-          state = dbState;
-          // Restaurar en memoria para futuras requests
-          conversationStates.set(CallSid, state);
-          callLogger.debug('STATE_LOADED_FROM_DB', {
-            step: state.step,
-            hasData: !!state.data && Object.keys(state.data).length > 0,
-            reasoning: 'Estado cargado desde BD porque no estaba en memoria (serverless)'
-          });
-        }
-      } catch (error) {
-        callLogger.warn('STATE_LOAD_FROM_DB_FAILED', {
-          error: error.message,
-          reasoning: 'Error al cargar estado desde BD. Creando estado nuevo.'
-        });
-      }
-    }
-    
-    // Si aún no hay estado (no estaba en memoria ni en BD), crear uno nuevo
+    // Si no hay estado en memoria, crear uno nuevo
     if (!state) {
       state = {
         step: 'greeting',
@@ -1054,20 +1033,10 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para conversaciones en tiempo real
+    // OPTIMIZACIÓN: Actualizar estado en memoria únicamente
+    // NO guardamos en BD durante la conversación para evitar timeouts y problemas de conexión
+    // El estado se construye en memoria y solo se persiste cuando la reserva está completa
     conversationStates.set(CallSid, state);
-    
-    // Guardar estado en BD al final del request (una sola vez, de forma simple)
-    // Se guarda asíncronamente para no bloquear la respuesta
-    // ON DUPLICATE KEY UPDATE asegura que se actualice el mismo registro, no se crean duplicados
-    setImmediate(async () => {
-      try {
-        await saveCallState(CallSid, state);
-      } catch (error) {
-        // Error silencioso - el estado está en memoria y se intentará guardar en la próxima request
-        // No loggear para evitar ruido en logs
-      }
-    });
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -1388,6 +1357,25 @@ Tu objetivo es analizar UNA SOLA frase del cliente y extraer TODO lo que puedas 
 - Fecha de mañana: ${tomorrow}
 - Fecha de pasado mañana: ${dayAfterTomorrow}
 
+## DATOS YA RECOPILADOS EN ESTA CONVERSACIÓN
+${context.state?.data && Object.keys(context.state.data).length > 0 ? `
+- Personas: ${context.state.data.NumeroReserva || 'No especificado'}
+- Fecha: ${context.state.data.FechaReserva || 'No especificado'}
+- Hora: ${context.state.data.HoraReserva || 'No especificado'}
+- Nombre: ${context.state.data.NomReserva || 'No especificado'}
+- Teléfono: ${context.state.data.TelefonReserva || context.state?.phone || 'No especificado'}
+- Paso actual: ${context.state?.step || context.step || 'unknown'}
+` : '- Esta es la primera interacción. No hay datos previos recopilados.'}
+
+## HISTORIAL DE CONVERSACIÓN (ÚLTIMOS MENSAJES)
+${context.state?.conversationHistory && context.state.conversationHistory.length > 0 ? 
+  context.state.conversationHistory.slice(-8).map((entry, idx) => {
+    const role = entry.role === 'user' ? '👤 Cliente' : '🤖 Bot';
+    const message = entry.message.length > 200 ? entry.message.substring(0, 200) + '...' : entry.message;
+    return `${idx + 1}. ${role}: "${message}"`;
+  }).join('\n') 
+  : '- No hay historial previo (primera interacción)'}
+
 ## CONFIGURACIÓN DEL RESTAURANTE
 - Máximo de personas por reserva: ${restaurantConfig.maxPersonasMesa}
 - Mínimo de personas por reserva: ${restaurantConfig.minPersonas}
@@ -1405,7 +1393,15 @@ ${menuStr}
 1. NO INVENTES información. Si no está en el texto, devuelve null.
 2. Si NO estás seguro, usa porcentaje de credibilidad bajo (0% o 50%).
 3. Si estás muy seguro, usa 100%.
-4. VALIDA contra las restricciones del restaurante:
+4. **USO DEL CONTEXTO Y HISTORIAL (MUY IMPORTANTE)**:
+   - Si un dato YA está recopilado arriba, NO lo extraigas de nuevo a menos que el usuario lo MODIFIQUE explícitamente.
+   - Si el usuario dice algo que CONTRADICE un dato ya recopilado, marca la intención como "modify" y extrae el nuevo valor.
+   - Usa el historial para entender el contexto. Por ejemplo:
+     * Si el bot preguntó "¿Para cuántas personas?" y el usuario responde "2", entonces extrae comensales: 2
+     * Si el usuario dijo "mañana" antes y ahora dice "a las 7", entiende que se refiere a la misma fecha
+   - Si detectas que el usuario está REPITIENDO información ya mencionada en el historial, puedes aumentar la credibilidad al 100% porque ya se confirmó antes.
+   - Si el usuario menciona información que YA está en los datos recopilados, NO la extraigas de nuevo (devuelve null para ese campo).
+5. VALIDA contra las restricciones del restaurante:
    - Si el número de comensales es mayor a ${restaurantConfig.maxPersonasMesa}, marca "comensales_validos": "false" y "comensales_error": "max_exceeded"
    - Si el número de comensales es menor a ${restaurantConfig.minPersonas}, marca "comensales_validos": "false" y "comensales_error": "min_not_met"
    - VALIDACIÓN DE HORA (MUY IMPORTANTE): 
@@ -2984,6 +2980,7 @@ async function handleOrderCollectItems(state, userInput, callLogger, performance
   const analysis = await analyzeReservationWithGemini(userInput, { 
     callSid: state.callSid, 
     step: state.step,
+    state: state,  // Pasar estado completo para incluir historial y datos recopilados
     performanceMetrics: performanceMetrics
   });
   await updateOrderStateFromAnalysis(state, analysis || {}, userInput, callLogger);
@@ -3074,6 +3071,7 @@ async function handleOrderNotesStep(state, userInput, callLogger) {
       const analysis = await analyzeReservationWithGemini(userInput, {
         callSid: state.callSid,
         step: 'order_ask_notes',
+        state: state,  // Pasar estado completo para incluir historial y datos recopilados
         performanceMetrics: null
       });
       
@@ -3300,6 +3298,7 @@ async function processConversationStep(state, userInput, callLogger, performance
       geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
         callSid: state.callSid, 
         step: state.step,
+        state: state,  // Pasar estado completo para incluir historial y datos recopilados
         performanceMetrics: performanceMetrics
       });
       const analysisTime = Date.now() - analysisStartTime;
@@ -3568,6 +3567,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         const analysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
           step: state.step,
+          state: state,  // Pasar estado completo para incluir historial y datos recopilados
           performanceMetrics: performanceMetrics
         });
         
@@ -3811,6 +3811,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         const analysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
           step: state.step,
+          state: state,  // Pasar estado completo para incluir historial y datos recopilados
           performanceMetrics: performanceMetrics
         });
         
@@ -4081,6 +4082,7 @@ async function processConversationStep(state, userInput, callLogger, performance
       const peopleAnalysis = await analyzeReservationWithGemini(userInput, { 
         callSid: state.callSid, 
         step: state.step,
+        state: state,  // Pasar estado completo para incluir historial y datos recopilados
         performanceMetrics: performanceMetrics
       });
       if (peopleAnalysis) {
@@ -4266,6 +4268,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
           step: state.step,
+          state: state,  // Pasar estado completo para incluir historial y datos recopilados
           performanceMetrics: performanceMetrics
         });
       }
@@ -4362,6 +4365,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
           step: state.step,
+          state: state,  // Pasar estado completo para incluir historial y datos recopilados
           performanceMetrics: performanceMetrics
         });
       }
@@ -4443,6 +4447,7 @@ async function processConversationStep(state, userInput, callLogger, performance
         geminiAnalysis = await analyzeReservationWithGemini(userInput, { 
           callSid: state.callSid, 
           step: state.step,
+          state: state,  // Pasar estado completo para incluir historial y datos recopilados
           performanceMetrics: performanceMetrics
         });
       }
