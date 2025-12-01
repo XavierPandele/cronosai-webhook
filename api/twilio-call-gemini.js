@@ -874,11 +874,33 @@ module.exports = async function handler(req, res) {
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
 
-    // OPTIMIZACIÓN: Usar solo memoria para conversaciones en tiempo real (más rápido y confiable)
-    // La BD es lenta y falla frecuentemente - la memoria es suficiente para conversaciones activas
+    // OPTIMIZACIÓN: Usar memoria primero (más rápido), pero cargar desde BD si no está en memoria
+    // Esto es crítico en entornos serverless donde la memoria se pierde entre invocaciones
     let state = conversationStates.get(CallSid);
     
-    // Si no hay estado en memoria, crear uno nuevo
+    // Si no hay estado en memoria, intentar cargar desde BD
+    if (!state) {
+      try {
+        const dbState = await loadCallState(CallSid);
+        if (dbState) {
+          state = dbState;
+          // Restaurar en memoria para futuras requests
+          conversationStates.set(CallSid, state);
+          callLogger.debug('STATE_LOADED_FROM_DB', {
+            step: state.step,
+            hasData: !!state.data && Object.keys(state.data).length > 0,
+            reasoning: 'Estado cargado desde BD porque no estaba en memoria (serverless)'
+          });
+        }
+      } catch (error) {
+        callLogger.warn('STATE_LOAD_FROM_DB_FAILED', {
+          error: error.message,
+          reasoning: 'Error al cargar estado desde BD. Creando estado nuevo.'
+        });
+      }
+    }
+    
+    // Si aún no hay estado (no estaba en memoria ni en BD), crear uno nuevo
     if (!state) {
       state = {
         step: 'greeting',
@@ -1035,20 +1057,25 @@ module.exports = async function handler(req, res) {
     // OPTIMIZACIÓN: Actualizar estado en memoria (inmediato) - esto es suficiente para conversaciones en tiempo real
     conversationStates.set(CallSid, state);
     
-    // Guardado en BD completamente asíncrono y no bloqueante
-    // Solo guardar en pasos críticos (complete) para persistencia a largo plazo
-    // La memoria es suficiente para la conversación en tiempo real
-    if (state.step === 'complete') {
-      // Guardar asíncronamente en background con timeout muy corto (no bloquea)
-      setImmediate(() => {
-        Promise.race([
-          saveCallState(CallSid, state),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SAVE_TIMEOUT')), 1000))
-        ]).catch(() => {
-          // Error silencioso - el estado está en memoria y la reserva ya se guardó
-        });
+    // CRÍTICO: Guardar estado en BD después de cada modificación importante
+    // Esto previene pérdida de datos en entornos serverless donde la memoria se pierde entre invocaciones
+    // Guardar asíncronamente en background con timeout (no bloquea la respuesta)
+    setImmediate(() => {
+      Promise.race([
+        saveCallState(CallSid, state),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SAVE_TIMEOUT')), 2000))
+      ]).catch((error) => {
+        // Error silencioso - el estado está en memoria y se intentará guardar en la próxima request
+        // Solo loggear si es un error inesperado (no timeout)
+        if (error.message !== 'STATE_SAVE_TIMEOUT') {
+          callLogger.debug('STATE_SAVE_FAILED', {
+            error: error.message,
+            step: state.step,
+            reasoning: 'Error al guardar estado. Se reintentará en próxima request.'
+          });
+        }
       });
-    }
+    });
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -2341,6 +2368,31 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       NomReserva: stateBefore.NomReserva !== stateAfter.NomReserva
     }
   });
+  
+  // CRÍTICO: Guardar estado en BD después de aplicar cambios
+  // Esto previene pérdida de datos en entornos serverless donde la memoria se pierde
+  if (state.callSid) {
+    try {
+      // Guardar asíncronamente para no bloquear la respuesta
+      setImmediate(() => {
+        Promise.race([
+          saveCallState(state.callSid, state),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('STATE_SAVE_TIMEOUT')), 2000))
+        ]).catch((error) => {
+          // Error silencioso - el estado está en memoria y se intentará guardar en la próxima request
+          log.debug('STATE_SAVE_AFTER_APPLY_FAILED', {
+            error: error.message,
+            reasoning: 'Error al guardar estado después de aplicar análisis. Se reintentará en próxima request.'
+          });
+        });
+      });
+    } catch (error) {
+      // Error al iniciar guardado asíncrono - no crítico
+      log.debug('STATE_SAVE_AFTER_APPLY_INIT_FAILED', {
+        error: error.message
+      });
+    }
+  }
   
   return { success: true };
 }
