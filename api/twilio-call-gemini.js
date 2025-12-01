@@ -877,6 +877,28 @@ module.exports = async function handler(req, res) {
     // Usar solo memoria para el estado durante la conversación
     let state = conversationStates.get(CallSid);
     
+    // Log para diagnosticar pérdidas de estado
+    if (state) {
+      log.debug('STATE_LOADED_FROM_MEMORY', {
+        callSid: CallSid.substring(0, 20),
+        step: state.step,
+        hasData: !!state.data && Object.keys(state.data).length > 0,
+        dataKeys: state.data ? Object.keys(state.data) : [],
+        dataValues: state.data ? {
+          NumeroReserva: state.data.NumeroReserva,
+          FechaReserva: state.data.FechaReserva,
+          HoraReserva: state.data.HoraReserva,
+          NomReserva: state.data.NomReserva
+        } : {},
+        historyLength: state.conversationHistory?.length || 0
+      });
+    } else {
+      log.warn('STATE_NOT_FOUND_IN_MEMORY', {
+        callSid: CallSid.substring(0, 20),
+        reasoning: 'Estado no encontrado en memoria. Creando nuevo estado. Esto puede indicar pérdida de estado en serverless.'
+      });
+    }
+    
     // Si no hay estado en memoria, crear uno nuevo
     if (!state) {
       state = {
@@ -962,7 +984,7 @@ module.exports = async function handler(req, res) {
           message: userInput,
           timestamp: new Date().toISOString()
         });
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
       }
     }
     
@@ -1031,7 +1053,7 @@ module.exports = async function handler(req, res) {
     });
 
     // Actualizar estado en memoria
-    conversationStates.set(CallSid, state);
+    conversationStates.set(state.callSid, state);
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
@@ -1070,7 +1092,7 @@ module.exports = async function handler(req, res) {
         // Volver al paso de confirmación para que el usuario pueda aceptar alternativa
         state.step = 'confirm';
         state.data.originalFechaHora = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
-        conversationStates.set(CallSid, state);
+        conversationStates.set(state.callSid, state);
         
         // Obtener URL base para generar URLs públicas de audio TTS
         const protocol = req.headers['x-forwarded-proto'] || 'https';
@@ -4621,7 +4643,46 @@ async function processConversationStep(state, userInput, callLogger, performance
       // Manejar respuesta del usuario cuando se le pregunta si quiere hacer una reserva
       // después de detectar datos útiles con intención "clarify"
       if (!state.pendingClarifyData) {
-        // Si no hay datos pendientes, volver a ask_intention
+        // Si no hay datos pendientes, pero el usuario puede estar dando información nueva
+        // Intentar extraer información con Gemini primero
+        if (userInput && userInput.trim()) {
+          try {
+            const analysis = await analyzeReservationWithGemini(userInput, { 
+              callSid: state.callSid, 
+              step: state.step,
+              state: state,
+              performanceMetrics: performanceMetrics
+            });
+            
+            if (analysis && (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales)) {
+              // Hay datos útiles, aplicar y continuar
+              await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+              conversationStates.set(state.callSid, state);
+              
+              // Determinar qué falta y continuar
+              const missing = determineMissingFields(analysis || {}, state.data);
+              if (missing.length === 0) {
+                state.step = 'confirm';
+                const confirmMessage = getConfirmationMessage(state.data, state.language);
+                return {
+                  message: confirmMessage,
+                  gather: true
+                };
+              } else {
+                state.step = `ask_${missing[0]}`;
+                const nextStepMessages = getMultilingualMessages(`ask_${missing[0]}`, state.language);
+                return {
+                  message: getRandomMessage(nextStepMessages),
+                  gather: true
+                };
+              }
+            }
+          } catch (error) {
+            log.warn('CLARIFY_CONFIRM_GEMINI_ERROR', { error: error.message });
+          }
+        }
+        
+        // Si no hay datos pendientes y no se extrajo nada, volver a ask_intention
         log.warn('CLARIFY_CONFIRM_NO_PENDING_DATA');
         state.step = 'ask_intention';
         const intentionMessages = getMultilingualMessages('ask_intention', state.language);
@@ -4629,6 +4690,60 @@ async function processConversationStep(state, userInput, callLogger, performance
           message: getRandomMessage(intentionMessages),
           gather: true
         };
+      }
+      
+      // Si el usuario está dando información nueva (nombre, fecha, etc.), extraerla primero
+      if (userInput && userInput.trim()) {
+        // Verificar si parece que está dando un nombre u otra información
+        const textLower = userInput.toLowerCase().trim();
+        const namePatterns = [/nombre de/i, /a nombre de/i, /me llamo/i, /soy/i];
+        const isGivingName = namePatterns.some(pattern => pattern.test(userInput));
+        
+        if (isGivingName || textLower.length > 3) {
+          // Intentar extraer información con Gemini
+          try {
+            const analysis = await analyzeReservationWithGemini(userInput, { 
+              callSid: state.callSid, 
+              step: state.step,
+              state: state,
+              performanceMetrics: performanceMetrics
+            });
+            
+            if (analysis && (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales)) {
+              // Hay datos útiles, aplicar y continuar
+              await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+              conversationStates.set(state.callSid, state);
+              
+              // Si había datos pendientes, combinarlos
+              if (state.pendingClarifyData) {
+                const savedAnalysis = state.pendingClarifyData.analysis;
+                await applyGeminiAnalysisToState(savedAnalysis, state, callLogger, userInput);
+                conversationStates.set(state.callSid, state);
+                delete state.pendingClarifyData;
+              }
+              
+              // Determinar qué falta y continuar
+              const missing = determineMissingFields(analysis || {}, state.data);
+              if (missing.length === 0) {
+                state.step = 'confirm';
+                const confirmMessage = getConfirmationMessage(state.data, state.language);
+                return {
+                  message: confirmMessage,
+                  gather: true
+                };
+              } else {
+                state.step = `ask_${missing[0]}`;
+                const nextStepMessages = getMultilingualMessages(`ask_${missing[0]}`, state.language);
+                return {
+                  message: getRandomMessage(nextStepMessages),
+                  gather: true
+                };
+              }
+            }
+          } catch (error) {
+            log.warn('CLARIFY_CONFIRM_GEMINI_ERROR', { error: error.message });
+          }
+        }
       }
       
       // Verificar si el usuario confirmó
