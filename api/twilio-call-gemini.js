@@ -8,7 +8,7 @@ const { checkAvailability, getAlternativeTimeSlots, validateMaxPeoplePerReservat
 const { validarReservaCompleta, validarDisponibilidad } = require('../lib/validation');
 const logger = require('../lib/logging');
 const { sendReservationConfirmationRcs, sendOrderConfirmationRcs } = require('../lib/rcs');
-const { deleteCallState } = require('../lib/state-manager');
+const { loadCallState, saveCallState, deleteCallState } = require('../lib/state-manager');
 
 // NOTA: Circuit Breaker removido - causaba problemas en Vercel/serverless
 // Se usa retryWithBackoff directamente que es más simple y confiable
@@ -874,32 +874,45 @@ module.exports = async function handler(req, res) {
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
 
-    // Usar solo memoria para el estado durante la conversación
+    // Cargar estado: primero desde memoria, luego desde BD si no está en memoria
+    // Esto es necesario porque en Vercel/serverless cada request puede ejecutarse en una instancia diferente
     let state = conversationStates.get(CallSid);
     
-    // Log para diagnosticar pérdidas de estado
-    if (state) {
+    // Si no está en memoria, intentar cargar desde BD (para serverless/Vercel)
+    if (!state) {
+      try {
+        const dbState = await loadCallState(CallSid);
+        if (dbState) {
+          state = dbState;
+          // Guardar en memoria también para acceso rápido
+          conversationStates.set(CallSid, state);
+          log.debug('STATE_LOADED_FROM_DB', {
+            callSid: CallSid.substring(0, 20),
+            step: state.step,
+            hasData: !!state.data && Object.keys(state.data).length > 0,
+            dataValues: state.data ? {
+              NumeroReserva: state.data.NumeroReserva,
+              FechaReserva: state.data.FechaReserva,
+              HoraReserva: state.data.HoraReserva,
+              NomReserva: state.data.NomReserva
+            } : {}
+          });
+        }
+      } catch (error) {
+        log.warn('STATE_LOAD_FROM_DB_ERROR', {
+          callSid: CallSid.substring(0, 20),
+          error: error.message
+        });
+      }
+    } else {
       log.debug('STATE_LOADED_FROM_MEMORY', {
         callSid: CallSid.substring(0, 20),
         step: state.step,
-        hasData: !!state.data && Object.keys(state.data).length > 0,
-        dataKeys: state.data ? Object.keys(state.data) : [],
-        dataValues: state.data ? {
-          NumeroReserva: state.data.NumeroReserva,
-          FechaReserva: state.data.FechaReserva,
-          HoraReserva: state.data.HoraReserva,
-          NomReserva: state.data.NomReserva
-        } : {},
-        historyLength: state.conversationHistory?.length || 0
-      });
-    } else {
-      log.warn('STATE_NOT_FOUND_IN_MEMORY', {
-        callSid: CallSid.substring(0, 20),
-        reasoning: 'Estado no encontrado en memoria. Creando nuevo estado. Esto puede indicar pérdida de estado en serverless.'
+        hasData: !!state.data && Object.keys(state.data).length > 0
       });
     }
     
-    // Si no hay estado en memoria, crear uno nuevo
+    // Si no hay estado en memoria ni en BD, crear uno nuevo
     if (!state) {
       state = {
         step: 'greeting',
@@ -985,6 +998,14 @@ module.exports = async function handler(req, res) {
           timestamp: new Date().toISOString()
         });
         conversationStates.set(state.callSid, state);
+        // Guardar en BD de forma asíncrona
+        setImmediate(async () => {
+          try {
+            await saveCallState(CallSid, state);
+          } catch (error) {
+            // Error silencioso
+          }
+        });
       }
     }
     
@@ -1054,6 +1075,19 @@ module.exports = async function handler(req, res) {
 
     // Actualizar estado en memoria
     conversationStates.set(state.callSid, state);
+    
+    // Guardar estado en BD de forma asíncrona (no bloquea la respuesta)
+    // Esto permite recuperar el estado si Vercel reinicia la función
+    if (state.step !== 'complete') {
+      // Guardar de forma asíncrona sin bloquear
+      setImmediate(async () => {
+        try {
+          await saveCallState(CallSid, state);
+        } catch (error) {
+          // Error silencioso - el estado está en memoria y se intentará guardar en la próxima request
+        }
+      });
+    }
 
     // Si la conversación está completa, guardar en BD
     if (state.step === 'complete') {
