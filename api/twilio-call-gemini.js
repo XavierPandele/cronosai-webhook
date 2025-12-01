@@ -879,6 +879,22 @@ module.exports = async function handler(req, res) {
     // El estado se construye en memoria y solo se persiste cuando la reserva está completa
     let state = conversationStates.get(CallSid);
     
+    // Log para diagnosticar pérdidas de estado
+    if (state) {
+      log.debug('STATE_LOADED_FROM_MEMORY', {
+        callSid: CallSid.substring(0, 20),
+        step: state.step,
+        hasData: !!state.data && Object.keys(state.data).length > 0,
+        dataKeys: state.data ? Object.keys(state.data) : [],
+        historyLength: state.conversationHistory?.length || 0
+      });
+    } else {
+      log.warn('STATE_NOT_FOUND_IN_MEMORY', {
+        callSid: CallSid.substring(0, 20),
+        reasoning: 'Estado no encontrado en memoria. Creando nuevo estado. Esto puede indicar pérdida de estado en serverless.'
+      });
+    }
+    
     // Si no hay estado en memoria, crear uno nuevo
     if (!state) {
       state = {
@@ -2008,6 +2024,16 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
     TelefonReserva: state.data?.TelefonReserva
   };
   
+  // Log para diagnosticar si el estado está vacío cuando no debería
+  const hasDataBefore = state.data && Object.keys(state.data).length > 0;
+  if (!hasDataBefore && state.step !== 'greeting' && state.step !== 'ask_intention') {
+    log.warn('STATE_EMPTY_BEFORE_APPLY', {
+      step: state.step,
+      stateBefore: stateBefore,
+      reasoning: 'El estado está vacío en un paso avanzado. Esto puede indicar pérdida de datos.'
+    });
+  }
+  
   const attach = (data) => {
     if (!data) return { step: state.step };
     if (typeof data === 'object' && !Array.isArray(data)) {
@@ -2181,14 +2207,26 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       };
     }
     
-    // Si pasa la validación, aplicar
+    // Si pasa la validación, aplicar SOLO si no existe o es diferente (modificación)
     const existingPeople = state.data.NumeroReserva;
-    state.data.NumeroReserva = peopleCount;
-    log.reservation('PEOPLE_APPLIED', { 
-      peopleCount,
-      peopleAnterior: existingPeople,
-      credibilidad: analysis.comensales_porcentaje_credivilidad
-    });
+    const isModification = analysis.intencion === 'modify' || (existingPeople && existingPeople !== peopleCount);
+    
+    if (!existingPeople || isModification) {
+      state.data.NumeroReserva = peopleCount;
+      log.reservation('PEOPLE_APPLIED', { 
+        peopleCount,
+        peopleAnterior: existingPeople,
+        credibilidad: analysis.comensales_porcentaje_credivilidad,
+        isNew: !existingPeople,
+        isModification: isModification
+      });
+    } else {
+      log.debug('PEOPLE_ALREADY_EXISTS_SKIP', {
+        existingPeople: existingPeople,
+        newPeople: peopleCount,
+        reasoning: 'Número de personas ya está recopilado y no ha cambiado. No se sobrescribe.'
+      });
+    }
   } else {
     log.debug('PEOPLE_NOT_APPLIED', {
       comensales: analysis.comensales,
@@ -2209,15 +2247,27 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   }
   
   // Fecha - Solo aplicar si el análisis tiene fecha Y credibilidad >= 50%
-  // IMPORTANTE: NO sobrescribir si ya existe una fecha válida a menos que el análisis tenga alta credibilidad
+  // IMPORTANTE: NO sobrescribir si ya existe una fecha válida a menos que sea una modificación
   if (analysis.fecha && applyIfConfident(analysis.fecha, analysis.fecha_porcentaje_credivilidad)) {
     const existingDate = state.data.FechaReserva;
-    state.data.FechaReserva = analysis.fecha;
-    log.reservation('DATE_APPLIED', { 
-      fecha: analysis.fecha,
-      fechaAnterior: existingDate,
-      credibilidad: analysis.fecha_porcentaje_credivilidad
-    });
+    const isModification = analysis.intencion === 'modify' || (existingDate && existingDate !== analysis.fecha);
+    
+    if (!existingDate || isModification) {
+      state.data.FechaReserva = analysis.fecha;
+      log.reservation('DATE_APPLIED', { 
+        fecha: analysis.fecha,
+        fechaAnterior: existingDate,
+        credibilidad: analysis.fecha_porcentaje_credivilidad,
+        isNew: !existingDate,
+        isModification: isModification
+      });
+    } else {
+      log.debug('DATE_ALREADY_EXISTS_SKIP', {
+        existingDate: existingDate,
+        newDate: analysis.fecha,
+        reasoning: 'Fecha ya está recopilada y no ha cambiado. No se sobrescribe.'
+      });
+    }
   } else if (analysis.fecha) {
     log.debug('DATE_NOT_APPLIED_LOW_CONFIDENCE', {
       fecha: analysis.fecha,
@@ -2237,17 +2287,30 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       state.data.horaError = 'fuera_horario';
       log.reservation('TIME_WITH_ERROR', { hora: analysis.hora, error: 'fuera_horario' });
     } else {
-      // Hora válida o no validada, aplicar normalmente
+      // Hora válida o no validada, aplicar SOLO si no existe o es diferente (modificación)
       const existingTime = state.data.HoraReserva;
-      state.data.HoraReserva = analysis.hora;
-      delete state.data.horaError; // Limpiar error si existía
-      log.reservation('TIME_APPLIED', { 
-        hora: analysis.hora,
-        horaAnterior: existingTime,
-        credibilidad: analysis.hora_porcentaje_credivilidad
-      });
+      const isModification = analysis.intencion === 'modify' || (existingTime && existingTime !== analysis.hora);
+      
+      if (!existingTime || isModification) {
+        state.data.HoraReserva = analysis.hora;
+        delete state.data.horaError; // Limpiar error si existía
+        log.reservation('TIME_APPLIED', { 
+          hora: analysis.hora,
+          horaAnterior: existingTime,
+          credibilidad: analysis.hora_porcentaje_credivilidad,
+          isNew: !existingTime,
+          isModification: isModification
+        });
+        timeApplied = true;
+      } else {
+        log.debug('TIME_ALREADY_EXISTS_SKIP', {
+          existingTime: existingTime,
+          newTime: analysis.hora,
+          reasoning: 'Hora ya está recopilada y no ha cambiado. No se sobrescribe.'
+        });
+        timeApplied = false; // No se aplicó porque ya existe
+      }
     }
-    timeApplied = true;
   } else if (analysis.hora) {
     log.debug('TIME_NOT_APPLIED_LOW_CONFIDENCE', {
       hora: analysis.hora,
@@ -2269,16 +2332,30 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
   }
   
   // Nombre - Solo aplicar si el análisis tiene nombre Y credibilidad >= 50%
+  // IMPORTANTE: NO sobrescribir si ya existe un nombre a menos que sea una modificación
   let nameApplied = false;
   if (analysis.nombre && applyIfConfident(analysis.nombre, analysis.nombre_porcentaje_credivilidad)) {
     const existingName = state.data.NomReserva;
-    state.data.NomReserva = analysis.nombre;
-    log.reservation('NAME_APPLIED', { 
-      nombre: analysis.nombre,
-      nombreAnterior: existingName,
-      credibilidad: analysis.nombre_porcentaje_credivilidad
-    });
-    nameApplied = true;
+    const isModification = analysis.intencion === 'modify' || (existingName && existingName !== analysis.nombre);
+    
+    if (!existingName || isModification) {
+      state.data.NomReserva = analysis.nombre;
+      log.reservation('NAME_APPLIED', { 
+        nombre: analysis.nombre,
+        nombreAnterior: existingName,
+        credibilidad: analysis.nombre_porcentaje_credivilidad,
+        isNew: !existingName,
+        isModification: isModification
+      });
+      nameApplied = true;
+    } else {
+      log.debug('NAME_ALREADY_EXISTS_SKIP', {
+        existingName: existingName,
+        newName: analysis.nombre,
+        reasoning: 'Nombre ya está recopilado y no ha cambiado. No se sobrescribe.'
+      });
+      nameApplied = false; // No se aplicó porque ya existe
+    }
   } else if (analysis.nombre) {
     log.debug('NAME_NOT_APPLIED_LOW_CONFIDENCE', {
       nombre: analysis.nombre,
