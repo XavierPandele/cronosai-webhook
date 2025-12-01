@@ -1436,6 +1436,18 @@ ${menuStr}
   "nombre": null o "texto",
   "nombre_porcentaje_credivilidad": "0%" | "50%" | "100%",
   "idioma_detectado": "es" | "en" | "de" | "fr" | "it" | "pt",
+  
+NOTA CRÍTICA SOBRE DETECCIÓN DE IDIOMA (MUY IMPORTANTE):
+- Si hay HISTORIAL DE CONVERSACIÓN arriba, ANALIZA el idioma predominante en ese historial.
+- Si el historial muestra que la conversación ha sido principalmente en un idioma (ej: inglés), MANTÉN ese mismo idioma incluso si el texto actual es muy corto o ambiguo (ej: "9:00 p.m.", "Please", números).
+- SOLO cambia el idioma detectado si:
+  1. No hay historial previo (primera interacción), O
+  2. El texto actual es suficientemente largo (>15 caracteres) Y claramente está en un idioma diferente al del historial.
+- Ejemplos:
+  * Si el historial muestra conversación en inglés y el usuario dice "9:00 p.m." → idioma_detectado: "en" (NO cambies a español)
+  * Si el historial muestra conversación en inglés y el usuario dice "Please" → idioma_detectado: "en" (NO cambies a español)
+  * Si el historial muestra conversación en español y el usuario dice "2 personas" → idioma_detectado: "es" (NO cambies a inglés)
+  * Si el historial muestra conversación en inglés y el usuario dice una frase larga en español → idioma_detectado: "es" (cambio válido)
   "pedido_items": [
     {
       "nombre_detectado": null,
@@ -2035,26 +2047,29 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
         debug: (message, data) => logger.debug(message, attach(data))
       };
   
-  // MEJORADO: Actualizar idioma PRIMERO si se detectó en el análisis
+  // MEJORADO: Actualizar idioma - Gemini ya considera el historial en su análisis
+  // Confiar en la detección de Gemini que ya tiene el contexto del historial
   if (analysis.idioma_detectado) {
     const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
     const detectedLang = validLangs.includes(analysis.idioma_detectado) 
       ? analysis.idioma_detectado 
       : (state.language || 'es');
     
-    if (detectedLang !== state.language) {
+    if (!state.language) {
+      // Inicialización: siempre aceptar el idioma detectado
+      state.language = detectedLang;
+      log.info(`[LANG] init=`, { 
+        language: detectedLang,
+        reasoning: `Idioma inicializado en applyGeminiAnalysisToState: ${detectedLang}`
+      });
+    } else if (detectedLang !== state.language) {
+      // Cambio de idioma: confiar en Gemini que ya consideró el historial
       const oldLanguage = state.language;
       state.language = detectedLang;
       log.info('🌐 LANGUAGE_UPDATED_IN_APPLY', { 
         oldLanguage: oldLanguage,
         newLanguage: detectedLang,
-        reasoning: `Idioma detectado por Gemini en applyGeminiAnalysisToState: ${detectedLang}. Actualizando estado.`
-      });
-    } else if (!state.language) {
-      state.language = detectedLang;
-      log.info(`[LANG] init=`, { 
-        language: detectedLang,
-        reasoning: `Idioma inicializado en applyGeminiAnalysisToState: ${detectedLang}`
+        reasoning: `Idioma detectado por Gemini: ${detectedLang}. Gemini ya consideró el historial de conversación en su análisis.`
       });
     }
   } else if (!state.language) {
@@ -3631,7 +3646,8 @@ async function processConversationStep(state, userInput, callLogger, performance
           const geminiData = `${analysis.comensales || '-'}p, ${analysis.fecha || '-'}, ${analysis.hora || '-'}, ${analysis.nombre || '-'}`;
           log.info(`[GEMINI] intent=${analysis.intencion} lang=${analysis.idioma_detectado} data=[${geminiData}]`);
           
-          // MEJORADO: Actualizar idioma ANTES de procesar la intención para que todas las respuestas usen el idioma correcto
+          // MEJORADO: Actualizar idioma - Gemini ya considera el historial en su análisis
+          // Confiar en la detección de Gemini que ya tiene el contexto del historial
           if (analysis.idioma_detectado) {
             // Validar que el idioma detectado sea válido
             const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
@@ -3639,13 +3655,19 @@ async function processConversationStep(state, userInput, callLogger, performance
               ? analysis.idioma_detectado 
               : 'es';
             
-            if (detectedLang !== state.language) {
-              const oldLanguage = state.language;
-              state.language = detectedLang;
-              log.info(`[LANG] ${oldLanguage} → ${detectedLang}`);
-            } else if (!state.language) {
+            if (!state.language) {
+              // Inicialización: siempre aceptar el idioma detectado
               state.language = detectedLang;
               log.info(`[LANG] init=${detectedLang}`);
+            } else if (detectedLang !== state.language) {
+              // Cambio de idioma: confiar en Gemini que ya consideró el historial
+              const oldLanguage = state.language;
+              state.language = detectedLang;
+              log.info(`🌐 LANGUAGE_UPDATED`, {
+                oldLanguage: oldLanguage,
+                newLanguage: detectedLang,
+                reasoning: `Idioma detectado: ${detectedLang}. Gemini ya consideró el historial de conversación en su análisis.`
+              });
             }
           } else if (!state.language) {
             state.language = 'es';
