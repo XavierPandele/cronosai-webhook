@@ -1437,17 +1437,67 @@ ${menuStr}
   "nombre_porcentaje_credivilidad": "0%" | "50%" | "100%",
   "idioma_detectado": "es" | "en" | "de" | "fr" | "it" | "pt",
   
-NOTA CRÍTICA SOBRE DETECCIÓN DE IDIOMA (MUY IMPORTANTE):
-- Si hay HISTORIAL DE CONVERSACIÓN arriba, ANALIZA el idioma predominante en ese historial.
-- Si el historial muestra que la conversación ha sido principalmente en un idioma (ej: inglés), MANTÉN ese mismo idioma incluso si el texto actual es muy corto o ambiguo (ej: "9:00 p.m.", "Please", números).
-- SOLO cambia el idioma detectado si:
-  1. No hay historial previo (primera interacción), O
-  2. El texto actual es suficientemente largo (>15 caracteres) Y claramente está en un idioma diferente al del historial.
-- Ejemplos:
-  * Si el historial muestra conversación en inglés y el usuario dice "9:00 p.m." → idioma_detectado: "en" (NO cambies a español)
-  * Si el historial muestra conversación en inglés y el usuario dice "Please" → idioma_detectado: "en" (NO cambies a español)
-  * Si el historial muestra conversación en español y el usuario dice "2 personas" → idioma_detectado: "es" (NO cambies a inglés)
-  * Si el historial muestra conversación en inglés y el usuario dice una frase larga en español → idioma_detectado: "es" (cambio válido)
+NOTA CRÍTICA SOBRE DETECCIÓN DE IDIOMA (MUY IMPORTANTE - LEE CON ATENCIÓN):
+
+## PRINCIPIO FUNDAMENTAL: EL CONTEXTO ES REY
+El idioma de la conversación se determina por el CONTEXTO COMPLETO, no por palabras aisladas. 
+Analiza TODO el historial de conversación para identificar el idioma predominante y MANTÉN ese idioma 
+a menos que haya evidencia CLARA y CONSISTENTE de un cambio real.
+
+## REGLAS DE DETECCIÓN DE IDIOMA:
+
+1. **ANÁLISIS DEL HISTORIAL (PRIORITARIO)**:
+   - Si existe historial de conversación, identifica el idioma PREDOMINANTE en ese historial.
+   - Cuenta cuántos mensajes del usuario están en cada idioma.
+   - El idioma que aparece en la MAYORÍA de los mensajes del historial es el idioma de la conversación.
+   - MANTÉN ese idioma incluso si el texto actual contiene palabras de otro idioma.
+
+2. **PALABRAS AISLADAS NO CAMBIAN EL IDIOMA**:
+   - Palabras comunes que se usan en múltiples idiomas NO indican cambio de idioma:
+     * "please", "okay", "ok", "yes", "no", "hello", "hi", "thanks", "thank you"
+     * Números: "one", "two", "three" pueden aparecer en cualquier idioma
+     * Expresiones de cortesía: "por favor", "gracias", "danke", "merci"
+   - Si toda la conversación ha sido en español y el usuario dice "please" o "okay", 
+     el idioma sigue siendo español. Estas son palabras prestadas comunes.
+   - Si toda la conversación ha sido en alemán y el usuario dice "okay", el idioma sigue siendo alemán.
+
+3. **CUANDO SÍ CAMBIAR DE IDIOMA**:
+   - SOLO cambia el idioma detectado si se cumple TODAS estas condiciones:
+     a) El texto actual es suficientemente largo (más de 20 caracteres o múltiples palabras)
+     b) El texto contiene MÚLTIPLES palabras características del nuevo idioma (no solo una)
+     c) La estructura gramatical del texto es claramente del nuevo idioma
+     d) El texto forma una frase completa en el nuevo idioma
+   - Ejemplo válido de cambio: Si el historial es en español y el usuario dice una frase completa 
+     en inglés como "I would like to make a reservation for four people tomorrow at eight o'clock"
+
+4. **MANEJO DE ERRORES DE TRANSCRIPCIÓN**:
+   - Si el texto parece mal transcrito (palabras sin sentido, caracteres extraños, etc.):
+     * Analiza el PATRÓN GENERAL del texto, no palabras individuales
+     * Busca estructuras gramaticales características del idioma
+     * Considera el contexto del historial: si el historial es en alemán y el texto mal transcrito 
+       tiene estructura alemana, mantén alemán
+   - Errores comunes de transcripción:
+     * Palabras cortadas o incompletas
+     * Caracteres especiales mal interpretados
+     * Nombres propios mal transcritos
+     * Ruido de fondo interpretado como palabras
+
+5. **INDICADORES DE IDIOMA (USAR EN CONJUNTO, NO AISLADOS)**:
+   - Estructura gramatical completa (no solo palabras sueltas)
+   - Múltiples palabras características del idioma en la misma frase
+   - Patrones de sintaxis típicos del idioma
+   - Consistencia con el historial previo
+
+6. **PRIMERA INTERACCIÓN**:
+   - Si no hay historial previo, analiza el texto completo para detectar el idioma.
+   - Si el texto es muy corto o ambiguo, usa español como predeterminado.
+
+## RESUMEN:
+- CONTEXTO > Palabras aisladas
+- HISTORIAL > Texto actual aislado  
+- FRASES COMPLETAS > Palabras sueltas
+- CONSISTENCIA > Cambios repentinos
+- NO cambies de idioma por "please", "okay", "yes", "no" u otras palabras comunes
   "pedido_items": [
     {
       "nombre_detectado": null,
@@ -6073,15 +6123,36 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
     if (gather) {
       // Configuración de idioma para Gather (necesario para speech recognition)
+      // MEJORADO: Usar multi-idioma cuando el idioma es español por defecto o cuando no hay historial suficiente
+      // Esto permite que Twilio detecte automáticamente el idioma del usuario desde el inicio
       const languageCodes = {
         es: 'es-ES',
         en: 'en-US',
         de: 'de-DE',
         it: 'it-IT',
         fr: 'fr-FR',
-        pt: 'pt-BR'
+        pt: 'pt-PT'  // Portugués de Portugal (no Brasil)
       };
-      const gatherLanguage = languageCodes[language] || languageCodes.es;
+      
+      // ESTRATEGIA MULTI-IDIOMA MEJORADA:
+      // 1. Si el idioma es español por defecto Y estamos en pasos iniciales → multi-idioma
+      // 2. Si el idioma es español por defecto Y no hay historial de conversación → multi-idioma
+      // 3. Si el idioma ya está detectado correctamente → usar ese idioma específico
+      let gatherLanguage;
+      const isInitialStep = currentStep === 'greeting' || currentStep === 'ask_intention';
+      const hasNoHistory = !currentStep || currentStep === 'greeting';
+      
+      // Usar multi-idioma si:
+      // - Estamos en pasos iniciales Y el idioma es español por defecto
+      // - O si el idioma es español pero no hay historial suficiente para confiar en él
+      if ((language === 'es' && isInitialStep) || (language === 'es' && hasNoHistory)) {
+        // Usar múltiples idiomas para detección automática
+        // IMPORTANTE: Incluir todos los idiomas soportados (español, inglés, alemán, italiano, francés, portugués)
+        gatherLanguage = 'es-ES,en-US,de-DE,it-IT,fr-FR,pt-PT';
+      } else {
+        // Una vez detectado el idioma, usar ese idioma específico para mejor precisión
+        gatherLanguage = languageCodes[language] || languageCodes.es;
+      }
       
       // Usar Gather para capturar la respuesta del usuario
       // OPTIMIZACIÓN CRÍTICA: Usar SOLO Play O Say, NUNCA ambos (evita duplicación)
@@ -6094,7 +6165,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
         de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
         it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
         fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-        pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+        pt: { voice: 'Google.pt-PT-Neural2-A', language: 'pt-PT' }  // Portugués de Portugal
       };
       const sayVoice = voiceConfig[language] || voiceConfig.es;
       
@@ -6119,29 +6190,101 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       
       // SIN FALLBACK: Usar SOLO Play con TTS (voz Algieba Flash) - sin Say para pruebas
       // Log solo en DEBUG (demasiado ruido en producción)
-      const noInputMessage = getRandomMessage(language === 'es' ? [
-        'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
-        'Perdón, no he oído nada. ¿Sigue en la línea?',
-        '¿Está ahí? No he escuchado su respuesta.',
-        'Disculpe, ¿sigue ahí? No he oído nada.',
-        'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
-        'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
-        'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
-        'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
-      ] : ['Sorry, I didn\'t hear your response. Are you still there?']);
+      // MEJORADO: Mensajes "no input" en todos los idiomas soportados
+      const noInputMessages = {
+        es: [
+          'Disculpe, no he escuchado su respuesta. ¿Sigue ahí?',
+          'Perdón, no he oído nada. ¿Sigue en la línea?',
+          '¿Está ahí? No he escuchado su respuesta.',
+          'Disculpe, ¿sigue ahí? No he oído nada.',
+          'Perdón, no he escuchado bien. ¿Podría repetir, por favor?',
+          'Lo siento, no he captado su respuesta. ¿Sigue ahí?',
+          'Disculpe, no he oído bien. ¿Podría repetir, por favor?',
+          'Perdón, no he escuchado nada. ¿Sigue en la llamada?'
+        ],
+        en: [
+          'Sorry, I didn\'t hear your response. Are you still there?',
+          'I didn\'t hear anything. Are you still on the line?',
+          'Are you there? I didn\'t hear your response.',
+          'Sorry, are you still there? I didn\'t hear anything.',
+          'I didn\'t hear well. Could you repeat, please?',
+          'Sorry, I didn\'t catch your response. Are you still there?',
+          'I didn\'t hear clearly. Could you repeat, please?',
+          'Sorry, I didn\'t hear anything. Are you still on the call?'
+        ],
+        de: [
+          'Entschuldigung, ich habe Ihre Antwort nicht gehört. Sind Sie noch da?',
+          'Entschuldigung, ich habe nichts gehört. Sind Sie noch in der Leitung?',
+          'Sind Sie noch da? Ich habe Ihre Antwort nicht gehört.',
+          'Entschuldigung, sind Sie noch da? Ich habe nichts gehört.',
+          'Ich habe nicht gut gehört. Könnten Sie wiederholen, bitte?',
+          'Entschuldigung, ich habe Ihre Antwort nicht erfasst. Sind Sie noch da?',
+          'Ich habe nicht klar gehört. Könnten Sie wiederholen, bitte?',
+          'Entschuldigung, ich habe nichts gehört. Sind Sie noch im Gespräch?'
+        ],
+        it: [
+          'Scusi, non ho sentito la sua risposta. È ancora lì?',
+          'Scusi, non ho sentito nulla. È ancora in linea?',
+          'È ancora lì? Non ho sentito la sua risposta.',
+          'Scusi, è ancora lì? Non ho sentito nulla.',
+          'Non ho sentito bene. Potrebbe ripetere, per favore?',
+          'Scusi, non ho captato la sua risposta. È ancora lì?',
+          'Non ho sentito chiaramente. Potrebbe ripetere, per favore?',
+          'Scusi, non ho sentito nulla. È ancora in chiamata?'
+        ],
+        fr: [
+          'Désolé, je n\'ai pas entendu votre réponse. Êtes-vous toujours là?',
+          'Désolé, je n\'ai rien entendu. Êtes-vous toujours en ligne?',
+          'Êtes-vous là? Je n\'ai pas entendu votre réponse.',
+          'Désolé, êtes-vous toujours là? Je n\'ai rien entendu.',
+          'Je n\'ai pas bien entendu. Pourriez-vous répéter, s\'il vous plaît?',
+          'Désolé, je n\'ai pas saisi votre réponse. Êtes-vous toujours là?',
+          'Je n\'ai pas entendu clairement. Pourriez-vous répéter, s\'il vous plaît?',
+          'Désolé, je n\'ai rien entendu. Êtes-vous toujours en appel?'
+        ],
+        pt: [
+          'Desculpe, não ouvi sua resposta. Ainda está aí?',
+          'Desculpe, não ouvi nada. Ainda está na linha?',
+          'Ainda está aí? Não ouvi sua resposta.',
+          'Desculpe, ainda está aí? Não ouvi nada.',
+          'Não ouvi bem. Poderia repetir, por favor?',
+          'Desculpe, não captei sua resposta. Ainda está aí?',
+          'Não ouvi claramente. Poderia repetir, por favor?',
+          'Desculpe, não ouvi nada. Ainda está na chamada?'
+        ]
+      };
+      const noInputMessage = getRandomMessage(noInputMessages[language] || noInputMessages.es);
       
       // Palabras clave del dominio para mejorar el reconocimiento de voz
+      // MEJORADO: Hints más completos con más palabras clave por idioma
       // Esto ayuda especialmente con ruido de fondo y habla imperfecta
       const speechHints = {
-        es: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo',
-        en: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday',
-        de: 'reservierung,tisch,restaurant,personen,datum,uhrzeit,name,telefon,bestätigen,stornieren,ändern,morgen,heute,übermorgen,montag,dienstag,mittwoch,donnerstag,freitag,samstag,sonntag',
-        it: 'prenotazione,tavolo,ristorante,persone,data,ora,nome,telefono,confermare,annullare,modificare,domani,oggi,dopodomani,lunedì,martedì,mercoledì,giovedì,venerdì,sabato,domenica',
-        fr: 'réservation,table,restaurant,personnes,date,heure,nom,téléphone,confirmer,annuler,modifier,demain,aujourd\'hui,après-demain,lundi,mardi,mercredi,jeudi,vendredi,samedi,dimanche',
-        pt: 'reserva,mesa,restaurante,pessoas,data,hora,nome,telefone,confirmar,cancelar,modificar,amanhã,hoje,depois de amanhã,segunda,terça,quarta,quinta,sexta,sábado,domingo'
+        es: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo,cuatro,cinco,seis,siete,ocho,nueve,diez,once,doce,trece,catorce,quince,dieciséis,diecisiete,dieciocho,diecinueve,veinte',
+        en: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday,four,five,six,seven,eight,nine,ten,eleven,twelve,thirteen,fourteen,fifteen,sixteen,seventeen,eighteen,nineteen,twenty',
+        de: 'reservierung,tisch,restaurant,personen,datum,uhrzeit,name,telefon,bestätigen,stornieren,ändern,morgen,heute,übermorgen,montag,dienstag,mittwoch,donnerstag,freitag,samstag,sonntag,vier,fünf,sechs,sieben,acht,neun,zehn,elf,zwölf,dreizehn,vierzehn,fünfzehn,sechzehn,siebzehn,achtzehn,neunzehn,zwanzig',
+        it: 'prenotazione,tavolo,ristorante,persone,data,ora,nome,telefono,confermare,annullare,modificare,domani,oggi,dopodomani,lunedì,martedì,mercoledì,giovedì,venerdì,sabato,domenica,quattro,cinque,sei,sette,otto,nove,dieci,undici,dodici,tredici,quattordici,quindici,sedici,diciassette,diciotto,diciannove,venti',
+        fr: 'réservation,table,restaurant,personnes,date,heure,nom,téléphone,confirmer,annuler,modifier,demain,aujourd\'hui,après-demain,lundi,mardi,mercredi,jeudi,vendredi,samedi,dimanche,quatre,cinq,six,sept,huit,neuf,dix,onze,douze,treize,quatorze,quinze,seize,dix-sept,dix-huit,dix-neuf,vingt',
+        pt: 'reserva,mesa,restaurante,pessoas,data,hora,nome,telefone,confirmar,cancelar,modificar,amanhã,hoje,depois de amanhã,segunda,terça,quarta,quinta,sexta,sábado,domingo,quatro,cinco,seis,sete,oito,nove,dez,onze,doze,treze,catorze,quinze,dezasseis,dezassete,dezoito,dezanove,vinte'
       };
 
-      const hints = speechHints[language] || speechHints.es;
+      // Si estamos usando multi-idioma, combinar hints de todos los idiomas
+      // IMPORTANTE: Esto mejora significativamente la transcripción cuando el idioma aún no está detectado
+      let hints;
+      if (gatherLanguage.includes(',')) {
+        // Multi-idioma: combinar hints de todos los idiomas soportados
+        // Esto permite que Twilio reconozca palabras clave en cualquier idioma
+        hints = [
+          speechHints.es,
+          speechHints.en,
+          speechHints.de,
+          speechHints.it,
+          speechHints.fr,
+          speechHints.pt
+        ].join(',');
+      } else {
+        // Una vez detectado el idioma, usar solo los hints de ese idioma para mejor precisión
+        hints = speechHints[language] || speechHints.es;
+      }
 
       // Configuración optimizada para máxima velocidad y naturalidad:
       // - speechTimeout="auto": Twilio detecta automáticamente cuando el usuario terminó de hablar (más rápido y natural)
@@ -6194,7 +6337,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     de: { voice: 'Google.de-DE-Neural2-A', language: 'de-DE' },
     it: { voice: 'Google.it-IT-Neural2-A', language: 'it-IT' },
     fr: { voice: 'Google.fr-FR-Neural2-A', language: 'fr-FR' },
-    pt: { voice: 'Google.pt-BR-Neural2-A', language: 'pt-BR' }
+    pt: { voice: 'Google.pt-PT-Neural2-A', language: 'pt-PT' }  // Portugués de Portugal
   };
 
   const config = responseVoiceConfig || voiceConfig[language] || voiceConfig.es;
@@ -7712,6 +7855,34 @@ function getMultilingualMessages(type, language = 'es', variables = {}) {
         'How can I assist you? Reservation, modify, cancel, or delivery order?',
         'What would you like to do? Book a table, modify a reservation, cancel, or order delivery?',
         'Tell me, what do you need? Reservation, modify, cancel, or order?'
+      ],
+      de: [
+        'Wie kann ich Ihnen helfen? Möchten Sie eine Reservierung vornehmen, eine bestehende ändern, stornieren oder eine Lieferbestellung aufgeben?',
+        'Was benötigen Sie? Eine Reservierung, eine Reservierung ändern, stornieren oder eine Bestellung?',
+        'Wie kann ich Ihnen helfen? Reservierung, ändern, stornieren oder Lieferbestellung?',
+        'Was möchten Sie tun? Einen Tisch reservieren, eine Reservierung ändern, stornieren oder eine Lieferung bestellen?',
+        'Sagen Sie mir, was benötigen Sie? Reservierung, ändern, stornieren oder Bestellung?'
+      ],
+      it: [
+        'Come posso aiutarti? Vorresti fare una prenotazione, modificare una esistente, cancellare o fare un ordine a domicilio?',
+        'Di cosa hai bisogno? Una prenotazione, modificare una prenotazione, cancellare o un ordine?',
+        'Come posso assisterti? Prenotazione, modificare, cancellare o ordine a domicilio?',
+        'Cosa vorresti fare? Prenotare un tavolo, modificare una prenotazione, cancellare o ordinare una consegna?',
+        'Dimmi, di cosa hai bisogno? Prenotazione, modificare, cancellare o ordine?'
+      ],
+      fr: [
+        'Comment puis-je vous aider? Souhaitez-vous faire une réservation, modifier une existante, annuler ou passer une commande à domicile?',
+        'De quoi avez-vous besoin? Une réservation, modifier une réservation, annuler ou une commande?',
+        'Comment puis-je vous assister? Réservation, modifier, annuler ou commande à domicile?',
+        'Que souhaitez-vous faire? Réserver une table, modifier une réservation, annuler ou commander une livraison?',
+        'Dites-moi, de quoi avez-vous besoin? Réservation, modifier, annuler ou commande?'
+      ],
+      pt: [
+        'Como posso ajudá-lo? Gostaria de fazer uma reserva, modificar uma existente, cancelar ou fazer um pedido de entrega?',
+        'O que você precisa? Uma reserva, modificar uma reserva, cancelar ou um pedido?',
+        'Como posso ajudá-lo? Reserva, modificar, cancelar ou pedido de entrega?',
+        'O que você gostaria de fazer? Reservar uma mesa, modificar uma reserva, cancelar ou pedir uma entrega?',
+        'Diga-me, o que você precisa? Reserva, modificar, cancelar ou pedido?'
       ]
     },
     default: {
