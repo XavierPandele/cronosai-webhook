@@ -1489,10 +1489,25 @@ ${menuStr}
   
 NOTA CRÍTICA SOBRE DETECCIÓN DE IDIOMA (MUY IMPORTANTE - LEE CON ATENCIÓN):
 
+## PRIORIDAD DE IDIOMAS: Español, Inglés y Alemán son los idiomas principales
+- "es" (Español) - PRIORIDAD 1
+- "en" (Inglés) - PRIORIDAD 2  
+- "de" (Alemán) - PRIORIDAD 3 (MUY IMPORTANTE - idioma principal de clientes)
+
 ## PRINCIPIO FUNDAMENTAL: EL CONTEXTO ES REY
 El idioma de la conversación se determina por el CONTEXTO COMPLETO, no por palabras aisladas. 
 Analiza TODO el historial de conversación para identificar el idioma predominante y MANTÉN ese idioma 
 a menos que haya evidencia CLARA y CONSISTENTE de un cambio real.
+
+## DETECCIÓN ESPECÍFICA DE ALEMÁN (MUY IMPORTANTE):
+Palabras y frases características del alemán que DEBES reconocer:
+- "ich" (yo), "möchte" (quisiera), "würde" (me gustaría), "hätte" (tendría)
+- "Tisch" (mesa), "reservieren" (reservar), "Reservierung" (reservación)
+- "Personen" (personas), "für" (para), "heute" (hoy), "morgen" (mañana)
+- "bitte" (por favor), "danke" (gracias), "gern" (con gusto)
+- "wie viele" (cuántos), "wann" (cuándo), "um" (a las)
+- Estructuras típicas: "Ich möchte...", "Könnte ich...", "Hätte ich gerne..."
+- Si detectas estas palabras o estructuras, marca "idioma_detectado": "de" INMEDIATAMENTE
 
 ## REGLAS DE DETECCIÓN DE IDIOMA:
 
@@ -1544,6 +1559,22 @@ a menos que haya evidencia CLARA y CONSISTENTE de un cambio real.
 6. **PRIMERA INTERACCIÓN**:
    - Si no hay historial previo, analiza el texto completo para detectar el idioma.
    - Si el texto es muy corto o ambiguo, usa español como predeterminado.
+   - **PRIORIDAD ESPECIAL PARA ALEMÁN**: Si detectas palabras alemanas características (ich, möchte, Tisch, reservieren, Personen, etc.), marca "de" INMEDIATAMENTE, incluso en primera interacción.
+
+7. **DETECCIÓN ESPECÍFICA DE ALEMÁN (MUY IMPORTANTE - PRIORIDAD 3)**:
+   - Palabras clave alemanas que DEBES reconocer:
+     * "ich" (yo), "möchte" (quisiera), "würde" (me gustaría), "hätte" (tendría)
+     * "Tisch" (mesa), "reservieren" (reservar), "Reservierung" (reservación)
+     * "Personen" (personas), "für" (para), "heute" (hoy), "morgen" (mañana)
+     * "bitte" (por favor), "danke" (gracias), "gern" (con gusto)
+     * "wie viele" (cuántos), "wann" (cuándo), "um" (a las), "Uhr" (hora)
+   - Estructuras típicas alemanas:
+     * "Ich möchte einen Tisch reservieren" (Quisiera reservar una mesa)
+     * "Könnte ich..." (Podría yo...)
+     * "Hätte ich gerne..." (Me gustaría tener...)
+     * "für X Personen" (para X personas)
+   - Si detectas estas palabras o estructuras, marca "idioma_detectado": "de" INMEDIATAMENTE
+   - El alemán es un idioma principal (prioridad 3), así que sé especialmente sensible a sus características
 
 ## RESUMEN:
 - CONTEXTO > Palabras aisladas
@@ -1551,6 +1582,7 @@ a menos que haya evidencia CLARA y CONSISTENTE de un cambio real.
 - FRASES COMPLETAS > Palabras sueltas
 - CONSISTENCIA > Cambios repentinos
 - NO cambies de idioma por "please", "okay", "yes", "no" u otras palabras comunes
+- **PRIORIDAD DE IDIOMAS**: es (1), en (2), de (3) - sé especialmente sensible al alemán
   "pedido_items": [
     {
       "nombre_detectado": null,
@@ -1983,13 +2015,18 @@ async function detectLanguageWithGemini(text) {
       return 'es'; // Fallback
     }
     
-    const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma:
+    const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma.
+IMPORTANTE: Prioriza la detección de español, inglés y alemán (idiomas principales).
+
+Códigos de idioma:
 - "es" para español
-- "en" para inglés
-- "de" para alemán
+- "en" para inglés  
+- "de" para alemán (muy importante - detecta palabras como: ich, möchte, Tisch, reservieren, Personen, etc.)
 - "fr" para francés
 - "it" para italiano
 - "pt" para portugués
+
+Señales de alemán: ich, möchte, würde, Tisch, reservieren, Personen, für, heute, morgen, bitte, danke, etc.
 
 Texto: "${text}"
 
@@ -6384,9 +6421,9 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
         pt: 'pt-PT'  // Portugués de Portugal (no Brasil)
       };
       
-      // ESTRATEGIA MULTI-IDIOMA MEJORADA:
-      // 1. Si el idioma es español por defecto Y estamos en pasos iniciales → multi-idioma
-      // 2. Si el idioma es español por defecto Y no hay historial de conversación → multi-idioma
+      // ESTRATEGIA MULTI-IDIOMA MEJORADA CON PRIORIDAD EN ESPAÑOL, INGLÉS Y ALEMÁN:
+      // 1. Si el idioma es español por defecto Y estamos en pasos iniciales → multi-idioma con prioridad
+      // 2. Si el idioma es español por defecto Y no hay historial de conversación → multi-idioma con prioridad
       // 3. Si el idioma ya está detectado correctamente → usar ese idioma específico
       let gatherLanguage;
       const isInitialStep = currentStep === 'greeting' || currentStep === 'ask_intention';
@@ -6396,8 +6433,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       // - Estamos en pasos iniciales Y el idioma es español por defecto
       // - O si el idioma es español pero no hay historial suficiente para confiar en él
       if ((language === 'es' && isInitialStep) || (language === 'es' && hasNoHistory)) {
-        // Usar múltiples idiomas para detección automática
-        // IMPORTANTE: Incluir todos los idiomas soportados (español, inglés, alemán, italiano, francés, portugués)
+        // PRIORIDAD: Español, Inglés y Alemán son los idiomas principales
+        // Ordenar idiomas por prioridad: es, en, de primero, luego los demás
         gatherLanguage = 'es-ES,en-US,de-DE,it-IT,fr-FR,pt-PT';
       } else {
         // Una vez detectado el idioma, usar ese idioma específico para mejor precisión
@@ -6510,14 +6547,17 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
       // Si estamos usando multi-idioma, combinar hints contextuales de todos los idiomas
       // IMPORTANTE: Esto mejora significativamente la transcripción cuando el idioma aún no está detectado
+      // PRIORIDAD: Español, Inglés y Alemán son los idiomas principales
       let hints;
       if (gatherLanguage.includes(',')) {
-        // Multi-idioma: combinar hints contextuales de todos los idiomas soportados
+        // Multi-idioma: priorizar hints de es, en, de (idiomas principales)
         // Esto permite que Twilio reconozca palabras clave en cualquier idioma según el contexto
-        const allHints = ['es', 'en', 'de', 'it', 'fr', 'pt'].map(lang => 
-          getContextualHints(currentStep, lang)
-        );
-        hints = allHints.join(',');
+        const priorityLangs = ['es', 'en', 'de']; // Idiomas principales
+        const otherLangs = ['it', 'fr', 'pt']; // Otros idiomas
+        const priorityHints = priorityLangs.map(lang => getContextualHints(currentStep, lang));
+        const otherHints = otherLangs.map(lang => getContextualHints(currentStep, lang));
+        // Combinar: primero los principales, luego los demás
+        hints = [...priorityHints, ...otherHints].join(',');
       } else {
         // Una vez detectado el idioma, usar hints contextuales específicos para mejor precisión
         hints = getContextualHints(currentStep, language);
