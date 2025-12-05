@@ -368,6 +368,50 @@ function formatReservationDateTime(reservationDate, language = 'es') {
   return { formattedDate, formattedTime, date, dateString };
 }
 
+// ===== POST-PROCESAMIENTO DE TRANSCRIPCIÓN =====
+/**
+ * Post-procesa la transcripción para corregir errores comunes de STT
+ * @param {string} text - Texto transcrito por Twilio
+ * @returns {string} Texto corregido
+ */
+function postProcessTranscription(text) {
+  if (!text || typeof text !== 'string') return text;
+  
+  let corrected = text.trim();
+  
+  // Correcciones comunes de transcripción (errores frecuentes de STT)
+  const commonCorrections = [
+    // Errores de repetición de palabras
+    { pattern: /\bto ca\b/gi, replacement: 'toca' },
+    { pattern: /\btras tras\b/gi, replacement: 'tras' },
+    { pattern: /\bpito\b/gi, replacement: 'pido' },
+    { pattern: /\bcuatro\s+cuatro\b/gi, replacement: 'cuatro' },
+    { pattern: /\btres\s+tres\b/gi, replacement: 'tres' },
+    { pattern: /\bdos\s+dos\b/gi, replacement: 'dos' },
+    { pattern: /\bmesa\s+mesa\b/gi, replacement: 'mesa' },
+    { pattern: /\breserva\s+reserva\b/gi, replacement: 'reserva' },
+    
+    // Normalizar variantes comunes
+    { pattern: /\btabla\b/gi, replacement: 'mesa' }, // "tabla" es común pero "mesa" es más correcto
+    
+    // Normalizar espacios múltiples
+    { pattern: /\s+/g, replacement: ' ' },
+    
+    // Limpiar caracteres extraños al inicio/final
+    { pattern: /^[^\w\s]+|[^\w\s]+$/g, replacement: '' }
+  ];
+  
+  // Aplicar correcciones
+  for (const correction of commonCorrections) {
+    corrected = corrected.replace(correction.pattern, correction.replacement);
+  }
+  
+  // Normalizar espacios finales
+  corrected = corrected.trim();
+  
+  return corrected;
+}
+
 // ===== HELPER PARA EXTRAER TEXTO DE RESPUESTA DE VERTEX AI =====
 /**
  * Extrae el texto de la respuesta de Vertex AI (compatible con diferentes formatos)
@@ -848,6 +892,12 @@ module.exports = async function handler(req, res) {
     });
     // CRÍTICO: Filtrar webhooks vacíos ANTES de cargar estado para evitar procesamiento innecesario
     let userInput = SpeechResult || Digits || '';
+    
+    // MEJORADO: Post-procesamiento básico para corregir errores comunes de transcripción
+    if (userInput && userInput.trim().length > 0) {
+      userInput = postProcessTranscription(userInput);
+    }
+    
     const isProcessing = req.query && req.query.process === 'true';
     const isCallEnding = CallStatus && CallStatus !== 'in-progress';
     const hasValidInput = userInput && userInput.trim().length >= 2;
@@ -1452,14 +1502,17 @@ a menos que haya evidencia CLARA y CONSISTENTE de un cambio real.
    - El idioma que aparece en la MAYORÍA de los mensajes del historial es el idioma de la conversación.
    - MANTÉN ese idioma incluso si el texto actual contiene palabras de otro idioma.
 
-2. **PALABRAS AISLADAS NO CAMBIAN EL IDIOMA**:
+2. **PALABRAS AISLADAS NO CAMBIAN EL IDIOMA (CRÍTICO)**:
    - Palabras comunes que se usan en múltiples idiomas NO indican cambio de idioma:
      * "please", "okay", "ok", "yes", "no", "hello", "hi", "thanks", "thank you"
      * Números: "one", "two", "three" pueden aparecer en cualquier idioma
      * Expresiones de cortesía: "por favor", "gracias", "danke", "merci"
-   - Si toda la conversación ha sido en español y el usuario dice "please" o "okay", 
+   - Si toda la conversación ha sido en español y el usuario dice "please" o "okay" o "hello", 
      el idioma sigue siendo español. Estas son palabras prestadas comunes.
    - Si toda la conversación ha sido en alemán y el usuario dice "okay", el idioma sigue siendo alemán.
+   - **REGLA DE ORO**: Si el bot ha hablado en un idioma (ej: español) y el usuario responde con 
+     una sola palabra común en otro idioma (ej: "Hello"), MANTÉN el idioma del bot. 
+     "Hello" solo NO es suficiente para cambiar de español a inglés.
 
 3. **CUANDO SÍ CAMBIAR DE IDIOMA**:
    - SOLO cambia el idioma detectado si se cumple TODAS estas condiciones:
@@ -1821,6 +1874,98 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
 }
 
 /**
+ * Mejora la transcripción usando Google Cloud Speech-to-Text cuando hay audio disponible
+ * Esta función puede ser llamada cuando tengamos acceso al audio de Twilio (Media Streams o Record)
+ * 
+ * @param {string} audioUrl - URL del audio de Twilio
+ * @param {string} currentTranscript - Transcripción actual de Twilio (opcional, para comparación)
+ * @param {Object} context - Contexto adicional (hints, step, etc.)
+ * @returns {Promise<Object>} - Objeto con transcript mejorado, language detectado, confidence
+ */
+async function enhanceTranscriptionWithGoogleSTT(audioUrl, currentTranscript = null, context = {}) {
+  try {
+    // Importar módulo de Google Speech (lazy load para evitar errores si no está configurado)
+    const { transcribeAudioFromUrl } = require('../lib/google-speech');
+    
+    // Obtener hints contextuales basados en el paso actual
+    const step = context.step || 'greeting';
+    const hintsString = getContextualHints(step, context.language || 'es');
+    // Convertir string de hints separados por comas a array
+    const hints = hintsString.split(',').map(h => h.trim()).filter(h => h.length > 0);
+    
+    // Transcribir con Google Cloud Speech-to-Text
+    const result = await transcribeAudioFromUrl(audioUrl, {
+      encoding: 'MULAW', // Formato común en telefonía Twilio
+      sampleRateHertz: 8000, // 8kHz estándar para telefonía
+      hints: hints,
+      enableAutomaticPunctuation: true
+    });
+    
+    // Comparar con transcripción de Twilio si está disponible
+    if (currentTranscript && result.transcript) {
+      const similarity = calculateSimilarity(currentTranscript.toLowerCase(), result.transcript.toLowerCase());
+      logger.info('GOOGLE_STT_COMPARISON', {
+        twilioTranscript: currentTranscript.substring(0, 50),
+        googleTranscript: result.transcript.substring(0, 50),
+        similarity: similarity.toFixed(2),
+        googleConfidence: result.confidence.toFixed(2),
+        detectedLanguage: result.language
+      });
+      
+      // Si Google tiene mayor confianza o detecta un idioma diferente, usar su transcripción
+      if (result.confidence > 0.7 || similarity < 0.6) {
+        return {
+          transcript: result.transcript,
+          language: result.language,
+          confidence: result.confidence,
+          source: 'google_stt',
+          alternatives: result.alternatives,
+          improved: true
+        };
+      }
+    }
+    
+    return {
+      transcript: result.transcript || currentTranscript,
+      language: result.language,
+      confidence: result.confidence,
+      source: 'google_stt',
+      alternatives: result.alternatives,
+      improved: !!result.transcript
+    };
+    
+  } catch (error) {
+    logger.warn('GOOGLE_STT_ENHANCE_FAILED', {
+      error: error.message,
+      fallbackToTwilio: true
+    });
+    
+    // Fallback a transcripción de Twilio si Google STT falla
+    return {
+      transcript: currentTranscript || '',
+      language: context.language || 'es',
+      confidence: 0.5,
+      source: 'twilio',
+      improved: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Calcula similitud entre dos textos (simple, basado en palabras comunes)
+ */
+function calculateSimilarity(text1, text2) {
+  const words1 = new Set(text1.toLowerCase().split(/\s+/));
+  const words2 = new Set(text2.toLowerCase().split(/\s+/));
+  
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+  
+  return union.size > 0 ? intersection.size / union.size : 0;
+}
+
+/**
  * Detecta el idioma del texto usando Gemini (más preciso que regex)
  */
 async function detectLanguageWithGemini(text) {
@@ -2065,16 +2210,6 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
     TelefonReserva: state.data?.TelefonReserva
   };
   
-  // Log para diagnosticar si el estado está vacío cuando no debería
-  const hasDataBefore = state.data && Object.keys(state.data).length > 0;
-  if (!hasDataBefore && state.step !== 'greeting' && state.step !== 'ask_intention') {
-    log.warn('STATE_EMPTY_BEFORE_APPLY', {
-      step: state.step,
-      stateBefore: stateBefore,
-      reasoning: 'El estado está vacío en un paso avanzado. Esto puede indicar pérdida de datos.'
-    });
-  }
-  
   const attach = (data) => {
     if (!data) return { step: state.step };
     if (typeof data === 'object' && !Array.isArray(data)) {
@@ -2083,6 +2218,7 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
     return { step: state.step, value: data };
   };
 
+  // CRÍTICO: Definir log ANTES de usarlo
   const log = callLogger
     ? {
         warn: (message, data) => callLogger.warn(message, attach(data)),
@@ -2097,8 +2233,18 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
         debug: (message, data) => logger.debug(message, attach(data))
       };
   
-  // MEJORADO: Actualizar idioma - Gemini ya considera el historial en su análisis
-  // Confiar en la detección de Gemini que ya tiene el contexto del historial
+  // Log para diagnosticar si el estado está vacío cuando no debería
+  const hasDataBefore = state.data && Object.keys(state.data).length > 0;
+  if (!hasDataBefore && state.step !== 'greeting' && state.step !== 'ask_intention') {
+    log.warn('STATE_EMPTY_BEFORE_APPLY', {
+      step: state.step,
+      stateBefore: stateBefore,
+      reasoning: 'El estado está vacío en un paso avanzado. Esto puede indicar pérdida de datos.'
+    });
+  }
+  
+  // MEJORADO: Actualizar idioma con validación estricta del contexto
+  // Solo cambiar idioma si hay evidencia CLARA y el texto es suficientemente largo
   if (analysis.idioma_detectado) {
     const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
     const detectedLang = validLangs.includes(analysis.idioma_detectado) 
@@ -2113,14 +2259,39 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
         reasoning: `Idioma inicializado en applyGeminiAnalysisToState: ${detectedLang}`
       });
     } else if (detectedLang !== state.language) {
-      // Cambio de idioma: confiar en Gemini que ya consideró el historial
-      const oldLanguage = state.language;
-      state.language = detectedLang;
-      log.info('🌐 LANGUAGE_UPDATED_IN_APPLY', { 
-        oldLanguage: oldLanguage,
-        newLanguage: detectedLang,
-        reasoning: `Idioma detectado por Gemini: ${detectedLang}. Gemini ya consideró el historial de conversación en su análisis.`
-      });
+      // VALIDACIÓN ESTRICTA: Solo cambiar idioma si:
+      // 1. El texto es suficientemente largo (más de 20 caracteres o múltiples palabras)
+      // 2. El texto contiene múltiples palabras características del nuevo idioma
+      // 3. NO es solo una palabra común como "hello", "please", "okay", "yes", "no"
+      const textLength = (originalText || '').length;
+      const wordCount = (originalText || '').trim().split(/\s+/).filter(w => w.length > 0).length;
+      const isCommonWord = /^(hello|hi|please|okay|ok|yes|no|thanks|thank you|gracias|danke|merci|ciao|hola)$/i.test((originalText || '').trim());
+      
+      // Si es solo una palabra común, NO cambiar el idioma
+      if (isCommonWord || (textLength < 20 && wordCount <= 2)) {
+        log.info('🌐 LANGUAGE_CHANGE_REJECTED', { 
+          oldLanguage: state.language,
+          detectedLang: detectedLang,
+          textLength: textLength,
+          wordCount: wordCount,
+          isCommonWord: isCommonWord,
+          originalText: originalText?.substring(0, 50),
+          reasoning: `Cambio de idioma rechazado: texto muy corto o palabra común. Manteniendo idioma actual: ${state.language}`
+        });
+        // NO cambiar el idioma, mantener el actual
+      } else {
+        // Cambio válido: texto suficientemente largo y no es palabra común
+        const oldLanguage = state.language;
+        state.language = detectedLang;
+        log.info('🌐 LANGUAGE_UPDATED_IN_APPLY', { 
+          oldLanguage: oldLanguage,
+          newLanguage: detectedLang,
+          textLength: textLength,
+          wordCount: wordCount,
+          originalText: originalText?.substring(0, 50),
+          reasoning: `Idioma cambiado de ${oldLanguage} a ${detectedLang}. Texto suficientemente largo (${textLength} caracteres, ${wordCount} palabras).`
+        });
+      }
     }
   } else if (!state.language) {
     state.language = 'es';
@@ -6069,6 +6240,85 @@ function getTtsAudioUrl(text, language, baseUrl) {
 }
 
 /**
+ * Obtiene hints contextuales según el paso y idioma
+ * Esta función es accesible globalmente para uso en Google Cloud STT
+ */
+function getContextualHints(step, lang) {
+  const baseHints = {
+    es: {
+      common: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,sí,no,correcto,perfecto,vale,ok,okay',
+      people: 'uno,dos,tres,cuatro,cinco,seis,siete,ocho,nueve,diez,once,doce,trece,catorce,quince,dieciséis,diecisiete,dieciocho,diecinueve,veinte,persona,personas,comensales',
+      date: 'mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo,enero,febrero,marzo,abril,mayo,junio,julio,agosto,septiembre,octubre,noviembre,diciembre',
+      time: 'ocho,nueve,diez,once,doce,una,dos,tres,cuatro,cinco,seis,siete,ocho,nueve,diez,once,doce,trece,catorce,quince,dieciséis,diecisiete,dieciocho,diecinueve,veinte,veintiuna,veintidós,veintitrés,cero,media,cuarto,menos,de,la,mañana,tarde,noche',
+      name: 'me llamo,soy,mi nombre es,a nombre de',
+      confirm: 'sí,no,correcto,perfecto,vale,ok,okay,está bien,de acuerdo,confirmo,acepto'
+    },
+    en: {
+      common: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,yes,no,correct,perfect,ok,okay',
+      people: 'one,two,three,four,five,six,seven,eight,nine,ten,eleven,twelve,thirteen,fourteen,fifteen,sixteen,seventeen,eighteen,nineteen,twenty,person,people,guests',
+      date: 'tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday,january,february,march,april,may,june,july,august,september,october,november,december',
+      time: 'eight,nine,ten,eleven,twelve,one,two,three,four,five,six,seven,eight,nine,ten,eleven,twelve,one,two,three,four,five,six,seven,eight,nine,ten,pm,am,morning,afternoon,evening,night',
+      name: 'my name is,i am,called,named',
+      confirm: 'yes,no,correct,perfect,ok,okay,right,that\'s right,confirm,accept'
+    },
+    de: {
+      common: 'reservierung,tisch,restaurant,personen,datum,uhrzeit,name,telefon,bestätigen,stornieren,ändern,ja,nein,richtig,perfekt,ok,okay',
+      people: 'eins,zwei,drei,vier,fünf,sechs,sieben,acht,neun,zehn,elf,zwölf,dreizehn,vierzehn,fünfzehn,sechzehn,siebzehn,achtzehn,neunzehn,zwanzig,person,personen,gäste',
+      date: 'morgen,heute,übermorgen,montag,dienstag,mittwoch,donnerstag,freitag,samstag,sonntag,januar,februar,märz,april,mai,juni,juli,august,september,oktober,november,dezember',
+      time: 'acht,neun,zehn,elf,zwölf,eins,zwei,drei,vier,fünf,sechs,sieben,acht,neun,zehn,elf,zwölf,dreizehn,vierzehn,fünfzehn,sechzehn,siebzehn,achtzehn,neunzehn,zwanzig,einundzwanzig,zweiundzwanzig,dreiundzwanzig,null,halb,viertel,vor,nach,morgens,nachmittags,abends',
+      name: 'ich heiße,ich bin,mein name ist,namens',
+      confirm: 'ja,nein,richtig,perfekt,ok,okay,genau,stimmt,bestätigen,akzeptieren'
+    },
+    it: {
+      common: 'prenotazione,tavolo,ristorante,persone,data,ora,nome,telefono,confermare,annullare,modificare,sì,no,corretto,perfetto,ok,okay',
+      people: 'uno,due,tre,quattro,cinque,sei,sette,otto,nove,dieci,undici,dodici,tredici,quattordici,quindici,sedici,diciassette,diciotto,diciannove,venti,persona,persone,ospiti',
+      date: 'domani,oggi,dopodomani,lunedì,martedì,mercoledì,giovedì,venerdì,sabato,domenica,gennaio,febbraio,marzo,aprile,maggio,giugno,luglio,agosto,settembre,ottobre,novembre,dicembre',
+      time: 'otto,nove,dieci,undici,dodici,una,due,tre,quattro,cinque,sei,sette,otto,nove,dieci,undici,dodici,una,due,tre,quattro,cinque,sei,sette,otto,nove,dieci,mattina,pomeriggio,sera,notte',
+      name: 'mi chiamo,sono,il mio nome è,a nome di',
+      confirm: 'sì,no,corretto,perfetto,ok,okay,va bene,d\'accordo,confermo,accetto'
+    },
+    fr: {
+      common: 'réservation,table,restaurant,personnes,date,heure,nom,téléphone,confirmer,annuler,modifier,oui,non,correct,parfait,ok,okay',
+      people: 'un,deux,trois,quatre,cinq,six,sept,huit,neuf,dix,onze,douze,treize,quatorze,quinze,seize,dix-sept,dix-huit,dix-neuf,vingt,personne,personnes,convives',
+      date: 'demain,aujourd\'hui,après-demain,lundi,mardi,mercredi,jeudi,vendredi,samedi,dimanche,janvier,février,mars,avril,mai,juin,juillet,août,septembre,octobre,novembre,décembre',
+      time: 'huit,neuf,dix,onze,douze,une,deux,trois,quatre,cinq,six,sept,huit,neuf,dix,onze,douze,une,deux,trois,quatre,cinq,six,sept,huit,neuf,dix,matin,après-midi,soir,nuit',
+      name: 'je m\'appelle,je suis,mon nom est,au nom de',
+      confirm: 'oui,non,correct,parfait,ok,okay,d\'accord,exact,confirmer,accepter'
+    },
+    pt: {
+      common: 'reserva,mesa,restaurante,pessoas,data,hora,nome,telefone,confirmar,cancelar,modificar,sim,não,correto,perfeito,ok,okay',
+      people: 'um,dois,três,quatro,cinco,seis,sete,oito,nove,dez,onze,doze,treze,catorze,quinze,dezasseis,dezassete,dezoito,dezanove,vinte,pessoa,pessoas,comensais',
+      date: 'amanhã,hoje,depois de amanhã,segunda,terça,quarta,quinta,sexta,sábado,domingo,janeiro,fevereiro,março,abril,maio,junho,julho,agosto,setembro,outubro,novembro,dezembro',
+      time: 'oito,nove,dez,onze,doze,uma,duas,três,quatro,cinco,seis,sete,oito,nove,dez,onze,doze,uma,duas,três,quatro,cinco,seis,sete,oito,nove,dez,manhã,tarde,noite',
+      name: 'chamo-me,chamo,o meu nome é,meu nome é,a nome de',
+      confirm: 'sim,não,correto,perfeito,ok,okay,está bem,de acordo,confirmo,aceito'
+    }
+  };
+  
+  const langHints = baseHints[lang] || baseHints.es;
+  
+  // Determinar qué hints usar según el paso actual
+  let contextualHints = langHints.common;
+  
+  if (step === 'ask_people' || step === 'people_unclear') {
+    contextualHints += ',' + langHints.people;
+  } else if (step === 'ask_date' || step === 'date_unclear') {
+    contextualHints += ',' + langHints.date;
+  } else if (step === 'ask_time' || step === 'time_unclear') {
+    contextualHints += ',' + langHints.time;
+  } else if (step === 'ask_name' || step === 'name_unclear') {
+    contextualHints += ',' + langHints.name;
+  } else if (step === 'confirm') {
+    contextualHints += ',' + langHints.confirm;
+  } else {
+    // Para otros pasos, incluir todos los hints relevantes
+    contextualHints += ',' + langHints.people + ',' + langHints.date + ',' + langHints.time + ',' + langHints.name + ',' + langHints.confirm;
+  }
+  
+  return contextualHints;
+}
+
+/**
  * Genera TwiML usando la voz Algieba de Google Cloud Text-to-Speech
  * Usa <Play> en lugar de <Say> para reproducir audio generado por TTS
  */
@@ -6255,46 +6505,40 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       };
       const noInputMessage = getRandomMessage(noInputMessages[language] || noInputMessages.es);
       
-      // Palabras clave del dominio para mejorar el reconocimiento de voz
-      // MEJORADO: Hints más completos con más palabras clave por idioma
-      // Esto ayuda especialmente con ruido de fondo y habla imperfecta
-      const speechHints = {
-        es: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo,cuatro,cinco,seis,siete,ocho,nueve,diez,once,doce,trece,catorce,quince,dieciséis,diecisiete,dieciocho,diecinueve,veinte',
-        en: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday,four,five,six,seven,eight,nine,ten,eleven,twelve,thirteen,fourteen,fifteen,sixteen,seventeen,eighteen,nineteen,twenty',
-        de: 'reservierung,tisch,restaurant,personen,datum,uhrzeit,name,telefon,bestätigen,stornieren,ändern,morgen,heute,übermorgen,montag,dienstag,mittwoch,donnerstag,freitag,samstag,sonntag,vier,fünf,sechs,sieben,acht,neun,zehn,elf,zwölf,dreizehn,vierzehn,fünfzehn,sechzehn,siebzehn,achtzehn,neunzehn,zwanzig',
-        it: 'prenotazione,tavolo,ristorante,persone,data,ora,nome,telefono,confermare,annullare,modificare,domani,oggi,dopodomani,lunedì,martedì,mercoledì,giovedì,venerdì,sabato,domenica,quattro,cinque,sei,sette,otto,nove,dieci,undici,dodici,tredici,quattordici,quindici,sedici,diciassette,diciotto,diciannove,venti',
-        fr: 'réservation,table,restaurant,personnes,date,heure,nom,téléphone,confirmer,annuler,modifier,demain,aujourd\'hui,après-demain,lundi,mardi,mercredi,jeudi,vendredi,samedi,dimanche,quatre,cinq,six,sept,huit,neuf,dix,onze,douze,treize,quatorze,quinze,seize,dix-sept,dix-huit,dix-neuf,vingt',
-        pt: 'reserva,mesa,restaurante,pessoas,data,hora,nome,telefone,confirmar,cancelar,modificar,amanhã,hoje,depois de amanhã,segunda,terça,quarta,quinta,sexta,sábado,domingo,quatro,cinco,seis,sete,oito,nove,dez,onze,doze,treze,catorze,quinze,dezasseis,dezassete,dezoito,dezanove,vinte'
-      };
+      // MEJORADO: Hints dinámicos según el contexto de la conversación
+      // getContextualHints ahora está definida globalmente arriba
 
-      // Si estamos usando multi-idioma, combinar hints de todos los idiomas
+      // Si estamos usando multi-idioma, combinar hints contextuales de todos los idiomas
       // IMPORTANTE: Esto mejora significativamente la transcripción cuando el idioma aún no está detectado
       let hints;
       if (gatherLanguage.includes(',')) {
-        // Multi-idioma: combinar hints de todos los idiomas soportados
-        // Esto permite que Twilio reconozca palabras clave en cualquier idioma
-        hints = [
-          speechHints.es,
-          speechHints.en,
-          speechHints.de,
-          speechHints.it,
-          speechHints.fr,
-          speechHints.pt
-        ].join(',');
+        // Multi-idioma: combinar hints contextuales de todos los idiomas soportados
+        // Esto permite que Twilio reconozca palabras clave en cualquier idioma según el contexto
+        const allHints = ['es', 'en', 'de', 'it', 'fr', 'pt'].map(lang => 
+          getContextualHints(currentStep, lang)
+        );
+        hints = allHints.join(',');
       } else {
-        // Una vez detectado el idioma, usar solo los hints de ese idioma para mejor precisión
-        hints = speechHints[language] || speechHints.es;
+        // Una vez detectado el idioma, usar hints contextuales específicos para mejor precisión
+        hints = getContextualHints(currentStep, language);
       }
 
-      // Configuración optimizada para máxima velocidad y naturalidad:
+      // Configuración optimizada para máxima precisión y naturalidad:
       // - speechTimeout="auto": Twilio detecta automáticamente cuando el usuario terminó de hablar (más rápido y natural)
       // - timeout="auto": Twilio ajusta automáticamente el tiempo total según el contexto
       // - IMPORTANTE: "auto" detecta pausas naturales y procesa inmediatamente cuando detecta que terminaste de hablar
       // - Esto da la sensación de respuesta instantánea sin vacíos entre frases
-      // - hints: palabras clave del dominio mejoran el reconocimiento
+      // - hints: palabras clave contextuales mejoran el reconocimiento según el paso actual
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
-      // - enhanced: mejora el reconocimiento
+      // - enhanced: mejora el reconocimiento usando modelos avanzados
+      // - finishOnKey: permite terminar con # si el usuario lo prefiere (accesibilidad)
       // NOTA: partialResultCallback fue eliminado porque causaba múltiples requests por interacción
+      // MEJORADO: Limitar longitud de hints (Twilio tiene límite de ~500 caracteres)
+      const maxHintsLength = 450; // Dejar margen de seguridad
+      const truncatedHints = hints.length > maxHintsLength 
+        ? hints.substring(0, maxHintsLength).replace(/,[^,]*$/, '') // Cortar en la última coma completa
+        : hints;
+      
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
@@ -6304,9 +6548,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     language="${gatherLanguage}"
     speechTimeout="auto"
     timeout="auto"
-    hints="${hints}"
+    hints="${truncatedHints}"
     profanityFilter="true"
-    enhanced="true">
+    enhanced="true"
+    finishOnKey="#">
     ${twimlContent}
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
