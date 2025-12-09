@@ -6565,11 +6565,11 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
         hints = getContextualHints(currentStep, language);
       }
 
-      // Configuración optimizada para máxima precisión y naturalidad:
-      // - speechTimeout="auto": Twilio detecta automáticamente cuando el usuario terminó de hablar (más rápido y natural)
-      // - timeout="auto": Twilio ajusta automáticamente el tiempo total según el contexto
-      // - IMPORTANTE: "auto" detecta pausas naturales y procesa inmediatamente cuando detecta que terminaste de hablar
-      // - Esto da la sensación de respuesta instantánea sin vacíos entre frases
+      // Configuración optimizada para dar tiempo suficiente al usuario:
+      // - speechTimeout="5": Espera 5 segundos de silencio antes de procesar (permite pausas naturales y frases largas)
+      // - timeout="15": Tiempo total máximo de 15 segundos para capturar la respuesta completa
+      // - IMPORTANTE: Valores generosos para evitar cortar al usuario mientras habla
+      // - Esto previene que el sistema cuelgue mientras el usuario está hablando
       // - hints: palabras clave contextuales mejoran el reconocimiento según el paso actual
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
       // - enhanced: mejora el reconocimiento usando modelos avanzados
@@ -6588,8 +6588,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="auto"
-    timeout="auto"
+    speechTimeout="5"
+    timeout="15"
     hints="${truncatedHints}"
     profanityFilter="true"
     enhanced="true"
@@ -6677,7 +6677,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     const hints = speechHints[language] || speechHints.es;
 
     // Usar Gather para capturar la respuesta del usuario
-    // Configuración mejorada para entornos ruidosos y habla imperfecta
+    // Configuración mejorada con timeouts generosos para evitar cortar al usuario
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
@@ -6685,8 +6685,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="auto"
-    timeout="auto"
+    speechTimeout="5"
+    timeout="15"
     hints="${hints}"
     profanityFilter="true"
     enhanced="true">
