@@ -1489,100 +1489,95 @@ ${menuStr}
   
 NOTA CRÍTICA SOBRE DETECCIÓN DE IDIOMA (MUY IMPORTANTE - LEE CON ATENCIÓN):
 
+## ⚠️ REGLA FUNDAMENTAL: ANALIZA TODA LA FRASE COMPLETA, NO PALABRAS AISLADAS
+
+**NUNCA determines el idioma basándote en una sola palabra. SIEMPRE analiza TODA la frase completa antes de decidir.**
+
+Ejemplos de lo que NO debes hacer:
+- ❌ Si el usuario dice solo "Hello" → NO asumas que es inglés
+- ❌ Si el usuario dice solo "Hola" → NO asumas que es español  
+- ❌ Si el usuario dice solo "Hallo" → NO asumas que es alemán
+
+Ejemplos de lo que SÍ debes hacer:
+- ✅ Si el usuario dice "Hello, I would like to make a reservation" → Analiza TODA la frase → Es inglés
+- ✅ Si el usuario dice "Hola, quisiera reservar una mesa" → Analiza TODA la frase → Es español
+- ✅ Si el usuario dice "Hallo, ich möchte einen Tisch reservieren" → Analiza TODA la frase → Es alemán
+
 ## PRIORIDAD DE IDIOMAS: Español, Inglés y Alemán son los idiomas principales
 - "es" (Español) - PRIORIDAD 1
 - "en" (Inglés) - PRIORIDAD 2  
 - "de" (Alemán) - PRIORIDAD 3 (MUY IMPORTANTE - idioma principal de clientes)
 
-## PRINCIPIO FUNDAMENTAL: EL CONTEXTO ES REY
-El idioma de la conversación se determina por el CONTEXTO COMPLETO, no por palabras aisladas. 
-Analiza TODO el historial de conversación para identificar el idioma predominante y MANTÉN ese idioma 
-a menos que haya evidencia CLARA y CONSISTENTE de un cambio real.
+## PRINCIPIO FUNDAMENTAL: EL CONTEXTO COMPLETO ES REY
 
-## DETECCIÓN ESPECÍFICA DE ALEMÁN (MUY IMPORTANTE):
-Palabras y frases características del alemán que DEBES reconocer:
-- "ich" (yo), "möchte" (quisiera), "würde" (me gustaría), "hätte" (tendría)
-- "Tisch" (mesa), "reservieren" (reservar), "Reservierung" (reservación)
-- "Personen" (personas), "für" (para), "heute" (hoy), "morgen" (mañana)
-- "bitte" (por favor), "danke" (gracias), "gern" (con gusto)
-- "wie viele" (cuántos), "wann" (cuándo), "um" (a las)
-- Estructuras típicas: "Ich möchte...", "Könnte ich...", "Hätte ich gerne..."
-- Si detectas estas palabras o estructuras, marca "idioma_detectado": "de" INMEDIATAMENTE
+1. **PRIMERA INTERACCIÓN (SIN HISTORIAL)**:
+   - Analiza TODA la frase completa que el usuario ha dicho
+   - Busca la estructura gramatical completa, no palabras individuales
+   - Palabras comunes como "hello", "okay", "yes", "no", "please" aparecen en muchos idiomas
+   - Si la frase es muy corta (menos de 3 palabras) y no tiene estructura clara, usa español como predeterminado
+   - Si la frase tiene estructura gramatical clara, identifica el idioma basándote en:
+     * La estructura completa de la frase
+     * Múltiples palabras características del idioma
+     * Patrones gramaticales típicos del idioma
 
-## REGLAS DE DETECCIÓN DE IDIOMA:
+2. **CON HISTORIAL DE CONVERSACIÓN**:
+   - El idioma PREDOMINANTE en el historial es el idioma de la conversación
+   - MANTÉN ese idioma incluso si el texto actual contiene palabras de otro idioma
+   - SOLO cambia el idioma si el texto actual es una FRASE COMPLETA y CLARA en otro idioma
 
-1. **ANÁLISIS DEL HISTORIAL (PRIORITARIO)**:
-   - Si existe historial de conversación, identifica el idioma PREDOMINANTE en ese historial.
-   - Cuenta cuántos mensajes del usuario están en cada idioma.
-   - El idioma que aparece en la MAYORÍA de los mensajes del historial es el idioma de la conversación.
-   - MANTÉN ese idioma incluso si el texto actual contiene palabras de otro idioma.
-
-2. **PALABRAS AISLADAS NO CAMBIAN EL IDIOMA (CRÍTICO)**:
+3. **PALABRAS AISLADAS NUNCA CAMBIAN EL IDIOMA (CRÍTICO)**:
    - Palabras comunes que se usan en múltiples idiomas NO indican cambio de idioma:
      * "please", "okay", "ok", "yes", "no", "hello", "hi", "thanks", "thank you"
-     * Números: "one", "two", "three" pueden aparecer en cualquier idioma
-     * Expresiones de cortesía: "por favor", "gracias", "danke", "merci"
-   - Si toda la conversación ha sido en español y el usuario dice "please" o "okay" o "hello", 
-     el idioma sigue siendo español. Estas son palabras prestadas comunes.
-   - Si toda la conversación ha sido en alemán y el usuario dice "okay", el idioma sigue siendo alemán.
-   - **REGLA DE ORO**: Si el bot ha hablado en un idioma (ej: español) y el usuario responde con 
-     una sola palabra común en otro idioma (ej: "Hello"), MANTÉN el idioma del bot. 
-     "Hello" solo NO es suficiente para cambiar de español a inglés.
+     * "por favor", "gracias", "danke", "merci", "bitte"
+     * Números en cualquier idioma
+   - **REGLA DE ORO**: Una sola palabra común (como "Hello") NO es suficiente para cambiar de idioma
+   - Si el bot habló en español y el usuario dice solo "Hello", el idioma sigue siendo español
+   - Si el bot habló en alemán y el usuario dice solo "okay", el idioma sigue siendo alemán
 
-3. **CUANDO SÍ CAMBIAR DE IDIOMA**:
-   - SOLO cambia el idioma detectado si se cumple TODAS estas condiciones:
-     a) El texto actual es suficientemente largo (más de 20 caracteres o múltiples palabras)
-     b) El texto contiene MÚLTIPLES palabras características del nuevo idioma (no solo una)
-     c) La estructura gramatical del texto es claramente del nuevo idioma
-     d) El texto forma una frase completa en el nuevo idioma
-   - Ejemplo válido de cambio: Si el historial es en español y el usuario dice una frase completa 
-     en inglés como "I would like to make a reservation for four people tomorrow at eight o'clock"
+4. **CUANDO SÍ CAMBIAR DE IDIOMA**:
+   - SOLO cambia el idioma si se cumple TODAS estas condiciones:
+     a) El texto es una FRASE COMPLETA (más de 3 palabras o más de 20 caracteres)
+     b) El texto tiene ESTRUCTURA GRAMATICAL CLARA del nuevo idioma
+     c) El texto contiene MÚLTIPLES palabras características del nuevo idioma (no solo una)
+     d) El texto forma una oración completa y coherente en el nuevo idioma
+   - Ejemplo válido: "I would like to make a reservation for four people tomorrow at eight o'clock"
+   - Ejemplo NO válido: Solo "Hello" o "Yes" o "Okay"
 
-4. **MANEJO DE ERRORES DE TRANSCRIPCIÓN**:
-   - Si el texto parece mal transcrito (palabras sin sentido, caracteres extraños, etc.):
-     * Analiza el PATRÓN GENERAL del texto, no palabras individuales
-     * Busca estructuras gramaticales características del idioma
-     * Considera el contexto del historial: si el historial es en alemán y el texto mal transcrito 
-       tiene estructura alemana, mantén alemán
-   - Errores comunes de transcripción:
-     * Palabras cortadas o incompletas
-     * Caracteres especiales mal interpretados
-     * Nombres propios mal transcritos
-     * Ruido de fondo interpretado como palabras
-
-5. **INDICADORES DE IDIOMA (USAR EN CONJUNTO, NO AISLADOS)**:
-   - Estructura gramatical completa (no solo palabras sueltas)
-   - Múltiples palabras características del idioma en la misma frase
-   - Patrones de sintaxis típicos del idioma
-   - Consistencia con el historial previo
-
-6. **PRIMERA INTERACCIÓN**:
-   - Si no hay historial previo, analiza el texto completo para detectar el idioma.
-   - Si el texto es muy corto o ambiguo, usa español como predeterminado.
-   - **PRIORIDAD ESPECIAL PARA ALEMÁN**: Si detectas palabras alemanas características (ich, möchte, Tisch, reservieren, Personen, etc.), marca "de" INMEDIATAMENTE, incluso en primera interacción.
-
-7. **DETECCIÓN ESPECÍFICA DE ALEMÁN (MUY IMPORTANTE - PRIORIDAD 3)**:
-   - Palabras clave alemanas que DEBES reconocer:
+5. **DETECCIÓN ESPECÍFICA DE ALEMÁN (MUY IMPORTANTE - PRIORIDAD 3)**:
+   - Analiza TODA la frase para detectar alemán, no solo palabras sueltas
+   - Palabras clave alemanas (solo si aparecen en una frase completa):
      * "ich" (yo), "möchte" (quisiera), "würde" (me gustaría), "hätte" (tendría)
      * "Tisch" (mesa), "reservieren" (reservar), "Reservierung" (reservación)
      * "Personen" (personas), "für" (para), "heute" (hoy), "morgen" (mañana)
      * "bitte" (por favor), "danke" (gracias), "gern" (con gusto)
      * "wie viele" (cuántos), "wann" (cuándo), "um" (a las), "Uhr" (hora)
-   - Estructuras típicas alemanas:
+   - Estructuras típicas alemanas (frases completas):
      * "Ich möchte einen Tisch reservieren" (Quisiera reservar una mesa)
-     * "Könnte ich..." (Podría yo...)
-     * "Hätte ich gerne..." (Me gustaría tener...)
+     * "Könnte ich einen Tisch für vier Personen reservieren?" (Podría reservar una mesa para cuatro personas?)
+     * "Hätte ich gerne eine Reservierung" (Me gustaría tener una reservación)
      * "für X Personen" (para X personas)
-   - Si detectas estas palabras o estructuras, marca "idioma_detectado": "de" INMEDIATAMENTE
-   - El alemán es un idioma principal (prioridad 3), así que sé especialmente sensible a sus características
+   - Si detectas estas estructuras en una FRASE COMPLETA, marca "idioma_detectado": "de"
 
-## RESUMEN:
-- CONTEXTO > Palabras aisladas
-- HISTORIAL > Texto actual aislado  
-- FRASES COMPLETAS > Palabras sueltas
-- CONSISTENCIA > Cambios repentinos
-- NO cambies de idioma por "please", "okay", "yes", "no" u otras palabras comunes
-- **PRIORIDAD DE IDIOMAS**: es (1), en (2), de (3) - sé especialmente sensible al alemán
+6. **ANÁLISIS DE ESTRUCTURA GRAMATICAL**:
+   - Analiza la estructura completa de la frase, no palabras individuales
+   - Busca patrones gramaticales típicos de cada idioma
+   - Considera el orden de las palabras, conjugaciones verbales, artículos, etc.
+   - Una frase con estructura gramatical clara de un idioma indica ese idioma
+
+7. **MANEJO DE ERRORES DE TRANSCRIPCIÓN**:
+   - Si el texto parece mal transcrito, analiza el PATRÓN GENERAL, no palabras individuales
+   - Busca estructuras gramaticales características del idioma
+   - Considera el contexto del historial
+
+## RESUMEN - REGLAS DE ORO:
+1. **SIEMPRE analiza TODA la frase completa antes de decidir el idioma**
+2. **NUNCA cambies de idioma por una sola palabra común** (hello, okay, yes, no, etc.)
+3. **PALABRAS AISLADAS NO INDICAN IDIOMA** - solo frases completas con estructura gramatical
+4. **CONTEXTO COMPLETO > Palabras aisladas**
+5. **HISTORIAL > Texto actual aislado**  
+6. **FRASES COMPLETAS > Palabras sueltas**
+7. **CONSISTENCIA > Cambios repentinos**
+8. **PRIORIDAD DE IDIOMAS**: es (1), en (2), de (3) - sé especialmente sensible al alemán en frases completas
   "pedido_items": [
     {
       "nombre_detectado": null,
@@ -2302,22 +2297,29 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
       // 3. NO es solo una palabra común como "hello", "please", "okay", "yes", "no"
       const textLength = (originalText || '').length;
       const wordCount = (originalText || '').trim().split(/\s+/).filter(w => w.length > 0).length;
-      const isCommonWord = /^(hello|hi|please|okay|ok|yes|no|thanks|thank you|gracias|danke|merci|ciao|hola)$/i.test((originalText || '').trim());
       
-      // Si es solo una palabra común, NO cambiar el idioma
-      if (isCommonWord || (textLength < 20 && wordCount <= 2)) {
+      // Lista expandida de palabras comunes que NUNCA deben cambiar el idioma
+      const commonWordsPattern = /^(hello|hi|please|okay|ok|yes|no|thanks|thank you|gracias|danke|merci|ciao|hola|bitte|por favor|sí|si|ja|nein|oui|non)$/i;
+      const isCommonWord = commonWordsPattern.test((originalText || '').trim());
+      
+      // REGLA CRÍTICA: Requiere FRASE COMPLETA (mínimo 3 palabras Y 20 caracteres)
+      // NUNCA cambiar por palabras aisladas o frases muy cortas
+      const hasMinimumStructure = wordCount >= 3 && textLength >= 20;
+      
+      if (isCommonWord || !hasMinimumStructure) {
         log.info('🌐 LANGUAGE_CHANGE_REJECTED', { 
           oldLanguage: state.language,
           detectedLang: detectedLang,
           textLength: textLength,
           wordCount: wordCount,
           isCommonWord: isCommonWord,
+          hasMinimumStructure: hasMinimumStructure,
           originalText: originalText?.substring(0, 50),
-          reasoning: `Cambio de idioma rechazado: texto muy corto o palabra común. Manteniendo idioma actual: ${state.language}`
+          reasoning: `Cambio de idioma rechazado: se requiere una FRASE COMPLETA (mínimo 3 palabras y 20 caracteres) para cambiar de idioma. Texto actual: ${wordCount} palabras, ${textLength} caracteres. Manteniendo idioma actual: ${state.language}`
         });
         // NO cambiar el idioma, mantener el actual
       } else {
-        // Cambio válido: texto suficientemente largo y no es palabra común
+        // Cambio válido: FRASE COMPLETA con estructura gramatical clara
         const oldLanguage = state.language;
         state.language = detectedLang;
         log.info('🌐 LANGUAGE_UPDATED_IN_APPLY', { 
@@ -2326,7 +2328,7 @@ async function applyGeminiAnalysisToState(analysis, state, callLogger, originalT
           textLength: textLength,
           wordCount: wordCount,
           originalText: originalText?.substring(0, 50),
-          reasoning: `Idioma cambiado de ${oldLanguage} a ${detectedLang}. Texto suficientemente largo (${textLength} caracteres, ${wordCount} palabras).`
+          reasoning: `Idioma cambiado de ${oldLanguage} a ${detectedLang}. Se detectó una FRASE COMPLETA (${wordCount} palabras, ${textLength} caracteres) con estructura gramatical clara.`
         });
       }
     }
