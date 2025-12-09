@@ -391,6 +391,20 @@ function postProcessTranscription(text) {
     { pattern: /\bmesa\s+mesa\b/gi, replacement: 'mesa' },
     { pattern: /\breserva\s+reserva\b/gi, replacement: 'reserva' },
     
+    // CORRECCIONES CRÍTICAS: Palabras mal transcritas comunes
+    // "Area" es comúnmente "Querría" o "Quisiera" mal transcrito
+    { pattern: /\barea\b/gi, replacement: 'querría' },
+    { pattern: /\bare a\b/gi, replacement: 'querría' },
+    { pattern: /\barear\b/gi, replacement: 'querría' },
+    { pattern: /\bquería\b/gi, replacement: 'querría' }, // Normalizar variante
+    { pattern: /\bquerria\b/gi, replacement: 'querría' }, // Sin tilde
+    { pattern: /\bquisiera\b/gi, replacement: 'quisiera' }, // Asegurar correcto
+    { pattern: /\bquisiera\b/gi, replacement: 'quisiera' }, // Mantener correcto
+    
+    // Otras correcciones comunes
+    { pattern: /\breservar\s+mesa\b/gi, replacement: 'reservar mesa' },
+    { pattern: /\bhacer\s+reserva\b/gi, replacement: 'hacer reserva' },
+    
     // Normalizar variantes comunes
     { pattern: /\btabla\b/gi, replacement: 'mesa' }, // "tabla" es común pero "mesa" es más correcto
     
@@ -1862,10 +1876,15 @@ async function detectIntentionWithGemini(text, context = {}) {
     
     const prompt = `Analiza este texto del cliente de un restaurante y determina su intención.
 Responde SOLO con una de estas opciones:
-- "reservation": Quiere hacer una nueva reserva (reservar mesa, hacer reserva, etc.)
+- "reservation": Quiere hacer una nueva reserva (reservar mesa, hacer reserva, querría, quisiera, me gustaría, etc.)
 - "modify": Quiere modificar una reserva existente (cambiar fecha, hora, personas, etc.)
 - "cancel": Quiere cancelar una reserva existente (cancelar, anular, etc.)
 - "clarify": El texto es ambiguo o no indica una intención clara
+
+IMPORTANTE: 
+- Si el texto contiene palabras como "querría", "quisiera", "me gustaría", "quiero", "necesito", "deseo" o similares, marca "reservation"
+- Si el texto parece mal transcrito pero tiene estructura de intención de reserva, marca "reservation"
+- Solo marca "clarify" si realmente no hay ninguna indicación de intención
 
 Texto: "${text}"
 
@@ -4313,7 +4332,24 @@ async function processConversationStep(state, userInput, callLogger, performance
               }
             }
             
-            // Si no hay datos útiles, usar mensaje de clarify
+            // Si no hay datos útiles, pero estamos en greeting, ser proactivo
+            // En greeting, si el usuario dice algo (aunque sea mal transcrito), asumir que quiere hacer reserva
+            if (state.step === 'greeting') {
+              log.info('CLARIFY_IN_GREETING_NO_DATA', {
+                userInput: userInput,
+                reasoning: 'Intención es "clarify" sin datos en greeting. Asumiendo que el usuario quiere hacer una reserva y empezando a preguntar por personas.'
+              });
+              
+              // Asumir que quiere hacer una reserva y empezar el proceso
+              state.step = 'ask_people';
+              const reservationMessages = getMultilingualMessages('reservation', state.language);
+              return {
+                message: getRandomMessage(reservationMessages),
+                gather: true
+              };
+            }
+            
+            // Si no hay datos útiles y no estamos en greeting, usar mensaje de clarify
             const clarifyMessages = getMultilingualMessages('clarify', state.language);
             return {
               message: getRandomMessage(clarifyMessages),
