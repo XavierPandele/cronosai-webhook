@@ -3547,6 +3547,95 @@ async function handleOrderConfirm(state, userInput, callLogger) {
   };
 }
 
+/**
+ * Verifica si hay cambio de intención en la respuesta del usuario
+ * Permite cambiar de intención en cualquier momento de la conversación
+ * @param {Object} analysis - Análisis de Gemini
+ * @param {Object} state - Estado actual de la conversación
+ * @param {string} userInput - Input del usuario
+ * @param {Object} callLogger - Logger
+ * @returns {Object|null} - Retorna el resultado del cambio de intención o null si no hay cambio
+ */
+async function checkIntentionChange(analysis, state, userInput, callLogger) {
+  if (!analysis || !analysis.intencion) {
+    return null;
+  }
+  
+  const currentIntention = state.currentIntention || 'reservation';
+  const detectedIntention = analysis.intencion;
+  
+  // Si la intención detectada es diferente a la actual, cambiar
+  if (detectedIntention !== currentIntention && detectedIntention !== 'clarify') {
+    const log = callLogger || logger;
+    log.info('🔄 INTENTION_CHANGE_DETECTED', {
+      oldIntention: currentIntention,
+      newIntention: detectedIntention,
+      userInput: userInput?.substring(0, 50),
+      reasoning: `Usuario cambió de intención de ${currentIntention} a ${detectedIntention}`
+    });
+    
+    // Actualizar intención actual
+    state.currentIntention = detectedIntention;
+    
+    // Manejar según la nueva intención
+    if (detectedIntention === 'modify') {
+      return await handleModificationRequest(state, userInput);
+    } else if (detectedIntention === 'cancel') {
+      return await handleCancellationRequest(state, userInput);
+    } else if (detectedIntention === 'order') {
+      return await handleOrderIntent(state, analysis, callLogger, userInput);
+    } else if (detectedIntention === 'reservation') {
+      // Cambiar a reserva - aplicar análisis y continuar con reserva
+      const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+      conversationStates.set(state.callSid, state);
+      
+      // CRÍTICO: Verificar errores de validación después de aplicar análisis
+      if (!applyResult.success && applyResult.error === 'people_too_many') {
+        const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
+        return {
+          message: getRandomMessage(maxPeopleMessages),
+          gather: true
+        };
+      }
+      
+      // Verificar si hay error de horario (validado por Gemini)
+      if (state.data.horaError === 'fuera_horario') {
+        const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+        delete state.data.HoraReserva;
+        delete state.data.horaError;
+        return {
+          message: getRandomMessage(timeErrorMessages),
+          gather: true
+        };
+      }
+      
+      // Determinar qué falta y continuar con el flujo de reserva
+      const missing = determineMissingFields(analysis, state.data);
+      
+      if (missing.length === 0) {
+        if (!state.data.TelefonReserva) {
+          state.data.TelefonReserva = state.phone;
+        }
+        state.step = 'confirm';
+        return {
+          message: getConfirmationMessage(state.data, state.language),
+          gather: true
+        };
+      } else {
+        const nextField = missing[0];
+        state.step = `ask_${nextField}`;
+        const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+        return {
+          message: partialMessage,
+          gather: true
+        };
+      }
+    }
+  }
+  
+  return null; // No hay cambio de intención
+}
+
 async function processConversationStep(state, userInput, callLogger, performanceMetrics = null, isProcessing = false) {
   // LOGGING: Loggear entrada a processConversationStep (compacto)
   const stepStartTime = Date.now();
@@ -3956,6 +4045,15 @@ async function processConversationStep(state, userInput, callLogger, performance
           const intention = analysis.intencion || 'reservation';
           log.info(`[INTENT] ${intention}`);
           
+          // Inicializar intención actual si no existe
+          if (!state.currentIntention) {
+            state.currentIntention = intention;
+            log.info('🎯 INITIAL_INTENTION_SET', {
+              intention: intention,
+              reasoning: 'Primera intención detectada, estableciendo como intención actual'
+            });
+          }
+          
           if (intention === 'reservation') {
           
             // Aplicar los datos extraídos al estado
@@ -4074,18 +4172,24 @@ async function processConversationStep(state, userInput, callLogger, performance
             }
           } else if (intention === 'modify') {
             log.info('MODIFICATION_INTENT_AT_GREETING');
+            // CRÍTICO: Actualizar intención actual antes de manejar
+            state.currentIntention = 'modify';
             const result = await handleModificationRequest(state, userInput);
             return result;
           } else if (intention === 'cancel') {
             log.info('CANCELLATION_INTENT_AT_GREETING');
+            // CRÍTICO: Actualizar intención actual antes de manejar
+            state.currentIntention = 'cancel';
             return await handleCancellationRequest(state, userInput);
           } else if (intention === 'order') {
             log.info('ORDER_INTENT_AT_GREETING');
+            // CRÍTICO: Actualizar intención actual antes de manejar
+            state.currentIntention = 'order';
             return await handleOrderIntent(state, analysis, callLogger, userInput);
           } else {
             // Intención 'clarify' o no reconocida
-            // MEJORADO: Si hay datos útiles, preguntar al usuario si quiere hacer una reserva
-            // Ejemplo: Usuario dice "a nombre de xavi" → Bot pregunta "¿Desea hacer una reserva a nombre de xavi?"
+            // MEJORADO: Si hay datos útiles, aplicar directamente y continuar con reserva
+            // Si no hay datos útiles, asumir que quiere hacer una reserva y empezar el flujo
             const hasUsefulData = analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales;
             
             if (hasUsefulData) {
@@ -4095,46 +4199,47 @@ async function processConversationStep(state, userInput, callLogger, performance
                 hasHora: Boolean(analysis.hora),
                 hasComensales: Boolean(analysis.comensales),
                 currentStep: state.step,
-                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Preguntando al usuario si quiere hacer una reserva.'
+                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Aplicando datos y continuando con reserva.'
               });
               
-              // Guardar temporalmente los datos extraídos para usarlos si el usuario confirma
-              // NO aplicar todavía, solo guardar en un campo temporal
-              state.pendingClarifyData = {
-                nombre: analysis.nombre,
-                fecha: analysis.fecha,
-                hora: analysis.hora,
-                comensales: analysis.comensales,
-                analysis: analysis // Guardar el análisis completo para aplicarlo después
-              };
+              // Aplicar los datos extraídos directamente (asumir que quiere hacer reserva)
+              const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+              conversationStates.set(state.callSid, state);
               
-              // Determinar qué mensaje mostrar según los datos extraídos
-              // Prioridad: nombre > fecha > hora > comensales
-              if (analysis.nombre) {
-                // Si hay nombre, preguntar si quiere hacer reserva a nombre de X
-                state.step = 'clarify_confirm';
-                const confirmMessages = getMultilingualMessages('clarify_reservation_confirm', state.language, { name: analysis.nombre });
+              // Determinar qué falta y continuar con el flujo de reserva
+              const missing = determineMissingFields(analysis, state.data);
+              
+              if (missing.length === 0) {
+                if (!state.data.TelefonReserva) {
+                  state.data.TelefonReserva = state.phone;
+                }
+                state.step = 'confirm';
                 return {
-                  message: getRandomMessage(confirmMessages),
+                  message: getConfirmationMessage(state.data, state.language),
                   gather: true
                 };
-              } else if (analysis.fecha || analysis.hora || analysis.comensales) {
-                // Si hay otros datos pero no nombre, preguntar si quiere hacer reserva
-                state.step = 'clarify_confirm';
-                const clarifyMessages = getMultilingualMessages('clarify', state.language);
+              } else {
+                const nextField = missing[0];
+                state.step = `ask_${nextField}`;
+                const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
                 return {
-                  message: getRandomMessage(clarifyMessages),
+                  message: partialMessage,
                   gather: true
                 };
               }
+            } else {
+              // Si no hay datos útiles, asumir que quiere hacer una reserva y empezar el flujo
+              log.info('CLARIFY_NO_USEFUL_DATA_IN_GREETING', {
+                reasoning: 'Intención es "clarify" sin datos útiles en el saludo. Asumiendo reserva y pidiendo personas.'
+              });
+              state.currentIntention = 'reservation'; // Establecer intención como reserva
+              state.step = 'ask_people';
+              const reservationMessages = getMultilingualMessages('reservation', state.language);
+              return {
+                message: getRandomMessage(reservationMessages),
+                gather: true
+              };
             }
-            
-            // Si no hay datos útiles, usar mensaje de clarify
-            const clarifyMessages = getMultilingualMessages('clarify', state.language);
-            return {
-              message: getRandomMessage(clarifyMessages),
-              gather: true
-            };
           }
         }
         
@@ -4208,6 +4313,15 @@ async function processConversationStep(state, userInput, callLogger, performance
           
           const intention = analysis.intencion || 'reservation';
           
+          // Inicializar intención actual si no existe
+          if (!state.currentIntention) {
+            state.currentIntention = intention;
+            log.info('🎯 INITIAL_INTENTION_SET', {
+              intention: intention,
+              reasoning: 'Primera intención detectada en ask_intention, estableciendo como intención actual'
+            });
+          }
+          
           if (intention === 'reservation') {
             // Aplicar análisis de Gemini al estado
             const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
@@ -4280,67 +4394,83 @@ async function processConversationStep(state, userInput, callLogger, performance
               };
             }
           } else if (intention === 'modify') {
+            // CRÍTICO: Actualizar intención actual antes de manejar
+            state.currentIntention = 'modify';
             return await handleModificationRequest(state, userInput);
           } else if (intention === 'cancel') {
+            // CRÍTICO: Actualizar intención actual antes de manejar
+            state.currentIntention = 'cancel';
             return await handleCancellationRequest(state, userInput);
           } else if (intention === 'order') {
+            // CRÍTICO: Actualizar intención actual antes de manejar
+            state.currentIntention = 'order';
             return await handleOrderIntent(state, analysis, callLogger, userInput);
           } else {
             // Intención 'clarify' o no reconocida
-            // MEJORADO: Si hay datos útiles, preguntar al usuario si quiere hacer una reserva
-            // Ejemplo: Usuario dice "a nombre de xavi" → Bot pregunta "¿Desea hacer una reserva a nombre de xavi?"
+            // MEJORADO: Si hay datos útiles, aplicar directamente y continuar con reserva (consistente con greeting)
+            // Si no hay datos útiles, asumir que quiere hacer una reserva y empezar el flujo
             const hasUsefulData = analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales;
             
             if (hasUsefulData) {
-              log.info('CLARIFY_WITH_USEFUL_DATA', {
+              log.info('CLARIFY_WITH_USEFUL_DATA_IN_ASK_INTENTION', {
                 hasNombre: Boolean(analysis.nombre),
                 hasFecha: Boolean(analysis.fecha),
                 hasHora: Boolean(analysis.hora),
                 hasComensales: Boolean(analysis.comensales),
                 currentStep: state.step,
-                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Preguntando al usuario si quiere hacer una reserva.'
+                reasoning: 'Intención es "clarify" pero Gemini extrajo datos útiles. Aplicando datos y continuando con reserva.'
               });
               
-              // Guardar temporalmente los datos extraídos para usarlos si el usuario confirma
-              // NO aplicar todavía, solo guardar en un campo temporal
-              state.pendingClarifyData = {
-                nombre: analysis.nombre,
-                fecha: analysis.fecha,
-                hora: analysis.hora,
-                comensales: analysis.comensales,
-                analysis: analysis // Guardar el análisis completo para aplicarlo después
-              };
+              // Aplicar los datos extraídos directamente (asumir que quiere hacer reserva)
+              const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+              conversationStates.set(state.callSid, state);
               
-              // Determinar qué mensaje mostrar según los datos extraídos
-              // Prioridad: nombre > fecha > hora > comensales
-              if (analysis.nombre) {
-                // Si hay nombre, preguntar si quiere hacer reserva a nombre de X
-                state.step = 'clarify_confirm';
-                const confirmMessages = getMultilingualMessages('clarify_reservation_confirm', state.language, { name: analysis.nombre });
+              // Verificar errores de validación
+              if (!applyResult.success && applyResult.error === 'people_too_many') {
+                const maxPeopleMessages = getMaxPeopleExceededMessages(state.language, applyResult.maxPersonas);
                 return {
-                  message: getRandomMessage(confirmMessages),
-                  gather: true
-                };
-              } else if (analysis.fecha || analysis.hora || analysis.comensales) {
-                // Si hay otros datos pero no nombre, preguntar si quiere hacer reserva
-                state.step = 'clarify_confirm';
-                const clarifyMessages = getMultilingualMessages('clarify', state.language);
-                return {
-                  message: getRandomMessage(clarifyMessages),
+                  message: getRandomMessage(maxPeopleMessages),
                   gather: true
                 };
               }
-            }
-            
-            // Si no hay datos útiles, pero estamos en greeting, ser proactivo
-            // En greeting, si el usuario dice algo (aunque sea mal transcrito), asumir que quiere hacer reserva
-            if (state.step === 'greeting') {
-              log.info('CLARIFY_IN_GREETING_NO_DATA', {
-                userInput: userInput,
-                reasoning: 'Intención es "clarify" sin datos en greeting. Asumiendo que el usuario quiere hacer una reserva y empezando a preguntar por personas.'
-              });
               
-              // Asumir que quiere hacer una reserva y empezar el proceso
+              if (state.data.horaError === 'fuera_horario') {
+                const timeErrorMessages = getTimeOutOfHoursMessages(state.language, state.data.HoraReserva);
+                delete state.data.HoraReserva;
+                delete state.data.horaError;
+                return {
+                  message: getRandomMessage(timeErrorMessages),
+                  gather: true
+                };
+              }
+              
+              // Determinar qué falta y continuar con el flujo de reserva
+              const missing = determineMissingFields(analysis, state.data);
+              
+              if (missing.length === 0) {
+                if (!state.data.TelefonReserva) {
+                  state.data.TelefonReserva = state.phone;
+                }
+                state.step = 'confirm';
+                return {
+                  message: getConfirmationMessage(state.data, state.language),
+                  gather: true
+                };
+              } else {
+                const nextField = missing[0];
+                state.step = `ask_${nextField}`;
+                const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+                return {
+                  message: partialMessage,
+                  gather: true
+                };
+              }
+            } else {
+              // Si no hay datos útiles, asumir que quiere hacer una reserva y empezar el flujo
+              log.info('CLARIFY_NO_USEFUL_DATA_IN_ASK_INTENTION', {
+                reasoning: 'Intención es "clarify" sin datos útiles. Asumiendo reserva y pidiendo personas.'
+              });
+              state.currentIntention = 'reservation'; // Establecer intención como reserva
               state.step = 'ask_people';
               const reservationMessages = getMultilingualMessages('reservation', state.language);
               return {
@@ -4348,13 +4478,6 @@ async function processConversationStep(state, userInput, callLogger, performance
                 gather: true
               };
             }
-            
-            // Si no hay datos útiles y no estamos en greeting, usar mensaje de clarify
-            const clarifyMessages = getMultilingualMessages('clarify', state.language);
-            return {
-              message: getRandomMessage(clarifyMessages),
-              gather: true
-            };
           }
         } else {
           // Gemini falló - usar fallback simple
@@ -4464,6 +4587,13 @@ async function processConversationStep(state, userInput, callLogger, performance
         performanceMetrics: performanceMetrics
       });
       if (peopleAnalysis) {
+        // CRÍTICO: Verificar si hay cambio de intención ANTES de procesar datos
+        const intentionChangeResult = await checkIntentionChange(peopleAnalysis, state, userInput, callLogger);
+        if (intentionChangeResult) {
+          return intentionChangeResult; // Cambio de intención detectado, retornar resultado
+        }
+        
+        // Si no hay cambio de intención, continuar con el procesamiento normal
         // MEJORADO: Si Gemini retornó null para comensales, SIEMPRE intentar fallback
         // No solo cuando tiene alta credibilidad, porque a veces Gemini no está seguro pero el número está ahí
         if (!peopleAnalysis.comensales) {
@@ -4653,6 +4783,12 @@ async function processConversationStep(state, userInput, callLogger, performance
         });
       }
       if (geminiAnalysis) {
+        // CRÍTICO: Verificar si hay cambio de intención ANTES de procesar datos
+        const intentionChangeResult = await checkIntentionChange(geminiAnalysis, state, userInput, callLogger);
+        if (intentionChangeResult) {
+          return intentionChangeResult; // Cambio de intención detectado, retornar resultado
+        }
+        
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
         conversationStates.set(state.callSid, state);
@@ -4752,6 +4888,12 @@ async function processConversationStep(state, userInput, callLogger, performance
         });
       }
       if (geminiAnalysis) {
+        // CRÍTICO: Verificar si hay cambio de intención ANTES de procesar datos
+        const intentionChangeResult = await checkIntentionChange(geminiAnalysis, state, userInput, callLogger);
+        if (intentionChangeResult) {
+          return intentionChangeResult; // Cambio de intención detectado, retornar resultado
+        }
+        
         if (geminiAnalysis.intencion === 'clarify' && !geminiAnalysis.hora) {
           const errorResponse = handleUnclearResponse(text, 'time', state.language);
           return {
@@ -4839,6 +4981,12 @@ async function processConversationStep(state, userInput, callLogger, performance
       // MEJORADO: Aplicar análisis de Gemini PRIMERO, incluso si la intención es "clarify"
       // Esto asegura que si Gemini extrae un nombre (aunque la intención sea "clarify"), se aplique
       if (geminiAnalysis) {
+        // CRÍTICO: Verificar si hay cambio de intención ANTES de procesar datos
+        const intentionChangeResult = await checkIntentionChange(geminiAnalysis, state, userInput, callLogger);
+        if (intentionChangeResult) {
+          return intentionChangeResult; // Cambio de intención detectado, retornar resultado
+        }
+        
         // IMPORTANTE: Aplicar el análisis incluso si la intención no es "reservation"
         // porque en el paso ask_name, cualquier nombre extraído debe aplicarse
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
@@ -4951,27 +5099,35 @@ async function processConversationStep(state, userInput, callLogger, performance
               performanceMetrics: performanceMetrics
             });
             
-            if (analysis && (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales)) {
-              // Hay datos útiles, aplicar y continuar
-              await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-              conversationStates.set(state.callSid, state);
+            if (analysis) {
+              // CRÍTICO: Verificar si hay cambio de intención ANTES de procesar datos
+              const intentionChangeResult = await checkIntentionChange(analysis, state, userInput, callLogger);
+              if (intentionChangeResult) {
+                return intentionChangeResult; // Cambio de intención detectado, retornar resultado
+              }
               
-              // Determinar qué falta y continuar
-              const missing = determineMissingFields(analysis || {}, state.data);
-              if (missing.length === 0) {
-                state.step = 'confirm';
-                const confirmMessage = getConfirmationMessage(state.data, state.language);
-                return {
-                  message: confirmMessage,
-                  gather: true
-                };
-              } else {
-                state.step = `ask_${missing[0]}`;
-                const nextStepMessages = getMultilingualMessages(`ask_${missing[0]}`, state.language);
-                return {
-                  message: getRandomMessage(nextStepMessages),
-                  gather: true
-                };
+              // Si hay datos útiles, aplicar y continuar
+              if (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales) {
+                await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+                conversationStates.set(state.callSid, state);
+                
+                // Determinar qué falta y continuar
+                const missing = determineMissingFields(analysis || {}, state.data);
+                if (missing.length === 0) {
+                  state.step = 'confirm';
+                  const confirmMessage = getConfirmationMessage(state.data, state.language);
+                  return {
+                    message: confirmMessage,
+                    gather: true
+                  };
+                } else {
+                  state.step = `ask_${missing[0]}`;
+                  const nextStepMessages = getMultilingualMessages(`ask_${missing[0]}`, state.language);
+                  return {
+                    message: getRandomMessage(nextStepMessages),
+                    gather: true
+                  };
+                }
               }
             }
           } catch (error) {
@@ -5006,35 +5162,43 @@ async function processConversationStep(state, userInput, callLogger, performance
               performanceMetrics: performanceMetrics
             });
             
-            if (analysis && (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales)) {
-              // Hay datos útiles, aplicar y continuar
-              await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-              conversationStates.set(state.callSid, state);
-              
-              // Si había datos pendientes, combinarlos
-              if (state.pendingClarifyData) {
-                const savedAnalysis = state.pendingClarifyData.analysis;
-                await applyGeminiAnalysisToState(savedAnalysis, state, callLogger, userInput);
-                conversationStates.set(state.callSid, state);
-                delete state.pendingClarifyData;
+            if (analysis) {
+              // CRÍTICO: Verificar si hay cambio de intención ANTES de procesar datos
+              const intentionChangeResult = await checkIntentionChange(analysis, state, userInput, callLogger);
+              if (intentionChangeResult) {
+                return intentionChangeResult; // Cambio de intención detectado, retornar resultado
               }
               
-              // Determinar qué falta y continuar
-              const missing = determineMissingFields(analysis || {}, state.data);
-              if (missing.length === 0) {
-                state.step = 'confirm';
-                const confirmMessage = getConfirmationMessage(state.data, state.language);
-                return {
-                  message: confirmMessage,
-                  gather: true
-                };
-              } else {
-                state.step = `ask_${missing[0]}`;
-                const nextStepMessages = getMultilingualMessages(`ask_${missing[0]}`, state.language);
-                return {
-                  message: getRandomMessage(nextStepMessages),
-                  gather: true
-                };
+              // Si hay datos útiles, aplicar y continuar
+              if (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales) {
+                await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
+                conversationStates.set(state.callSid, state);
+                
+                // Si había datos pendientes, combinarlos
+                if (state.pendingClarifyData) {
+                  const savedAnalysis = state.pendingClarifyData.analysis;
+                  await applyGeminiAnalysisToState(savedAnalysis, state, callLogger, userInput);
+                  conversationStates.set(state.callSid, state);
+                  delete state.pendingClarifyData;
+                }
+              
+                // Determinar qué falta y continuar
+                const missing = determineMissingFields(analysis || {}, state.data);
+                if (missing.length === 0) {
+                  state.step = 'confirm';
+                  const confirmMessage = getConfirmationMessage(state.data, state.language);
+                  return {
+                    message: confirmMessage,
+                    gather: true
+                  };
+                } else {
+                  state.step = `ask_${missing[0]}`;
+                  const nextStepMessages = getMultilingualMessages(`ask_${missing[0]}`, state.language);
+                  return {
+                    message: getRandomMessage(nextStepMessages),
+                    gather: true
+                  };
+                }
               }
             }
           } catch (error) {
@@ -5162,7 +5326,7 @@ async function processConversationStep(state, userInput, callLogger, performance
       break;
     }
 
-     case 'confirm': {
+    case 'confirm': {
        const confirmationResult = handleConfirmationResponse(text);
        
       if (confirmationResult.action === 'confirm') {
