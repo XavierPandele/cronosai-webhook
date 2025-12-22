@@ -915,6 +915,7 @@ module.exports = async function handler(req, res) {
     
     const isProcessing = req.query && req.query.process === 'true';
     const isCallEnding = CallStatus && CallStatus !== 'in-progress';
+    // Validación básica de input (solo longitud, para uso temprano)
     const hasValidInput = userInput && userInput.trim().length >= 2;
     
     // Log consolidado solo para webhooks con input válido o eventos importantes
@@ -968,6 +969,11 @@ module.exports = async function handler(req, res) {
       state.data = {};
     }
     
+    // Validación de input antes de usarlo
+    const isValidInput = userInput && 
+                        userInput.trim().length >= 2 && // Mínimo 2 caracteres
+                        !/^(ah|eh|oh|um|uh|mm|hm|eh|ah|eh)$/i.test(userInput.trim()); // Filtrar sonidos no verbales
+    
     // MEJORADO: Detección de idioma con Gemini cuando hay input válido
     // Solo detectar si:
     // 1. No hay idioma fijado aún (primeras interacciones)
@@ -988,12 +994,14 @@ module.exports = async function handler(req, res) {
           
           // Si detectamos un idioma diferente y Gemini recomienda cambiar
           if (languageDetection.shouldChange && languageDetection.confidence > 0.6) {
+            // Guardar idioma anterior antes de cambiarlo
+            const oldLanguage = state.language;
             // Cambiar idioma y fijarlo
             state.language = languageDetection.language;
             state.languageFixed = true;
             logger.info('LANGUAGE_CHANGED', {
               callSid: CallSid,
-              oldLanguage: state.language,
+              oldLanguage: oldLanguage,
               newLanguage: languageDetection.language,
               confidence: languageDetection.confidence
             });
@@ -1031,18 +1039,12 @@ module.exports = async function handler(req, res) {
       userInput = userInput.substring(0, MAX_INPUT_LENGTH);
     }
     
-    // isProcessing, isCallEnding, hasValidInput ya están definidos arriba
     // Verificación adicional: si no hay input válido después de cargar estado, ignorar
-    if (!hasValidInput && !isProcessing && !isCallEnding) {
+    // Nota: isValidInput ya está definido arriba después de cargar el estado
+    if (!isValidInput && !isProcessing && !isCallEnding) {
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
-    
-    // Validación adicional: ignorar resultados muy cortos o que parezcan ruido
-    // Esto ayuda especialmente con ruido de fondo, música, o habla muy corta
-    const isValidInput = userInput && 
-                        userInput.trim().length >= 2 && // Mínimo 2 caracteres
-                        !/^(ah|eh|oh|um|uh|mm|hm|eh|ah|eh)$/i.test(userInput.trim()); // Filtrar sonidos no verbales
     
     // MEJORADO: Manejo de fallback sin romper UX
     // Contador de intentos fallidos para evitar bucles
@@ -2146,61 +2148,6 @@ function calculateSimilarity(text1, text2) {
   return union.size > 0 ? intersection.size / union.size : 0;
 }
 
-/**
- * Detecta el idioma del texto usando Gemini (más preciso que regex)
- */
-async function detectLanguageWithGemini(text) {
-  try {
-    // REFACTORIZADO: Usar función helper para crear modelo (elimina duplicación)
-    const model = createGeminiModel({
-      model: 'gemini-2.5-flash-lite',
-      maxOutputTokens: 32, // Muy corto para solo código de idioma
-      temperature: 0.1, // Muy baja temperatura para respuesta determinista
-      topP: 0.7,
-      topK: 10
-    });
-    
-    if (!model) {
-      return 'es'; // Fallback
-    }
-    
-    const prompt = `Analiza este texto y determina el idioma. Responde SOLO con el código de idioma.
-IMPORTANTE: Prioriza la detección de español, inglés y alemán (idiomas principales).
-
-Códigos de idioma:
-- "es" para español
-- "en" para inglés  
-- "de" para alemán (muy importante - detecta palabras como: ich, möchte, Tisch, reservieren, Personen, etc.)
-- "fr" para francés
-- "it" para italiano
-- "pt" para portugués
-
-Señales de alemán: ich, möchte, würde, Tisch, reservieren, Personen, für, heute, morgen, bitte, danke, etc.
-
-Texto: "${text}"
-
-Responde SOLO con el código de 2 letras, sin explicaciones.`;
-
-    // OPTIMIZACIÓN: Reducir reintentos a 2 para detección de idioma (más rápido)
-    const result = await callGeminiWithRetry(model, prompt, 2);
-    const responseText = extractTextFromVertexAIResponse(result);
-    
-    // Validar que la respuesta no esté vacía
-    if (!responseText || typeof responseText !== 'string') {
-      console.warn('⚠️ [GEMINI] Respuesta vacía en detección de idioma, usando fallback');
-      return 'es';
-    }
-    
-    const detectedLang = responseText.trim().toLowerCase().substring(0, 2);
-    
-    const validLangs = ['es', 'en', 'de', 'fr', 'it', 'pt'];
-    return validLangs.includes(detectedLang) ? detectedLang : 'es';
-    
-  } catch (error) {
-    console.error('❌ [GEMINI] Error detectando idioma:', error);
-    return 'es';
-  }
-}
 
 /**
  * Analiza la selección de reserva del usuario usando Gemini
@@ -6746,13 +6693,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     }
 
     if (gather) {
-      // NOTA: Media Streams con WebSocket no funciona en Vercel serverless
-      // En su lugar, usamos un enfoque híbrido:
-      // 1. Gather de Twilio captura el audio y devuelve SpeechResult
-      // 2. Si hay RecordingUrl disponible, mejoramos con Google STT
-      // 3. El código ya está configurado para usar Google STT cuando esté disponible
-      
       // Configuración de idioma para Gather (necesario para speech recognition)
+      // Usamos exclusivamente Twilio Gather para Speech-to-Text
       // MEJORADO: Usar multi-idioma cuando el idioma es español por defecto o cuando no hay historial suficiente
       // Esto permite que Twilio detecte automáticamente el idioma del usuario desde el inicio
       const languageCodes = {
