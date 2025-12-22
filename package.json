@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@google-cloud/aiplatform": "^5.13.0",
-    "@google-cloud/speech": "^6.0.0",
     "@google-cloud/text-to-speech": "^5.0.0",
     "@google-cloud/vertexai": "^1.10.0",
     "@google/generative-ai": "^0.24.1",

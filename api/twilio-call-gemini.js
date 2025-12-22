@@ -905,39 +905,8 @@ module.exports = async function handler(req, res) {
       accountSid: params?.AccountSid
     });
     // CRÍTICO: Filtrar webhooks vacíos ANTES de cargar estado para evitar procesamiento innecesario
-    // MEJORADO: Intentar usar Google STT primero, luego fallback a Twilio SpeechResult
-    let userInput = '';
-    
-    // Intentar obtener transcripción de Google STT (si está disponible)
-    try {
-      const { getLastTranscript } = require('../lib/state-manager');
-      const googleTranscript = await getLastTranscript(CallSid);
-      
-      if (googleTranscript && googleTranscript.transcript && googleTranscript.transcript.trim().length > 0) {
-        userInput = googleTranscript.transcript;
-        // Actualizar idioma si Google lo detectó con alta confianza
-        if (googleTranscript.language && googleTranscript.confidence > 0.7) {
-          // Se actualizará más abajo cuando se cargue el estado
-        }
-        logger.info('GOOGLE_STT_USED', {
-          callSid: CallSid,
-          transcript: userInput.substring(0, 50),
-          language: googleTranscript.language,
-          confidence: googleTranscript.confidence
-        });
-      }
-    } catch (error) {
-      // Si falla, continuar con Twilio SpeechResult
-      logger.warn('GOOGLE_STT_FALLBACK', {
-        callSid: CallSid,
-        error: error.message
-      });
-    }
-    
-    // Fallback a Twilio SpeechResult si Google STT no está disponible
-    if (!userInput || userInput.trim().length === 0) {
-      userInput = SpeechResult || Digits || '';
-    }
+    // Usar exclusivamente Twilio Gather (SpeechResult)
+    let userInput = SpeechResult || Digits || '';
     
     // MEJORADO: Post-procesamiento básico para corregir errores comunes de transcripción
     if (userInput && userInput.trim().length > 0) {
@@ -999,6 +968,55 @@ module.exports = async function handler(req, res) {
       state.data = {};
     }
     
+    // MEJORADO: Detección de idioma con Gemini cuando hay input válido
+    // Solo detectar si:
+    // 1. No hay idioma fijado aún (primeras interacciones)
+    // 2. O si hay input válido y suficiente para detectar cambio de idioma
+    if (userInput && userInput.trim().length >= 5 && isValidInput) {
+      const shouldDetectLanguage = 
+        !state.languageFixed || // Idioma aún no fijado
+        (state.step === 'greeting' || state.step === 'ask_intention') || // Pasos iniciales
+        state.conversationHistory.length < 3; // Pocas interacciones aún
+      
+      if (shouldDetectLanguage) {
+        try {
+          const languageDetection = await detectLanguageWithGemini(
+            userInput,
+            state.language,
+            state.conversationHistory.map(h => ({ text: h.message || '' }))
+          );
+          
+          // Si detectamos un idioma diferente y Gemini recomienda cambiar
+          if (languageDetection.shouldChange && languageDetection.confidence > 0.6) {
+            // Cambiar idioma y fijarlo
+            state.language = languageDetection.language;
+            state.languageFixed = true;
+            logger.info('LANGUAGE_CHANGED', {
+              callSid: CallSid,
+              oldLanguage: state.language,
+              newLanguage: languageDetection.language,
+              confidence: languageDetection.confidence
+            });
+          } else if (!state.languageFixed && languageDetection.language) {
+            // Fijar idioma detectado en primeras interacciones
+            state.language = languageDetection.language;
+            state.languageFixed = true;
+            logger.info('LANGUAGE_DETECTED_AND_FIXED', {
+              callSid: CallSid,
+              language: languageDetection.language,
+              confidence: languageDetection.confidence
+            });
+          }
+        } catch (error) {
+          // Si falla la detección, mantener idioma actual
+          logger.warn('LANGUAGE_DETECTION_FAILED', {
+            callSid: CallSid,
+            error: error.message
+          });
+        }
+      }
+    }
+    
     callLogger.update({
       phone: state.phone,
       language: state.language,
@@ -1026,9 +1044,48 @@ module.exports = async function handler(req, res) {
                         userInput.trim().length >= 2 && // Mínimo 2 caracteres
                         !/^(ah|eh|oh|um|uh|mm|hm|eh|ah|eh)$/i.test(userInput.trim()); // Filtrar sonidos no verbales
     
+    // MEJORADO: Manejo de fallback sin romper UX
+    // Contador de intentos fallidos para evitar bucles
+    if (!state.failedAttempts) {
+      state.failedAttempts = 0;
+    }
+    
     if (!isValidInput && userInput && !isProcessing) {
-      // Si el input no es válido, mantener el estado actual y pedir que repita
-      // Obtener baseUrl para generar TwiML
+      state.failedAttempts++;
+      
+      // Si falla más de 2 veces, ofrecer alternativas (DTMF o preguntas más simples)
+      if (state.failedAttempts > 2) {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
+        const baseUrl = `${protocol}://${host}`;
+        
+        // Ofrecer usar teclado o simplificar la pregunta
+        const fallbackMessages = {
+          es: 'Disculpe, parece que hay problemas con el audio. Puede usar el teclado para responder o intentar de nuevo. ¿Sigue ahí?',
+          en: 'Sorry, there seem to be audio issues. You can use the keypad to respond or try again. Are you still there?',
+          de: 'Entschuldigung, es scheint Audio-Probleme zu geben. Sie können die Tastatur verwenden oder es erneut versuchen. Sind Sie noch da?',
+          it: 'Scusa, sembra che ci siano problemi audio. Puoi usare la tastiera per rispondere o riprovare. Sei ancora lì?',
+          fr: 'Désolé, il semble y avoir des problèmes audio. Vous pouvez utiliser le clavier pour répondre ou réessayer. Êtes-vous toujours là?',
+          pt: 'Desculpe, parece haver problemas de áudio. Você pode usar o teclado para responder ou tentar novamente. Ainda está aí?'
+        };
+        
+        const message = fallbackMessages[state.language] || fallbackMessages.es;
+        
+        // Permitir tanto voz como DTMF
+        const twiml = generateTwiML({
+          message,
+          gather: true
+        }, state.language, null, baseUrl, state.step);
+        
+        // Resetear contador después de ofrecer alternativa
+        state.failedAttempts = 0;
+        conversationStates.set(state.callSid, state);
+        
+        res.setHeader('Content-Type', 'text/xml');
+        return res.status(200).send(twiml);
+      }
+      
+      // Primera o segunda vez: pedir que repita normalmente
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers.host || process.env.VERCEL_URL || 'localhost:3000';
       const baseUrl = `${protocol}://${host}`;
@@ -1046,8 +1103,15 @@ module.exports = async function handler(req, res) {
         message: getRandomMessage(messages),
         gather: true
       }, state.language, null, baseUrl, state.step);
+      
+      conversationStates.set(state.callSid, state);
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send(twiml);
+    }
+    
+    // Si hay input válido, resetear contador de intentos fallidos
+    if (isValidInput) {
+      state.failedAttempts = 0;
     }
 
     // OPTIMIZACIÓN: Guardar mensaje del usuario en memoria inmediatamente (no esperar BD)
@@ -1952,80 +2016,119 @@ Responde SOLO con una palabra: reservation, modify, cancel o clarify. Sin explic
 }
 
 /**
- * Mejora la transcripción usando Google Cloud Speech-to-Text cuando hay audio disponible
- * Esta función puede ser llamada cuando tengamos acceso al audio de Twilio (Media Streams o Record)
+ * Detecta el idioma del texto transcrito usando Gemini
+ * Solo se usa cuando el idioma aún no está fijado o cuando hay indicios de cambio de idioma
  * 
- * @param {string} audioUrl - URL del audio de Twilio
- * @param {string} currentTranscript - Transcripción actual de Twilio (opcional, para comparación)
- * @param {Object} context - Contexto adicional (hints, step, etc.)
- * @returns {Promise<Object>} - Objeto con transcript mejorado, language detectado, confidence
+ * @param {string} text - Texto transcrito por Twilio
+ * @param {string} currentLanguage - Idioma actual (si existe)
+ * @param {Array} conversationHistory - Historial de conversación para contexto
+ * @returns {Promise<Object>} - Objeto con language detectado, confidence, shouldChange
  */
-async function enhanceTranscriptionWithGoogleSTT(audioUrl, currentTranscript = null, context = {}) {
+async function detectLanguageWithGemini(text, currentLanguage = null, conversationHistory = []) {
   try {
-    // Importar módulo de Google Speech (lazy load para evitar errores si no está configurado)
-    const { transcribeAudioFromUrl } = require('../lib/google-speech');
+    // Si ya tenemos un idioma fijado y el texto es corto, no cambiar
+    if (currentLanguage && text.trim().length < 10) {
+      return {
+        language: currentLanguage,
+        confidence: 0.5,
+        shouldChange: false
+      };
+    }
+
+    const geminiLogger = logger.withContext({ module: 'language_detection' });
     
-    // Obtener hints contextuales basados en el paso actual
-    const step = context.step || 'greeting';
-    const hintsString = getContextualHints(step, context.language || 'es');
-    // Convertir string de hints separados por comas a array
-    const hints = hintsString.split(',').map(h => h.trim()).filter(h => h.length > 0);
+    const model = createGeminiModel({
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens: 128,
+      temperature: 0.1, // Muy baja para detección determinista
+      topP: 0.8,
+      topK: 20
+    }, geminiLogger);
     
-    // Transcribir con Google Cloud Speech-to-Text
-    const result = await transcribeAudioFromUrl(audioUrl, {
-      encoding: 'MULAW', // Formato común en telefonía Twilio
-      sampleRateHertz: 8000, // 8kHz estándar para telefonía
-      hints: hints,
-      enableAutomaticPunctuation: true
-    });
-    
-    // Comparar con transcripción de Twilio si está disponible
-    if (currentTranscript && result.transcript) {
-      const similarity = calculateSimilarity(currentTranscript.toLowerCase(), result.transcript.toLowerCase());
-      logger.info('GOOGLE_STT_COMPARISON', {
-        twilioTranscript: currentTranscript.substring(0, 50),
-        googleTranscript: result.transcript.substring(0, 50),
-        similarity: similarity.toFixed(2),
-        googleConfidence: result.confidence.toFixed(2),
-        detectedLanguage: result.language
-      });
-      
-      // Si Google tiene mayor confianza o detecta un idioma diferente, usar su transcripción
-      if (result.confidence > 0.7 || similarity < 0.6) {
-        return {
-          transcript: result.transcript,
-          language: result.language,
-          confidence: result.confidence,
-          source: 'google_stt',
-          alternatives: result.alternatives,
-          improved: true
-        };
-      }
+    if (!model) {
+      // Fallback: usar español por defecto
+      return {
+        language: currentLanguage || 'es',
+        confidence: 0.3,
+        shouldChange: false
+      };
     }
     
+    // Construir contexto del historial (últimas 3 interacciones)
+    const recentHistory = conversationHistory.slice(-3).map(h => h.text || '').join(' ');
+    
+    const prompt = `Analiza este texto y determina el idioma principal que se está hablando.
+
+Idiomas posibles:
+- "es": Español (castellano, catalán)
+- "en": Inglés (English)
+- "de": Alemán (Deutsch)
+- "it": Italiano
+- "fr": Francés
+- "pt": Portugués
+
+${currentLanguage ? `Idioma actual de la conversación: ${currentLanguage}` : 'No hay idioma detectado aún'}
+
+${recentHistory ? `Contexto previo: "${recentHistory}"` : ''}
+
+Texto a analizar: "${text}"
+
+IMPORTANTE:
+- Si el idioma actual está fijado (${currentLanguage || 'ninguno'}), solo cambia si hay un CAMBIO CLARO Y SIGNIFICATIVO de idioma
+- No cambies por solo unas palabras en otro idioma
+- Si el texto es ambiguo o muy corto, mantén el idioma actual o usa "es" por defecto
+- Responde SOLO con el código de idioma (es, en, de, it, fr, pt) sin explicaciones
+
+Respuesta:`;
+
+    geminiLogger.info('LANGUAGE_DETECTION_START', { 
+      text: text.substring(0, 50),
+      currentLanguage,
+      hasHistory: conversationHistory.length > 0
+    });
+
+    const result = await callGeminiWithRetry(model, prompt, 2, geminiLogger);
+    const responseText = extractTextFromVertexAIResponse(result);
+    
+    if (!responseText || typeof responseText !== 'string') {
+      return {
+        language: currentLanguage || 'es',
+        confidence: 0.3,
+        shouldChange: false
+      };
+    }
+    
+    const detectedLanguage = responseText.trim().toLowerCase();
+    const validLanguages = ['es', 'en', 'de', 'it', 'fr', 'pt'];
+    const language = validLanguages.includes(detectedLanguage) ? detectedLanguage : (currentLanguage || 'es');
+    
+    // Solo cambiar si es diferente del actual Y el texto es suficientemente largo
+    const shouldChange = currentLanguage && language !== currentLanguage && text.trim().length >= 15;
+    
+    geminiLogger.info('LANGUAGE_DETECTED', { 
+      detected: language,
+      current: currentLanguage,
+      shouldChange,
+      textLength: text.length
+    });
+    
     return {
-      transcript: result.transcript || currentTranscript,
-      language: result.language,
-      confidence: result.confidence,
-      source: 'google_stt',
-      alternatives: result.alternatives,
-      improved: !!result.transcript
+      language,
+      confidence: shouldChange ? 0.7 : 0.9, // Mayor confianza si no hay cambio
+      shouldChange
     };
     
   } catch (error) {
-    logger.warn('GOOGLE_STT_ENHANCE_FAILED', {
-      error: error.message,
-      fallbackToTwilio: true
+    logger.error('LANGUAGE_DETECTION_ERROR', { 
+      message: error.message, 
+      stack: error.stack 
     });
     
-    // Fallback a transcripción de Twilio si Google STT falla
+    // Fallback: mantener idioma actual o usar español
     return {
-      transcript: currentTranscript || '',
-      language: context.language || 'es',
-      confidence: 0.5,
-      source: 'twilio',
-      improved: false,
-      error: error.message
+      language: currentLanguage || 'es',
+      confidence: 0.3,
+      shouldChange: false
     };
   }
 }
@@ -6517,7 +6620,7 @@ function getTtsAudioUrl(text, language, baseUrl) {
 function getContextualHints(step, lang) {
   const baseHints = {
     es: {
-      common: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,sí,no,correcto,perfecto,vale,ok,okay',
+      common: 'reserva,mesa,restaurante,personas,fecha,hora,nombre,teléfono,confirmar,cancelar,modificar,sí,no,correcto,perfecto,vale,ok,okay,español,castellano,catalán,català',
       people: 'uno,dos,tres,cuatro,cinco,seis,siete,ocho,nueve,diez,once,doce,trece,catorce,quince,dieciséis,diecisiete,dieciocho,diecinueve,veinte,persona,personas,comensales',
       date: 'mañana,hoy,pasado mañana,lunes,martes,miércoles,jueves,viernes,sábado,domingo,enero,febrero,marzo,abril,mayo,junio,julio,agosto,septiembre,octubre,noviembre,diciembre',
       time: 'ocho,nueve,diez,once,doce,una,dos,tres,cuatro,cinco,seis,siete,ocho,nueve,diez,once,doce,trece,catorce,quince,dieciséis,diecisiete,dieciocho,diecinueve,veinte,veintiuna,veintidós,veintitrés,cero,media,cuarto,menos,de,la,mañana,tarde,noche',
@@ -6525,7 +6628,7 @@ function getContextualHints(step, lang) {
       confirm: 'sí,no,correcto,perfecto,vale,ok,okay,está bien,de acuerdo,confirmo,acepto'
     },
     en: {
-      common: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,yes,no,correct,perfect,ok,okay',
+      common: 'reservation,table,restaurant,people,date,time,name,phone,confirm,cancel,modify,yes,no,correct,perfect,ok,okay,english,inglés',
       people: 'one,two,three,four,five,six,seven,eight,nine,ten,eleven,twelve,thirteen,fourteen,fifteen,sixteen,seventeen,eighteen,nineteen,twenty,person,people,guests',
       date: 'tomorrow,today,next week,monday,tuesday,wednesday,thursday,friday,saturday,sunday,january,february,march,april,may,june,july,august,september,october,november,december',
       time: 'eight,nine,ten,eleven,twelve,one,two,three,four,five,six,seven,eight,nine,ten,eleven,twelve,one,two,three,four,five,six,seven,eight,nine,ten,pm,am,morning,afternoon,evening,night',
@@ -6661,23 +6764,20 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
         pt: 'pt-PT'  // Portugués de Portugal (no Brasil)
       };
       
-      // ESTRATEGIA MULTI-IDIOMA MEJORADA CON PRIORIDAD EN ESPAÑOL, INGLÉS Y ALEMÁN:
-      // 1. Si el idioma es español por defecto Y estamos en pasos iniciales → multi-idioma con prioridad
-      // 2. Si el idioma es español por defecto Y no hay historial de conversación → multi-idioma con prioridad
-      // 3. Si el idioma ya está detectado correctamente → usar ese idioma específico
+      // MEJORADO: Usar idioma fijado si existe, sino usar multi-idioma solo en pasos iniciales
+      // El idioma se fija después de la primera detección con Gemini
       let gatherLanguage;
       const isInitialStep = currentStep === 'greeting' || currentStep === 'ask_intention';
-      const hasNoHistory = !currentStep || currentStep === 'greeting';
       
-      // Usar multi-idioma si:
-      // - Estamos en pasos iniciales Y el idioma es español por defecto
-      // - O si el idioma es español pero no hay historial suficiente para confiar en él
-      if ((language === 'es' && isInitialStep) || (language === 'es' && hasNoHistory)) {
-        // PRIORIDAD: Español, Inglés y Alemán son los idiomas principales
-        // Ordenar idiomas por prioridad: es, en, de primero, luego los demás
-        gatherLanguage = 'es-ES,en-US,de-DE,it-IT,fr-FR,pt-PT';
+      // Usar multi-idioma SOLO si:
+      // - Estamos en pasos iniciales (greeting o ask_intention)
+      // - Y el idioma aún no está fijado
+      // Una vez fijado el idioma, usar ese idioma específico para mejor precisión
+      if (isInitialStep && language === 'es') {
+        // En pasos iniciales, usar multi-idioma con hints de idioma para ayudar a Twilio a detectar
+        gatherLanguage = 'es-ES';
       } else {
-        // Una vez detectado el idioma, usar ese idioma específico para mejor precisión
+        // Una vez detectado el idioma, usar ese idioma específico
         gatherLanguage = languageCodes[language] || languageCodes.es;
       }
       
@@ -6783,24 +6883,13 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       const noInputMessage = getRandomMessage(noInputMessages[language] || noInputMessages.es);
       
       // MEJORADO: Hints dinámicos según el contexto de la conversación
-      // getContextualHints ahora está definida globalmente arriba
-
-      // Si estamos usando multi-idioma, combinar hints contextuales de todos los idiomas
-      // IMPORTANTE: Esto mejora significativamente la transcripción cuando el idioma aún no está detectado
-      // PRIORIDAD: Español, Inglés y Alemán son los idiomas principales
-      let hints;
-      if (gatherLanguage.includes(',')) {
-        // Multi-idioma: priorizar hints de es, en, de (idiomas principales)
-        // Esto permite que Twilio reconozca palabras clave en cualquier idioma según el contexto
-        const priorityLangs = ['es', 'en', 'de']; // Idiomas principales
-        const otherLangs = ['it', 'fr', 'pt']; // Otros idiomas
-        const priorityHints = priorityLangs.map(lang => getContextualHints(currentStep, lang));
-        const otherHints = otherLangs.map(lang => getContextualHints(currentStep, lang));
-        // Combinar: primero los principales, luego los demás
-        hints = [...priorityHints, ...otherHints].join(',');
-      } else {
-        // Una vez detectado el idioma, usar hints contextuales específicos para mejor precisión
-        hints = getContextualHints(currentStep, language);
+      // Incluir palabras clave de idioma para ayudar a Twilio a detectar el idioma correctamente
+      let hints = getContextualHints(currentStep, language);
+      
+      // En pasos iniciales, añadir hints de idioma para mejorar detección
+      if (isInitialStep) {
+        const languageHints = 'español,castellano,catalán,català,inglés,english,alemán,deutsch,italiano,italian,francés,french,portugués,portuguese';
+        hints = hints + ',' + languageHints;
       }
 
       // Configuración optimizada para dar tiempo suficiente al usuario:
@@ -6822,7 +6911,7 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
       return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
-    input="speech" 
+    input="speech,dtmf" 
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
@@ -6831,7 +6920,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     hints="${truncatedHints}"
     profanityFilter="true"
     enhanced="true"
-    finishOnKey="#">
+    finishOnKey="#"
+    numDigits="1">
     ${twimlContent}
   </Gather>
   <Play>${escapeXml(getTtsAudioUrl(noInputMessage, language, baseUrl))}</Play>
@@ -6916,10 +7006,11 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
 
     // Usar Gather para capturar la respuesta del usuario
     // Configuración mejorada con timeouts generosos para evitar cortar al usuario
+    // MEJORADO: Permitir tanto voz como DTMF para fallback
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather 
-    input="speech" 
+    input="speech,dtmf" 
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
@@ -6927,7 +7018,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     timeout="15"
     hints="${hints}"
     profanityFilter="true"
-    enhanced="true">
+    enhanced="true"
+    numDigits="1">
     ${sayContent}
   </Gather>
   <Say voice="${config.voice}" language="${config.language}" rate="slow">${getRandomMessage(language === 'es' ? [
