@@ -905,7 +905,39 @@ module.exports = async function handler(req, res) {
       accountSid: params?.AccountSid
     });
     // CRÍTICO: Filtrar webhooks vacíos ANTES de cargar estado para evitar procesamiento innecesario
-    let userInput = SpeechResult || Digits || '';
+    // MEJORADO: Intentar usar Google STT primero, luego fallback a Twilio SpeechResult
+    let userInput = '';
+    
+    // Intentar obtener transcripción de Google STT (si está disponible)
+    try {
+      const { getLastTranscript } = require('../lib/state-manager');
+      const googleTranscript = await getLastTranscript(CallSid);
+      
+      if (googleTranscript && googleTranscript.transcript && googleTranscript.transcript.trim().length > 0) {
+        userInput = googleTranscript.transcript;
+        // Actualizar idioma si Google lo detectó con alta confianza
+        if (googleTranscript.language && googleTranscript.confidence > 0.7) {
+          // Se actualizará más abajo cuando se cargue el estado
+        }
+        logger.info('GOOGLE_STT_USED', {
+          callSid: CallSid,
+          transcript: userInput.substring(0, 50),
+          language: googleTranscript.language,
+          confidence: googleTranscript.confidence
+        });
+      }
+    } catch (error) {
+      // Si falla, continuar con Twilio SpeechResult
+      logger.warn('GOOGLE_STT_FALLBACK', {
+        callSid: CallSid,
+        error: error.message
+      });
+    }
+    
+    // Fallback a Twilio SpeechResult si Google STT no está disponible
+    if (!userInput || userInput.trim().length === 0) {
+      userInput = SpeechResult || Digits || '';
+    }
     
     // MEJORADO: Post-procesamiento básico para corregir errores comunes de transcripción
     if (userInput && userInput.trim().length > 0) {
@@ -6611,6 +6643,12 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     }
 
     if (gather) {
+      // NOTA: Media Streams con WebSocket no funciona en Vercel serverless
+      // En su lugar, usamos un enfoque híbrido:
+      // 1. Gather de Twilio captura el audio y devuelve SpeechResult
+      // 2. Si hay RecordingUrl disponible, mejoramos con Google STT
+      // 3. El código ya está configurado para usar Google STT cuando esté disponible
+      
       // Configuración de idioma para Gather (necesario para speech recognition)
       // MEJORADO: Usar multi-idioma cuando el idioma es español por defecto o cuando no hay historial suficiente
       // Esto permite que Twilio detecte automáticamente el idioma del usuario desde el inicio
