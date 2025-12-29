@@ -6983,11 +6983,10 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
         hints = hints + ',' + languageHints;
       }
 
-      // Configuración optimizada para dar tiempo suficiente al usuario:
-      // - speechTimeout="5": Espera 5 segundos de silencio antes de procesar (permite pausas naturales y frases largas)
-      // - timeout="15": Tiempo total máximo de 15 segundos para capturar la respuesta completa
-      // - IMPORTANTE: Valores generosos para evitar cortar al usuario mientras habla
-      // - Esto previene que el sistema cuelgue mientras el usuario está hablando
+      // Configuración optimizada para conversación fluida:
+      // - speechTimeout="2": Espera 2 segundos de silencio antes de procesar (suficiente para respuestas cortas, evita silencios incómodos)
+      // - timeout="8": Tiempo total máximo de 8 segundos para capturar la respuesta (suficiente para respuestas concisas)
+      // - IMPORTANTE: Valores reducidos para evitar silencios incómodos cuando el usuario da respuestas cortas
       // - hints: palabras clave contextuales mejoran el reconocimiento según el paso actual
       // - profanityFilter: ayuda a filtrar ruido y palabras no deseadas
       // - enhanced: mejora el reconocimiento usando modelos avanzados
@@ -7006,8 +7005,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${gatherLanguage}"
-    speechTimeout="5"
-    timeout="15"
+    speechTimeout="2"
+    timeout="8"
     hints="${truncatedHints}"
     profanityFilter="true"
     enhanced="true"
@@ -7104,8 +7103,8 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
     action="/api/twilio-call-gemini" 
     method="POST"
     language="${config.language}"
-    speechTimeout="5"
-    timeout="15"
+    speechTimeout="2"
+    timeout="8"
     hints="${hints}"
     profanityFilter="true"
     enhanced="true"
