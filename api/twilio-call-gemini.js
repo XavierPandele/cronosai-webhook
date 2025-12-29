@@ -9,11 +9,12 @@ const { validarReservaCompleta, validarDisponibilidad } = require('../lib/valida
 const logger = require('../lib/logging');
 const { sendReservationConfirmationRcs, sendOrderConfirmationRcs } = require('../lib/rcs');
 const { deleteCallState } = require('../lib/state-manager');
+const redisCache = require('../lib/redis-cache');
 
 // NOTA: Circuit Breaker removido - causaba problemas en Vercel/serverless
 // Se usa retryWithBackoff directamente que es más simple y confiable
 
-// Estado de conversaciones por CallSid (en memoria - para producción usa Redis/DB)
+// Estado de conversaciones por CallSid (en memoria como cache local - Redis es la fuente principal)
 const conversationStates = new Map();
 
 // Sistema de debounce para evitar procesar webhooks duplicados muy cercanos
@@ -41,6 +42,18 @@ const MENU_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
 async function loadMenuItems(force = false) {
   const menuLoadStartTime = Date.now();
+  
+  // Intentar Redis primero
+  if (!force) {
+    const cached = await redisCache.getMenuCache();
+    if (cached) {
+      menuItemsCache = cached;
+      menuLoadedAt = Date.now();
+      return menuItemsCache;
+    }
+  }
+  
+  // Intentar memoria local como fallback
   const now = Date.now();
   if (!force && menuItemsCache.length > 0 && (now - menuLoadedAt) < MENU_CACHE_TTL_MS) {
     const cacheTime = Date.now() - menuLoadStartTime;
@@ -59,6 +72,10 @@ async function loadMenuItems(force = false) {
       descripcion: row.descripcion || ''
     }));
     menuLoadedAt = now;
+    
+    // Guardar en Redis
+    await redisCache.setMenuCache(menuItemsCache, 300);
+    
     const loadTime = Date.now() - menuLoadStartTime;
     // Menu loaded - no log necesario
   } catch (error) {
@@ -86,6 +103,14 @@ function formatMenuForPrompt(items = []) {
 let configLoaded = false;
 async function loadRestaurantConfig() {
   const configLoadStartTime = Date.now();
+  
+  // Intentar Redis primero
+  const cached = await redisCache.getConfigCache();
+  if (cached) {
+    restaurantConfig = cached;
+    configLoaded = true;
+    return restaurantConfig;
+  }
   
   // OPTIMIZACIÓN: Usar cache en memoria si está disponible (misma instancia)
   // Pero siempre llamar a getRestaurantConfig() que tiene su propio cache interno (5min TTL)
@@ -116,6 +141,9 @@ async function loadRestaurantConfig() {
       // Mantener referencia completa para uso futuro
       fullConfig: config
     };
+    
+    // Guardar en Redis
+    await redisCache.setConfigCache(restaurantConfig, 300);
     
     configLoaded = true;
     const loadTime = Date.now() - configLoadStartTime;
@@ -725,7 +753,6 @@ function cleanAvailabilityCache() {
 async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMetrics = null) {
   const availabilityStartTime = Date.now();
   const cacheKey = `${fechaHora}:${numPersonas}`;
-  const cached = availabilityCache.get(cacheKey);
   
   logger.capacity('🔍 AVAILABILITY_CHECK_START', {
     fechaHora: fechaHora,
@@ -734,6 +761,26 @@ async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMe
     reasoning: `Iniciando verificación de disponibilidad para ${numPersonas} personas el ${fechaHora}`
   });
   
+  // Intentar Redis primero (compartido entre instancias)
+  const cachedRedis = await redisCache.getAvailabilityCache(fechaHora, numPersonas);
+  if (cachedRedis) {
+    const cacheTime = Date.now() - availabilityStartTime;
+    
+    logger.capacity('✅ AVAILABILITY_CACHE_HIT_REDIS', { 
+      cacheKey, 
+      cacheTimeMs: cacheTime,
+      cachedResult: cachedRedis,
+      reasoning: `Resultado encontrado en Redis cache. Disponible: ${cachedRedis.disponible}`
+    });
+    
+    if (performanceMetrics) {
+      performanceMetrics.availabilityTime = cacheTime;
+    }
+    return cachedRedis;
+  }
+  
+  // Intentar memoria local como fallback
+  const cached = availabilityCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < AVAILABILITY_CACHE_TTL_MS) {
     const cacheTime = Date.now() - availabilityStartTime;
     const cacheAge = Date.now() - cached.timestamp;
@@ -777,6 +824,8 @@ async function validarDisponibilidadCached(fechaHora, numPersonas, performanceMe
     performanceMetrics.availabilityTime = availabilityTime;
   }
   
+  // Guardar en Redis (compartido entre instancias) y memoria local
+  await redisCache.setAvailabilityCache(fechaHora, numPersonas, result, 300);
   availabilityCache.set(cacheKey, {
     result,
     timestamp: Date.now()
@@ -925,12 +974,14 @@ module.exports = async function handler(req, res) {
     
     // Debounce: Ignorar webhooks duplicados muy cercanos en el tiempo
     const now = Date.now();
-    const lastTime = lastWebhookTime.get(CallSid);
-    if (lastTime && (now - lastTime) < WEBHOOK_DEBOUNCE_MS && !hasValidInput && !isProcessing) {
+    // Usar Redis para debounce (compartido entre instancias)
+    const isDuplicate = await redisCache.checkWebhookDebounce(CallSid, WEBHOOK_DEBOUNCE_MS);
+    if (isDuplicate && !hasValidInput && !isProcessing) {
       // No loggear webhooks duplicados vacíos (solo ruido)
       res.setHeader('Content-Type', 'text/xml');
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
+    // También mantener en memoria local como fallback
     lastWebhookTime.set(CallSid, now);
     
     // Si no hay input válido, no es procesamiento, y la llamada sigue activa, ignorar inmediatamente
@@ -940,11 +991,11 @@ module.exports = async function handler(req, res) {
       return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
 
-    // Usar solo memoria para el estado durante la conversación
-    // Con menos requests (sin partialResultCallback), la memoria debería persistir mejor
-    let state = conversationStates.get(CallSid);
+    // Intentar cargar de Redis primero, luego memoria como fallback
+    // Esto asegura que el estado persista entre reciclajes de instancias en Vercel
+    let state = await redisCache.getCallState(CallSid) || conversationStates.get(CallSid);
     
-    // Si no hay estado en memoria, crear uno nuevo
+    // Si no hay estado en Redis ni memoria, crear uno nuevo
     if (!state) {
       state = {
         step: 'greeting',
@@ -1081,6 +1132,8 @@ module.exports = async function handler(req, res) {
         
         // Resetear contador después de ofrecer alternativa
         state.failedAttempts = 0;
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
         
         res.setHeader('Content-Type', 'text/xml');
@@ -1125,6 +1178,8 @@ module.exports = async function handler(req, res) {
           message: userInput,
           timestamp: new Date().toISOString()
         });
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
       }
     }
@@ -1193,7 +1248,8 @@ module.exports = async function handler(req, res) {
       timestamp: new Date().toISOString()
     });
 
-    // Actualizar estado en memoria
+    // Actualizar estado en Redis Y memoria (memoria como cache local rápido)
+    await redisCache.setCallState(state.callSid, state);
     conversationStates.set(state.callSid, state);
 
     // Si la conversación está completa, guardar en BD
@@ -1233,6 +1289,8 @@ module.exports = async function handler(req, res) {
         // Volver al paso de confirmación para que el usuario pueda aceptar alternativa
         state.step = 'confirm';
         state.data.originalFechaHora = combinarFechaHora(state.data.FechaReserva, state.data.HoraReserva);
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
         
         // Obtener URL base para generar URLs públicas de audio TTS
@@ -1245,6 +1303,8 @@ module.exports = async function handler(req, res) {
       }
       
       // Limpiar el estado después de guardar
+      // Eliminar de Redis Y memoria
+      await redisCache.deleteCallState(CallSid);
       conversationStates.delete(CallSid);
       await deleteCallState(CallSid);
       // Reservation completed - no log necesario
@@ -1258,6 +1318,8 @@ module.exports = async function handler(req, res) {
         language: state.language || 'es'
       }, callLogger);
     } else if (state.step === 'order_complete') {
+      // Eliminar de Redis Y memoria
+      await redisCache.deleteCallState(CallSid);
       conversationStates.delete(CallSid);
       await deleteCallState(CallSid);
       // Order completed - no log necesario
@@ -1413,6 +1475,22 @@ async function analyzeReservationWithGemini(userInput, context = {}) {
     
     // OPTIMIZACIÓN: Verificar cache antes de hacer la llamada
     const cacheKey = userInput.trim().toLowerCase();
+    
+    // Intentar Redis primero (compartido entre instancias)
+    const cachedRedis = await redisCache.getGeminiCache(cacheKey);
+    if (cachedRedis) {
+      const cacheTime = Date.now() - geminiStartTime;
+      geminiLogger.debug('GEMINI_CACHE_HIT_REDIS', { 
+        cacheKey, 
+        cacheTimeMs: cacheTime 
+      });
+      if (context.performanceMetrics) {
+        context.performanceMetrics.geminiTime = cacheTime;
+      }
+      return cachedRedis;
+    }
+    
+    // Intentar memoria local como fallback
     const cached = geminiAnalysisCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < GEMINI_CACHE_TTL_MS) {
       const cacheTime = Date.now() - geminiStartTime;
@@ -1906,6 +1984,8 @@ NOTA SOBRE VALIDACIONES:
     
     // OPTIMIZACIÓN: Guardar en cache
     if (analysis) {
+      // Guardar en Redis (compartido entre instancias) y memoria local
+      await redisCache.setGeminiCache(cacheKey, analysis, 30);
       geminiAnalysisCache.set(cacheKey, {
         analysis,
         timestamp: Date.now()
@@ -4138,9 +4218,12 @@ async function processConversationStep(state, userInput, callLogger, performance
           
           if (intention === 'reservation') {
           
-            // Aplicar los datos extraídos al estado
+            // MEJORADO: Aplicar los datos extraídos al estado
+            // Esto aplica TODOS los datos que Gemini extrajo, incluso si el usuario los dio todos en una frase
             const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-            // Guardar estado en memoria después de aplicar análisis
+            
+            // Guardar estado en Redis Y memoria después de aplicar análisis
+            await redisCache.setCallState(state.callSid, state);
             conversationStates.set(state.callSid, state);
             
             // Si hay error de validación (ej: demasiadas personas), manejar
@@ -4164,7 +4247,8 @@ async function processConversationStep(state, userInput, callLogger, performance
               };
             }
             
-            // Determinar qué falta
+            // MEJORADO: Determinar qué falta después de aplicar TODOS los datos de Gemini
+            // Si el usuario dio toda la información en una frase, missing.length será 0
             const missing = determineMissingFields(analysis, state.data);
             
             const currentData = `${state.data?.NumeroReserva || '-'}p, ${state.data?.FechaReserva || '-'}, ${state.data?.HoraReserva || '-'}, ${state.data?.NomReserva || '-'}`;
@@ -4286,7 +4370,9 @@ async function processConversationStep(state, userInput, callLogger, performance
               
               // Aplicar los datos extraídos directamente (asumir que quiere hacer reserva)
               const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-              conversationStates.set(state.callSid, state);
+              // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
+        conversationStates.set(state.callSid, state);
               
               // Determinar qué falta y continuar con el flujo de reserva
               const missing = determineMissingFields(analysis, state.data);
@@ -4408,7 +4494,9 @@ async function processConversationStep(state, userInput, callLogger, performance
             // Aplicar análisis de Gemini al estado
             const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
             // Guardar estado en memoria después de aplicar análisis
-            conversationStates.set(state.callSid, state);
+            // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
+        conversationStates.set(state.callSid, state);
             
             // Si hay error de validación (ej: demasiadas personas), manejar
             if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -4505,7 +4593,9 @@ async function processConversationStep(state, userInput, callLogger, performance
               
               // Aplicar los datos extraídos directamente (asumir que quiere hacer reserva)
               const applyResult = await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-              conversationStates.set(state.callSid, state);
+              // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
+        conversationStates.set(state.callSid, state);
               
               // Verificar errores de validación
               if (!applyResult.success && applyResult.error === 'people_too_many') {
@@ -4745,6 +4835,8 @@ async function processConversationStep(state, userInput, callLogger, performance
          
         const applyResult = await applyGeminiAnalysisToState(peopleAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
          
          // Si hay error de validación (ej: demasiadas personas), mostrar mensaje
@@ -4873,6 +4965,8 @@ async function processConversationStep(state, userInput, callLogger, performance
         
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
       }
        
@@ -4985,6 +5079,8 @@ async function processConversationStep(state, userInput, callLogger, performance
         }
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
       }
        
@@ -5073,8 +5169,28 @@ async function processConversationStep(state, userInput, callLogger, performance
         // porque en el paso ask_name, cualquier nombre extraído debe aplicarse
         await applyGeminiAnalysisToState(geminiAnalysis, state, callLogger, userInput);
         // Guardar estado en memoria después de aplicar análisis
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
       }
+       
+       // MEJORADO: Después de aplicar Gemini, verificar si tenemos TODOS los datos
+       // Si el usuario dio nombre Y otros datos (personas, fecha, hora) en la misma frase,
+       // ahora deberíamos tener todo y poder ir directo a confirmación
+       const missing = determineMissingFields(null, state.data);
+       
+       if (missing.length === 0) {
+         // Tenemos TODO - ir directo a confirmación
+         if (!state.data.TelefonReserva) {
+           state.data.TelefonReserva = state.phone;
+         }
+         state.step = 'confirm';
+         const confirmMessage = getConfirmationMessage(state.data, state.language);
+         return {
+           message: confirmMessage,
+           gather: true
+         };
+       }
        
        // MEJORADO: Verificar si el usuario dijo "a nombre de" sin completar
        // En este caso, no es un error, simplemente necesitamos que complete el nombre
@@ -5109,22 +5225,35 @@ async function processConversationStep(state, userInput, callLogger, performance
        const isIncompleteNamePhrase = nameIndicators.some(pattern => pattern.test(textLower));
        
        // MEJORADO: Verificar si el nombre se aplicó después del análisis de Gemini
-       // Gemini es la prioridad - si extrajo el nombre, usarlo directamente
+       // Si tenemos nombre pero falta algo más, preguntar por lo que falta
        if (state.data.NomReserva) {
          const name = state.data.NomReserva;
-         // Después del nombre, usar directamente el teléfono de la llamada y confirmar
-         state.data.TelefonReserva = state.phone;
-         state.step = 'confirm';
+         // Aún falta información, preguntar por lo que falta
+         const nextField = missing[0];
+         if (nextField === 'people') {
+           state.step = 'ask_people';
+         } else if (nextField === 'date') {
+           state.step = 'ask_date';
+         } else if (nextField === 'time') {
+           state.step = 'ask_time';
+         }
          
-         const nameMessages = getMultilingualMessages('name', state.language, { name });
-         const nameMessage = getRandomMessage(nameMessages);
-         // Ir directamente a confirmación con todos los datos
-         const confirmMessage = getConfirmationMessage(state.data, state.language);
-         const fullMessage = `${nameMessage} ${confirmMessage}`;
-         return {
-           message: fullMessage,
-           gather: true
-         };
+         try {
+           const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+           return {
+             message: partialMessage,
+             gather: true
+           };
+         } catch (error) {
+           callLogger.error('PARTIAL_CONFIRMATION_ERROR', { error: error.message, nextField });
+           const nameMessages = getMultilingualMessages('name', state.language, { name });
+           const nameMessage = getRandomMessage(nameMessages);
+           const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+           return {
+             message: `${nameMessage}. ${getRandomMessage(fieldMessages)}`,
+             gather: true
+           };
+         }
        } else if (isIncompleteNamePhrase) {
          // El usuario dijo "a nombre de" pero no completó el nombre
          // Esto es normal, simplemente pedir el nombre de forma más clara
@@ -5145,17 +5274,48 @@ async function processConversationStep(state, userInput, callLogger, performance
              reasoning: 'Gemini no extrajo nombre con suficiente confianza. Usando fallback extractName.'
            });
            state.data.NomReserva = fallbackName;
-           state.data.TelefonReserva = state.phone;
-           state.step = 'confirm';
            
-           const nameMessages = getMultilingualMessages('name', state.language, { name: fallbackName });
-           const nameMessage = getRandomMessage(nameMessages);
-           const confirmMessage = getConfirmationMessage(state.data, state.language);
-           const fullMessage = `${nameMessage} ${confirmMessage}`;
-           return {
-             message: fullMessage,
-             gather: true
-           };
+           // MEJORADO: Después de aplicar nombre fallback, verificar si tenemos TODO
+           const missingAfterFallback = determineMissingFields(null, state.data);
+           if (missingAfterFallback.length === 0) {
+             // Tenemos TODO - ir directo a confirmación
+             if (!state.data.TelefonReserva) {
+               state.data.TelefonReserva = state.phone;
+             }
+             state.step = 'confirm';
+             const confirmMessage = getConfirmationMessage(state.data, state.language);
+             return {
+               message: confirmMessage,
+               gather: true
+             };
+           } else {
+             // Aún falta información, preguntar por lo que falta
+             const nextField = missingAfterFallback[0];
+             if (nextField === 'people') {
+               state.step = 'ask_people';
+             } else if (nextField === 'date') {
+               state.step = 'ask_date';
+             } else if (nextField === 'time') {
+               state.step = 'ask_time';
+             }
+             
+             try {
+               const partialMessage = getPartialConfirmationMessage(state.data, nextField, state.language);
+               return {
+                 message: partialMessage,
+                 gather: true
+               };
+             } catch (error) {
+               callLogger.error('PARTIAL_CONFIRMATION_ERROR', { error: error.message, nextField });
+               const nameMessages = getMultilingualMessages('name', state.language, { name: fallbackName });
+               const nameMessage = getRandomMessage(nameMessages);
+               const fieldMessages = getMultilingualMessages(`ask_${nextField}`, state.language);
+               return {
+                 message: `${nameMessage}. ${getRandomMessage(fieldMessages)}`,
+                 gather: true
+               };
+             }
+           }
          }
          
          // Si ni Gemini ni el fallback pudieron extraer el nombre, usar mensaje de error/repetición
@@ -5191,7 +5351,9 @@ async function processConversationStep(state, userInput, callLogger, performance
               // Si hay datos útiles, aplicar y continuar
               if (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales) {
                 await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-                conversationStates.set(state.callSid, state);
+                // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
+        conversationStates.set(state.callSid, state);
                 
                 // Determinar qué falta y continuar
                 const missing = determineMissingFields(analysis || {}, state.data);
@@ -5254,13 +5416,17 @@ async function processConversationStep(state, userInput, callLogger, performance
               // Si hay datos útiles, aplicar y continuar
               if (analysis.nombre || analysis.fecha || analysis.hora || analysis.comensales) {
                 await applyGeminiAnalysisToState(analysis, state, callLogger, userInput);
-                conversationStates.set(state.callSid, state);
+                // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
+        conversationStates.set(state.callSid, state);
                 
                 // Si había datos pendientes, combinarlos
                 if (state.pendingClarifyData) {
                   const savedAnalysis = state.pendingClarifyData.analysis;
                   await applyGeminiAnalysisToState(savedAnalysis, state, callLogger, userInput);
-                  conversationStates.set(state.callSid, state);
+                  // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
+        conversationStates.set(state.callSid, state);
                   delete state.pendingClarifyData;
                 }
               
@@ -5310,6 +5476,8 @@ async function processConversationStep(state, userInput, callLogger, performance
           userInput
         );
         // Guardar estado en memoria después de aplicar análisis
+        // Guardar en Redis Y memoria (memoria como cache local rápido)
+        await redisCache.setCallState(state.callSid, state);
         conversationStates.set(state.callSid, state);
         
         // Limpiar datos pendientes
@@ -5565,11 +5733,8 @@ async function processConversationStep(state, userInput, callLogger, performance
 async function handleModificationRequest(state, userInput) {
   try {
     console.log(`✏️ [MODIFICACIÓN] Iniciando proceso de modificación de reserva existente`);
-    console.log(`✏️ [DEBUG] Input del usuario: "${userInput}"`);
-    console.log(`✏️ [DEBUG] Estado actual: step=${state.step}, language=${state.language}`);
     
     // Usar directamente el teléfono de la llamada (sin preguntar)
-    console.log(`✏️ [DEBUG] Usando teléfono de la llamada: ${state.phone}`);
     const reservations = await findReservationsByPhone(state.phone);
     
     if (reservations.length === 0) {
@@ -5726,8 +5891,6 @@ async function handleModifyAskPhoneChoice(state, userInput) {
 
 async function handleModifyAskPhone(state, userInput) {
   console.log(`📞 [MODIFICACIÓN] Procesando número de teléfono: ${userInput}`);
-  console.log(`📞 [DEBUG] Input del usuario: "${userInput}"`);
-  console.log(`📞 [DEBUG] Teléfono del estado: "${state.phone}"`);
   
   const lowerInput = userInput.toLowerCase().trim();
   
@@ -5815,7 +5978,6 @@ async function handleModifyAskPhone(state, userInput) {
   
   // Extraer número de teléfono del input
   let phoneNumber = extractPhoneFromText(userInput);
-  console.log(`📞 [DEBUG] Teléfono extraído del input: "${phoneNumber}"`);
   
   // Si el usuario eligió usar otro teléfono, NO usar el de la llamada
   if (state.modificationData.useOtherPhone) {
@@ -5836,7 +5998,6 @@ async function handleModifyAskPhone(state, userInput) {
     }
   }
   
-  console.log(`📞 [DEBUG] Teléfono final a usar para búsqueda: "${phoneNumber}"`);
   
   // Buscar reservas para este teléfono
   const reservations = await findReservationsByPhone(phoneNumber);
@@ -6162,7 +6323,6 @@ async function handleCancellationRequest(state, userInput) {
   console.log(`🚫 [CANCELACIÓN] Iniciando proceso de cancelación de reserva existente`);
   
   // Usar directamente el teléfono de la llamada (sin preguntar)
-  console.log(`🚫 [DEBUG] Usando teléfono de la llamada: ${state.phone}`);
   const reservations = await findReservationsByPhone(state.phone);
   
   state.cancellationData = { phone: state.phone, reservations: reservations };
@@ -6307,12 +6467,9 @@ async function handleCancelAskPhoneChoice(state, userInput) {
 
 async function handleCancelAskPhone(state, userInput) {
   console.log(`📞 [CANCELACIÓN] Procesando número de teléfono: ${userInput}`);
-  console.log(`📞 [DEBUG] Input del usuario: "${userInput}"`);
-  console.log(`📞 [DEBUG] Teléfono del estado: "${state.phone}"`);
   
   // Extraer número de teléfono del input
   let phoneNumber = extractPhoneFromText(userInput);
-  console.log(`📞 [DEBUG] Teléfono extraído del input: "${phoneNumber}"`);
   
   // Si el usuario eligió usar otro teléfono, NO usar el de la llamada
   if (state.cancellationData.useOtherPhone) {
@@ -6333,7 +6490,6 @@ async function handleCancelAskPhone(state, userInput) {
     }
   }
   
-  console.log(`📞 [DEBUG] Teléfono final a usar para búsqueda: "${phoneNumber}"`);
   
   // Buscar reservas para este teléfono
   const reservations = await findReservationsByPhone(phoneNumber);
@@ -6394,8 +6550,6 @@ async function handleCancelAskPhone(state, userInput) {
 
 async function handleCancelShowMultiple(state, userInput) {
   console.log(`🔢 [CANCELACIÓN] Procesando selección de reserva: ${userInput}`);
-  console.log(`🔢 [DEBUG] Input del usuario: "${userInput}"`);
-  console.log(`🔢 [DEBUG] Número de reservas disponibles: ${state.cancellationData.reservations.length}`);
   
   const reservations = state.cancellationData.reservations;
   
@@ -6446,11 +6600,6 @@ async function handleCancelConfirmation(state, userInput) {
   if (confirmationResult === 'yes') {
     // Confirmar cancelación
     const selectedReservation = state.cancellationData.selectedReservation;
-    console.log(`🗑️ [DEBUG] Datos de cancelación:`, {
-      selectedReservation: selectedReservation,
-      phone: state.cancellationData.phone,
-      id_reserva: selectedReservation?.id_reserva
-    });
     
     try {
       const success = await cancelReservation(selectedReservation.id_reserva, state.cancellationData.phone);
@@ -6898,7 +7047,6 @@ function generateTwiML(response, language = 'es', processingMessage = null, base
   };
 
   const config = responseVoiceConfig || voiceConfig[language] || voiceConfig.es;
-  console.log(`🎤 [DEBUG] Configuración de voz seleccionada (fallback):`, config);
 
   // Aplicar procesamiento natural también en fallback
   let fallbackMessage = processedMessage || message;
@@ -10345,7 +10493,6 @@ function detectLanguage(text) {
     .replace(/\s+/g, ' ') // Normalizar espacios
     .trim();
   
-  console.log(`🔍 [DEBUG] Texto normalizado: "${normalizedText}"`);
   
   const languagePatterns = {
     en: [
@@ -10639,7 +10786,6 @@ function detectLanguage(text) {
   // Detección especial para transcripciones malas de italiano
   if (normalizedText.includes('chau') || normalizedText.includes('borrey') || 
       normalizedText.includes('pre') || normalizedText.includes('notar')) {
-    console.log(`🇮🇹 [DEBUG] Detectado patrón de transcripción italiana incorrecta`);
     languageScores.it += 3;
   }
 
@@ -11250,11 +11396,8 @@ function handleIntentionResponse(text) {
   const lowerText = text.toLowerCase();
   
   // Verificar modificación de reserva existente (PRIORIDAD ALTA - antes de otras verificaciones)
-  console.log(`🔍 [DEBUG] handleIntentionResponse - Texto recibido: "${text}"`);
   const isModify = isModificationRequest(text);
-  console.log(`🔍 [DEBUG] handleIntentionResponse - isModificationRequest result: ${isModify}`);
   if (isModify) {
-    console.log(`✏️ [DEBUG] ✅ Acción MODIFY detectada para: "${text}"`);
     return { action: 'modify' };
   }
   
@@ -11648,19 +11791,14 @@ function isReservationRequest(text) {
   
   const lowerText = text.toLowerCase();
   
-  console.log(`🔍 [DEBUG] isReservationRequest - Analizando: "${text}"`);
-  console.log(`🔍 [DEBUG] Texto en minúsculas: "${lowerText}"`);
   
   // Buscar coincidencias exactas de palabras
   const hasReservationWords = reservationWords.some(word => lowerText.includes(word));
-  console.log(`🔍 [DEBUG] Palabras de reserva encontradas: ${hasReservationWords}`);
   
   // Debug específico para italiano
   if (lowerText.includes('ciao') || lowerText.includes('vorrei') || lowerText.includes('prenotare')) {
-    console.log(`🇮🇹 [DEBUG] Detectadas palabras italianas en: "${lowerText}"`);
     const italianWords = ['ciao', 'vorrei', 'prenotare', 'tavolo', 'prenotazione', 'ho bisogno'];
     const foundItalian = italianWords.filter(word => lowerText.includes(word));
-    console.log(`🇮🇹 [DEBUG] Palabras italianas encontradas:`, foundItalian);
   }
   
   // Buscar patrones de frases comunes
@@ -11754,10 +11892,7 @@ function isReservationRequest(text) {
   ];
   
   const hasPatterns = commonPatterns.some(pattern => pattern.test(lowerText));
-  console.log(`🔍 [DEBUG] Patrones regex encontrados: ${hasPatterns}`);
-  
   const result = hasReservationWords || hasPatterns;
-  console.log(`🔍 [DEBUG] Resultado final isReservationRequest: ${result}`);
   
   return result;
 }
@@ -11857,9 +11992,6 @@ function detectCancellationConfirmation(text) {
   const hasYesWords = yesWords.some(word => lowerText.includes(word));
   const hasNoWords = noWords.some(word => lowerText.includes(word));
   
-  console.log(`🔍 [DEBUG] detectCancellationConfirmation - Texto: "${text}"`);
-  console.log(`🔍 [DEBUG] - Palabras SÍ encontradas: ${hasYesWords}`);
-  console.log(`🔍 [DEBUG] - Palabras NO encontradas: ${hasNoWords}`);
   
   if (hasYesWords && !hasNoWords) {
     return 'yes';
@@ -12142,13 +12274,11 @@ function isCancellationRequest(text) {
   const isFalsePositive = falsePositivePatterns.some(pattern => {
     const match = pattern.test(text);
     if (match) {
-      console.log(`🔍 [DEBUG] Patrón de falso positivo detectado: ${pattern}, NO es cancelación`);
     }
     return match;
   });
   
   if (isFalsePositive) {
-    console.log(`🔍 [DEBUG] Patrón de falso positivo detectado, NO es cancelación`);
     return false;
   }
   
@@ -12208,7 +12338,6 @@ function isCancellationRequest(text) {
     );
     
     if (!hasExplicitCancellation) {
-      console.log(`🔍 [DEBUG] Texto contiene palabras relacionadas con nombres ("${text}"), pero NO contiene palabras explícitas de cancelación. NO es cancelación.`);
       return false;
     }
   }
@@ -12320,8 +12449,6 @@ function isCancellationRequest(text) {
   
   // lowerText ya está definido al inicio de la función
   
-  console.log(`🔍 [DEBUG] isCancellationRequest - Analizando: "${text}"`);
-  console.log(`🔍 [DEBUG] Texto en minúsculas: "${lowerText}"`);
   
   // CRÍTICO: Verificar que "no" no esté dentro de palabras relacionadas con nombres
   // Esta verificación debe hacerse ANTES de buscar palabras de cancelación
@@ -12353,7 +12480,6 @@ function isCancellationRequest(text) {
     );
     
     if (!hasExplicitCancellation) {
-      console.log(`🔍 [DEBUG] Texto contiene palabras de nombres que incluyen "no" o "nom" ("${text}"), pero NO contiene palabras explícitas de cancelación. NO es cancelación.`);
       return false;
     }
   }
@@ -12405,7 +12531,6 @@ function isCancellationRequest(text) {
               lowerText.includes(cancelWord.toLowerCase())
             );
             if (!hasExplicitCancellation) {
-              console.log(`🔍 [DEBUG] "${word}" está cerca de palabras de nombres ("${text}"), pero NO contiene palabras explícitas de cancelación. NO es cancelación.`);
               return false; // No es cancelación
             }
           }
@@ -12428,7 +12553,6 @@ function isCancellationRequest(text) {
       return false;
     }
   });
-  console.log(`🔍 [DEBUG] Palabras de cancelación encontradas: ${hasCancellationWords}`);
   
   // Buscar patrones simples de cancelación (más flexibles)
   const simpleCancellationPatterns = [
@@ -12480,7 +12604,6 @@ function isCancellationRequest(text) {
   ];
   
   const hasSimplePatterns = simpleCancellationPatterns.some(pattern => pattern.test(lowerText));
-  console.log(`🔍 [DEBUG] Patrones simples de cancelación encontrados: ${hasSimplePatterns}`);
   
   // Buscar patrones de frases comunes de cancelación
   const cancellationPatterns = [
@@ -12634,7 +12757,6 @@ function isCancellationRequest(text) {
   ];
   
   const hasPatterns = cancellationPatterns.some(pattern => pattern.test(lowerText));
-  console.log(`🔍 [DEBUG] Patrones de cancelación encontrados: ${hasPatterns}`);
   
   // Verificar si hay alguna indicación de cancelación
   const hasAnyCancellationIndication = hasCancellationWords || hasSimplePatterns || hasPatterns;
@@ -12669,17 +12791,12 @@ function isCancellationRequest(text) {
       );
       
       if (!hasExplicitCancellation) {
-        console.log(`🔍 [DEBUG] VERIFICACIÓN FINAL: Texto contiene palabras de nombres ("${text}"), y aunque hay indicaciones de cancelación, NO contiene palabras explícitas de cancelación. NO es cancelación.`);
         return false;
       }
     }
   }
   
   const result = hasAnyCancellationIndication;
-  console.log(`🔍 [DEBUG] Resultado final isCancellationRequest: ${result}`);
-  console.log(`🔍 [DEBUG] - Palabras: ${hasCancellationWords}`);
-  console.log(`🔍 [DEBUG] - Patrones simples: ${hasSimplePatterns}`);
-  console.log(`🔍 [DEBUG] - Patrones complejos: ${hasPatterns}`);
   
   return result;
 }
@@ -13536,28 +13653,17 @@ function escapeXml(text) {
 // Buscar reservas por número de teléfono
 async function findReservationsByPhone(phoneNumber) {
   try {
-      console.log(`🔍 [DEBUG] Buscando reservas para el teléfono: "${phoneNumber}" (versión actualizada)`);
-      console.log(`🔍 [DEBUG] Tipo de dato del teléfono:`, typeof phoneNumber);
-      console.log(`🔍 [DEBUG] Longitud del teléfono:`, phoneNumber ? phoneNumber.length : 'undefined');
     
     const connection = await createConnection();
     
     try {
       // Normalizar el teléfono: extraer solo dígitos para búsqueda flexible
       const normalizedPhone = phoneNumber.replace(/\D/g, ''); // Solo dígitos
-      console.log(`🔍 [DEBUG] Teléfono normalizado (solo dígitos): "${normalizedPhone}"`);
-      
       // Buscar reservas futuras (no canceladas) por teléfono
       // Buscar tanto con el número completo como solo con los últimos dígitos (sin prefijo)
       // Esto maneja casos donde el teléfono está guardado como "+3463254378" pero se busca como "63254378"
-      // Verificación de sincronización: commit 2024-12-19
       const searchPattern1 = `%${normalizedPhone}%`; // Buscar número completo
       const searchPattern2 = normalizedPhone.length >= 8 ? `%${normalizedPhone.slice(-8)}%` : null; // Últimos 8 dígitos
-      
-      console.log(`🔍 [DEBUG] Patrón de búsqueda 1 (completo): "${searchPattern1}"`);
-      if (searchPattern2) {
-        console.log(`🔍 [DEBUG] Patrón de búsqueda 2 (últimos 8 dígitos): "${searchPattern2}"`);
-      }
       
       // Buscar con ambos patrones usando OR
       let query;
@@ -13585,27 +13691,7 @@ async function findReservationsByPhone(phoneNumber) {
         params = [searchPattern1];
       }
       
-      console.log(`🔍 [DEBUG] Ejecutando consulta SQL:`, query);
-      console.log(`🔍 [DEBUG] Parámetros:`, params);
-      
       const [rows] = await connection.execute(query, params);
-      console.log(`📋 [DEBUG] Resultado de la consulta:`, rows);
-      console.log(`📋 [DEBUG] Número de filas encontradas: ${rows.length}`);
-      
-      // Log adicional: buscar TODAS las reservas para este teléfono (sin filtros de fecha)
-      let debugQuery;
-      let debugParams;
-      
-      if (searchPattern2) {
-        debugQuery = `SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon FROM RESERVA WHERE telefon LIKE ? OR telefon LIKE ?`;
-        debugParams = [searchPattern1, searchPattern2];
-      } else {
-        debugQuery = `SELECT id_reserva, data_reserva, num_persones, nom_persona_reserva, observacions, telefon FROM RESERVA WHERE telefon LIKE ?`;
-        debugParams = [searchPattern1];
-      }
-      
-      const [debugRows] = await connection.execute(debugQuery, debugParams);
-      console.log(`🔍 [DEBUG] TODAS las reservas (incluyendo pasadas):`, debugRows);
       
       return rows;
     } finally {
@@ -13692,7 +13778,6 @@ function formatReservationForDisplay(reservation, index, language = 'es', reserv
 
 // Detectar si el usuario quiere modificar una reserva existente
 function isModificationRequest(text) {
-  console.log(`🔍 [DEBUG] isModificationRequest - Analizando: "${text}"`);
   const modificationPatterns = [
     // Español - Patrones mejorados y más específicos
     /modificar.*reserva|editar.*reserva|cambiar.*reserva|actualizar.*reserva/i,
@@ -13737,17 +13822,14 @@ function isModificationRequest(text) {
   const result = modificationPatterns.some(pattern => {
     const match = pattern.test(text);
     if (match) {
-      console.log(`✅ [DEBUG] isModificationRequest - Patrón coincidió: ${pattern}`);
     }
     return match;
   });
-  console.log(`🔍 [DEBUG] isModificationRequest result para "${text}": ${result}`);
   return result;
 }
 
 // Extraer número de opción del texto (mejorado)
 function extractOptionFromText(text) {
-  console.log(`🔢 [DEBUG] Extrayendo opción del texto: "${text}"`);
   
   const lowerText = text.toLowerCase().trim();
   
@@ -13897,24 +13979,20 @@ function extractOptionFromText(text) {
       }
       
       if (optionNumber && optionNumber > 0) {
-        console.log(`🔢 [DEBUG] Opción detectada: "${text}" -> ${optionNumber}`);
         return optionNumber;
       }
     }
   }
   
-  console.log(`🔢 [DEBUG] No se pudo detectar opción en: "${text}"`);
   return null;
 }
 
 // Extraer número de teléfono del texto
 function extractPhoneFromText(text) {
-  console.log(`📞 [DEBUG] Extrayendo teléfono del texto: "${text}"`);
   
   // Primero, intentar extraer cualquier secuencia de dígitos (mínimo 7 dígitos para ser un teléfono válido)
   // Esto captura números simples como "63254378", "632543787", etc.
   const allDigits = text.replace(/\D/g, ''); // Extraer solo dígitos
-  console.log(`📞 [DEBUG] Dígitos extraídos del texto: "${allDigits}"`);
   
   // Si hay 7 o más dígitos consecutivos, usarlos como teléfono
   if (allDigits.length >= 7 && allDigits.length <= 15) {
@@ -13923,14 +14001,11 @@ function extractPhoneFromText(text) {
     // Si empieza por 34 y no tiene +, agregarlo (números españoles)
     if (phoneNumber.startsWith('34') && phoneNumber.length >= 9) {
       phoneNumber = '+' + phoneNumber;
-      console.log(`📞 [DEBUG] Agregando prefijo +34: "${phoneNumber}"`);
     } else if (phoneNumber.length === 9 && !phoneNumber.startsWith('+')) {
       // Número español de 9 dígitos sin prefijo, agregar +34
       phoneNumber = '+34' + phoneNumber;
-      console.log(`📞 [DEBUG] Agregando prefijo +34 a número de 9 dígitos: "${phoneNumber}"`);
     }
     
-    console.log(`📞 [DEBUG] Teléfono final extraído (método dígitos): "${phoneNumber}"`);
     return phoneNumber;
   }
   
@@ -13946,16 +14021,13 @@ function extractPhoneFromText(text) {
   const matches = [];
   phonePatterns.forEach((pattern, index) => {
     const found = text.match(pattern);
-    console.log(`📞 [DEBUG] Patrón ${index + 1} (${pattern}):`, found);
     if (found) {
       // Limpiar el número pero mantener el + si existe
       const cleanedMatches = found.map(match => {
         const cleaned = match.replace(/[\s\-]/g, '');
-        console.log(`📞 [DEBUG] Match original: "${match}" -> Limpiado: "${cleaned}"`);
         // Si no tiene + y empieza por 34, agregarlo
         if (!cleaned.startsWith('+') && cleaned.startsWith('34') && cleaned.length >= 9) {
           const withPlus = '+' + cleaned;
-          console.log(`📞 [DEBUG] Agregando +34: "${cleaned}" -> "${withPlus}"`);
           return withPlus;
         }
         return cleaned;
@@ -13964,9 +14036,7 @@ function extractPhoneFromText(text) {
     }
   });
   
-  console.log(`📞 [DEBUG] Todos los matches encontrados:`, matches);
   const result = matches.length > 0 ? matches[0] : null;
-  console.log(`📞 [DEBUG] Teléfono final extraído: "${result}"`);
   
   // Devolver el primer número encontrado
   return result;

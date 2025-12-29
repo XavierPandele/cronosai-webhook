@@ -16,6 +16,7 @@
     "@google-cloud/vertexai": "^1.10.0",
     "@google/generative-ai": "^0.24.1",
     "@sendgrid/mail": "^8.1.0",
+    "@upstash/redis": "^1.36.0",
     "dotenv": "^17.2.3",
     "form-data": "^4.0.0",
     "google-auth-library": "^9.0.0",
