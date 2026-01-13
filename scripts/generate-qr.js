@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const url = 'https://cronosai-webhook.vercel.app/LandingPage/index.html';
-const outputPath = path.join(__dirname, 'LandingPage', 'qrcode.png');
+const outputPath = path.join(__dirname, '..', 'LandingPage', 'qrcode.png');
 
 // Configuración del QR code
 const options = {
@@ -12,7 +12,7 @@ const options = {
     quality: 0.92,
     margin: 2,
     color: {
-        dark: '#800020', // Color burgundy que coincide con tu diseño
+        dark: '#522627', // Color marrón oscuro que coincide con la paleta del flyer
         light: '#FFFFFF' // Fondo blanco
     },
     width: 512 // Tamaño grande para alta calidad
@@ -28,7 +28,7 @@ QRCode.toFile(outputPath, url, options, (err) => {
     console.log(`✓ Archivo guardado en: ${outputPath}`);
     console.log(`✓ URL codificada: ${url}`);
     console.log(`✓ Tamaño: 512x512 píxeles`);
-    console.log(`✓ Color: Burgundy (#800020) con fondo blanco`);
+    console.log(`✓ Color: Marrón oscuro (#522627) con fondo blanco - Paleta del flyer`);
 });
 
 
